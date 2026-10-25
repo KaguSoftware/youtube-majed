@@ -156,7 +156,11 @@ def _load_body(section_id: str, raw: str, kind: str) -> dict:
 
 
 def parse_research(path: Path) -> Research:
-    text = path.read_text()
+    return parse_research_text(path.read_text())
+
+
+def parse_research_text(text: str) -> Research:
+    """The same parse over text already in memory — an `artifacts` row."""
     meta, body = _split_frontmatter(text)
     claims: dict[str, Claim] = {}
     for cid, _title, raw in _split_sections(body):
@@ -170,7 +174,10 @@ def parse_research(path: Path) -> Research:
 
 
 def parse_script(path: Path) -> Script:
-    text = path.read_text()
+    return parse_script_text(path.read_text())
+
+
+def parse_script_text(text: str) -> Script:
     meta, body = _split_frontmatter(text)
     beats: list[Beat] = []
     for bid, title, raw in _split_sections(body):

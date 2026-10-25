@@ -9,10 +9,22 @@ with a human gate at every point where a mistake would be expensive.
 
 ## Where we are
 
-**Phase 0 (benchmark gate) and Phase 1 (vertical slice) are complete.**
-`python slice.py` turns a hardcoded topic and style into a 61.7s narrated,
-illustrated video with a timeline JSON that fully describes it — 279s cold, 33s
-warm. Phase 2 (timeline, queue, worker) is next.
+**Phases 0–2 are complete.** `python slice.py` turns a hardcoded topic and
+style into a 61.7s narrated, illustrated video with a timeline JSON that fully
+describes it — 279s cold, 17s warm. The same stages run as queued jobs under a
+Postgres-backed worker that can be killed mid-job and resumes without
+regenerating a finished shot (PLAN.md section 10). Phase 3 (web app) is next.
+
+## Running the worker
+
+```bash
+docker compose up -d --wait                                  # local Postgres 17
+uv pip install --python .venv/bin/python "psycopg[binary]==3.3.6"
+.venv/bin/python -m pipeline.queuetest                       # queue + kill/resume checks
+.venv/bin/python -m pipeline.jobs seed --allow-fixture-sources
+.venv/bin/python -m pipeline.jobs enqueue barbarians-01 --allow-fixture-sources
+.venv/bin/python -m pipeline.worker
+```
 
 ## Running the slice
 

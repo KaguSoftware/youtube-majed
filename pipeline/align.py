@@ -138,6 +138,28 @@ class Alignment:
             ],
         }
 
+    @classmethod
+    def from_json(cls, d: dict) -> "Alignment":
+        """Inverse of `to_json`. A resumed job reads its alignment back rather
+        than re-running the aligner, so the shot plan it rebuilds is the one
+        the first attempt planned — not one that differs by a rounding.
+        """
+        return cls(
+            beats=[
+                BeatAlignment(
+                    beat_id=b["beat_id"], start=b["start"], end=b["end"],
+                    words=[WordTiming(**w) for w in b["words"]],
+                    asr_text=b["asr_text"], wer=b["wer"], report=list(b["report"]),
+                )
+                for b in d["beats"]
+            ],
+            model=d["model"],
+            audio_duration=d["audio_duration"],
+            overall_wer=d["overall_wer"],
+            errors=list(d["errors"]),
+            warnings=list(d["warnings"]),
+        )
+
 
 # ------------------------------------------------------------------ text prep
 
@@ -289,6 +311,8 @@ class CtcAligner:
         self._blank = 0
 
     def load(self) -> None:
+        if self._model is not None:
+            return  # warm: a worker keeps one aligner across jobs
         import torch
         from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
 

@@ -40,5 +40,11 @@ slice = [
     "numpy>=2.0",
 ]
 
+# Phase 2 worker and job queue. psycopg 3 with the bundled libpq, so the Mac
+# needs no Postgres client install to reach Neon or the compose.yaml database.
+worker = [
+    "psycopg[binary]==3.3.6",
+]
+
 [tool.uv]
 package = false

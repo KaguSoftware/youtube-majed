@@ -163,6 +163,37 @@ Staging and scripting slots with validators and inline error reporting. Style
 candidate picker. Production progress view over SSE. Demote transitions. Staleness
 banners.
 
+**Carried in from Phase 2.** Three pieces were held back deliberately because
+they only earn their keep once there is a UI and a second machine (10.5):
+
+1. **Blob storage for media.** The worker uploads each finished image, segment,
+   narration wav and film to Blob under its content hash, *then* commits the DB
+   pointer (failure mode 9: upload first, pointer second). The local
+   `work/cache/` becomes a read-through cache in front of Blob: local, then
+   Blob, then generate. Style references (`hero_full`, `hero_crop`) move from
+   repo-relative paths in `styles.preset_json` to Blob URLs, and timeline media
+   paths become Blob URLs. This is what makes resume work *across machines*.
+   Today a different worker reuses finished shots only if it shares the work
+   root, as the `queuetest` takeover check does. A worker on a rented GPU box
+   with its own disk would regenerate everything.
+2. **The HTTP control plane.** Next.js routes for claim, heartbeat,
+   checkpoint, event, complete, fail and release, carrying the same
+   `lease_token` fencing as `store.py`. The worker gets an HTTP client behind
+   the same interface as `Store`; that interface is the seam. Each call is a
+   single short query, well inside Vercel's 60s limit. Decide at the start of
+   the phase whether to switch or stay direct. Direct Postgres to Neon over TLS
+   already satisfies "the worker pulls"; HTTP keeps database credentials off
+   the worker, which matters once it runs on a box you do not own.
+3. **`prompt_log` writes.** The table exists and nothing writes to it yet. Every
+   `claude -p` research or script generation records its prompt, raw response
+   and hash, arriving with the dual-mode slot. Image prompts need no entry: the
+   timeline already records each shot's prompt and seed.
+
+The progress view and the worker-offline banner need no new plumbing. The SSE
+stream reads `job_events` (one row per stage and per shot, marked
+generated/cached), and the banner reads `workers.last_seen_at`. Offline after
+45s: `jobs.OFFLINE_AFTER_SECONDS`.
+
 **Exit:** a non-technical user drives a project from topic to finished video
 without touching a terminal.
 
@@ -861,3 +892,108 @@ mechanism that actually produced the result; human review, which DESIGN.md
 already requires at the style stage; and an automatic *distinctness* check,
 which is mechanically decidable — two views that came back near-identical cost
 reference area and add nothing.
+
+---
+
+## 10. Phase 2 findings — verified on this machine
+
+The exit criterion is met on the real model, not only in a test: a worker was
+SIGKILLed mid-job, restarted, and finished the film without regenerating a
+single completed shot.
+
+### 10.1 The exit criterion, measured
+
+Job 2, `barbarians-01`, the production klein config, an **empty** cache:
+
+| | attempt 1 (killed) | attempt 2 (resumed) |
+|---|---|---|
+| narration, alignment | synthesized, aligned | **cache hits** |
+| S01–S04 | generated: 7 images (3 QA rerolls) | **7 cache hits**, QA recomputed, same verdicts |
+| S05–S10 | — | generated: 7 images (1 reroll) |
+| render | — | 10 segments, film 61.67s, drift +0ms |
+
+Restart to finished film took 192s, and the worker started at once rather than
+waiting out the 90s lease, because a restarted worker reclaims its own orphan
+immediately (10.3). The resumed attempt's QA reproduced the dead attempt's
+reroll decisions exactly, which only works because QA is recomputed from the
+cached bytes rather than trusted from the checkpoint.
+
+`python -m pipeline.queuetest` repeats this weights-free in about ten seconds,
+along with the variant where a *different* worker takes over after the lease
+expires, a graceful SIGTERM, and the queue semantics in 10.2: 52 checks.
+
+### 10.2 Resume needs no resume logic — but it did need atomic writes
+
+Phase 1 predicted resume would come free from content addressing, and the
+mechanism is indeed just "re-run the job; every finished stage is a cache hit".
+The checkpoint written to Postgres is a record for the progress view and the
+audit, never consulted to decide what to skip, so a stale or missing checkpoint
+cannot make the output wrong.
+
+The prediction missed one thing. Every cache treated "file exists and is
+non-empty" as "done", and every writer — mflux's `save`, ffmpeg, the wav writer
+— wrote straight to the final name. A kill mid-write leaves a non-empty
+half-file that the next attempt trusts: a truncated PNG or an mp4 without its
+moov atom, read back as a finished shot. Every write now goes to a `.partial`
+name and is `os.replace`d into place (`config.partial`). The worker sweeps
+leftover partials on start.
+
+### 10.3 Leases are fenced, not just timed
+
+Heartbeat-and-expiry alone cannot distinguish a dead worker from a frozen one.
+A Mac that sleeps through its lease wakes up believing it still owns the job;
+if another worker reclaimed it meanwhile, both would write. Each claim mints a
+`lease_token`, and every worker write — heartbeat, checkpoint, event, outcome —
+is conditioned on it, so the zombie's next write touches zero rows and it
+abandons the job. Conversely a heartbeat does *not* check expiry: a worker that
+slept with nobody waiting simply continues.
+
+The heartbeat runs on its own thread and connection. It was confirmed live
+during generation — "beat 8s ago" while the main thread sat inside an MLX
+forward pass — so a slow image or a model load cannot cost the lease.
+
+Same-host restart is instant because the worker id is `<LocalHostName>:<work
+root>` and the worker holds an exclusive `flock` on that root. Holding the lock
+proves no other live process has this id, so a job still marked running under it
+is an orphan. macOS `gethostname()` returned a DHCP address here, which would
+have changed the id across network changes; `scutil --get LocalHostName` does
+not.
+
+### 10.4 Kokoro is not deterministic — now it is
+
+Two cold syntheses of the same script produced the same length but different
+samples (peak difference 0.30), and word timings up to 20 ms apart. Its vocoder
+draws from torch's global RNG. A resume that re-synthesized would therefore have
+aligned different audio and could have planned different shot boundaries.
+
+Two fixes, both in place. Narration is content-addressed and alignment always
+reads the wav back from disk, even on a cold run, so a resume aligns the
+identical bytes. And `KokoroTTS.say` now seeds torch from `(voice, text)` inside
+`fork_rng`. Two cold syntheses in separate processes are now byte-identical, and
+the narration gate still passes on the seeded audio: overall WER 5.9%, zero
+deletions.
+
+### 10.5 Other decisions
+
+- **Postgres is the queue.** `FOR UPDATE SKIP LOCKED` claim, tested with eight
+  simultaneous claimers and exactly one winner. Jobs are few and long, and the
+  job row is also the progress record, checkpoint and audit trail.
+- **Jobs pin artifact versions.** The payload carries the exact `artifacts` ids.
+  If a newer research or script version is approved before the job starts, it
+  fails at `inputs` rather than narrating a superseded script (DESIGN.md
+  "Staleness").
+- **Gates fail, accidents retry.** A validator, the narration gate or an
+  unrenderable timeline fails the job outright, since a retry repeats it.
+  Anything else requeues with backoff, up to `max_attempts` (3). Losing the
+  worker three times also fails the job, so a prompt that OOMs the machine
+  cannot crash-loop it.
+- **The worker keeps klein warm across jobs** (`unload_images=False`). The
+  per-job reload is small (0.7s from page cache) but it is the cost PLAN.md
+  section 4 is about.
+- **Fake engines partition the queue.** `worker --fake` only claims jobs
+  enqueued with `--fake`, and the image hash now includes the generator's name.
+  A smoke test can therefore never take a real job or poison klein's cache.
+- **Not yet:** Blob storage (media stays in the local content-addressed cache),
+  the HTTP control plane (the worker talks to Postgres directly over TLS, which
+  still satisfies "the worker pulls"), and prompt logging. All three are now in
+  Phase 3's scope (section 3), with what each involves.

@@ -22,6 +22,7 @@ has to own it explicitly rather than discovering it as a gap.
 
 from __future__ import annotations
 
+import os
 import wave
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -120,6 +121,8 @@ class KokoroTTS(TTS):
         return True, "ok"
 
     def load(self) -> None:
+        if self._pipeline is not None:
+            return  # warm: a worker keeps one voice across jobs
         ok, msg = self.preflight()
         if not ok:
             raise RuntimeError(msg)
@@ -144,10 +147,27 @@ class KokoroTTS(TTS):
         self._pipeline = KPipeline(lang_code="a", repo_id=self.repo_id)
 
     def say(self, text: str, voice: str) -> np.ndarray:
+        """Deterministic: the same text and voice give the same samples.
+
+        Kokoro's vocoder draws from torch's global RNG, so unseeded it is not —
+        two cold syntheses of this script measured a peak sample difference of
+        0.30 and word timings up to 20 ms apart. Seeding from the text makes
+        narration a pure function of the script, which is what lets a pruned
+        cache be rebuilt into the same film. `fork_rng` keeps the seed from
+        leaking into anything else in a long-lived worker.
+        """
         if self._pipeline is None:
             raise RuntimeError("say() before load()")
+        import hashlib
+
+        import torch
+
+        seed = int.from_bytes(hashlib.sha256(f"{voice}\0{text}".encode()).digest()[:8], "little")
         chunks: list[np.ndarray] = []
-        for result in self._pipeline(text, voice=voice, speed=1.0):
+        with torch.random.fork_rng(devices=[]):
+            torch.manual_seed(seed)
+            results = list(self._pipeline(text, voice=voice, speed=1.0))
+        for result in results:
             if result.audio is None:
                 raise RuntimeError(
                     f"kokoro returned no audio for chunk {result.graphemes[:60]!r}"
@@ -164,11 +184,13 @@ def _write_wav(path: Path, samples: np.ndarray, sample_rate: int) -> None:
     clipped = np.clip(samples, -1.0, 1.0)
     pcm = (clipped * 32767.0).astype("<i2")
     path.parent.mkdir(parents=True, exist_ok=True)
-    with wave.open(str(path), "wb") as w:
+    tmp = config.partial(path)
+    with wave.open(str(tmp), "wb") as w:
         w.setnchannels(1)
         w.setsampwidth(2)
         w.setframerate(sample_rate)
         w.writeframes(pcm.tobytes())
+    os.replace(tmp, path)
 
 
 def synthesize(

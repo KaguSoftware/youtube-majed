@@ -37,6 +37,7 @@ and `-shortest` resolves it silently in whichever direction happens to apply.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -150,10 +151,11 @@ def render_segments(timeline: Timeline, paths, *, log=print) -> list[Path]:
                     "-vf", _kenburns(shot, timeline.render),
                     "-frames:v", str(max(1, int(round(shot.rendered_duration * timeline.render["fps"])))),
                     "-c:v", "libx264", "-preset", "medium", "-crf", "17",
-                    "-pix_fmt", "yuv420p", "-an", str(dest),
+                    "-pix_fmt", "yuv420p", "-an", str(config.partial(dest)),
                 ],
                 f"segment {shot.shot_id}",
             )
+            os.replace(config.partial(dest), dest)
             made += 1
             tag = f"rendered {probe_duration(dest):.2f}s"
         else:
@@ -224,9 +226,10 @@ def stitch(timeline: Timeline, segments: list[Path], audio: Path, dest: Path, *,
          "-map", "[vout]", "-map", "[aout]",
          "-c:v", "libx264", "-preset", "medium", "-crf", "18",
          "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k",
-         "-movflags", "+faststart", str(dest)],
+         "-movflags", "+faststart", str(config.partial(dest))],
         "stitch",
     )
+    os.replace(config.partial(dest), dest)
 
     actual = probe_duration(dest)
     drift = actual - duration

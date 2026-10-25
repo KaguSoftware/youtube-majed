@@ -259,20 +259,28 @@ def image_hash(
     )
 
 
-def upstream_hashes(script_path: Path, research_path: Path, style) -> dict:
+def text_sha(text: str) -> str:
+    """`file_sha` over text in memory; equal to it for the same UTF-8 bytes."""
+    return hashlib.sha256(text.encode()).hexdigest()[:16]
+
+
+def upstream_hashes(script_raw: str, research_raw: str, style) -> dict:
     """The staleness keys from DESIGN.md.
 
     `timeline <- hash(script.md, style)` is the one that matters here: when the
     script or the style changes, this timeline is stale and must not be reused
-    silently.
+    silently. Taken over the documents' text rather than their files, because
+    from Phase 2 they arrive as `artifacts` rows; for an LF-terminated file the
+    hash is the same either way.
     """
     style_sha = sha(
         style.style_id, style.preset, style.prompt_prefix, style.seed,
         file_sha(style.hero_crop),
     )
+    script_sha = text_sha(script_raw)
     return {
-        "research_sha": file_sha(research_path),
-        "script_sha": file_sha(script_path),
+        "research_sha": text_sha(research_raw),
+        "script_sha": script_sha,
         "style_sha": style_sha,
-        "timeline_sha": sha(file_sha(script_path), style_sha),
+        "timeline_sha": sha(script_sha, style_sha),
     }

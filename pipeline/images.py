@@ -24,6 +24,7 @@ init image (PLAN.md section 5, 8.11).
 
 from __future__ import annotations
 
+import os
 import statistics
 import time
 from dataclasses import dataclass
@@ -82,7 +83,13 @@ class KleinGenerator:
             return False, f"mflux/mlx not importable: {exc}"
         return True, "ok"
 
+    @property
+    def loaded(self) -> bool:
+        return self._model is not None
+
     def load(self, log=print) -> None:
+        if self._model is not None:
+            return
         ok, msg = self.preflight()
         if not ok:
             raise RuntimeError(msg)
@@ -120,9 +127,11 @@ class KleinGenerator:
             image_paths=[str(r) for r in refs],
         )
         dest.parent.mkdir(parents=True, exist_ok=True)
-        image.save(path=dest, overwrite=True)  # overwrite defaults to False
-        if not dest.exists() or dest.stat().st_size == 0:
-            raise RuntimeError(f"generate_image returned but wrote nothing to {dest}")
+        tmp = config.partial(dest)
+        image.save(path=tmp, overwrite=True)  # overwrite defaults to False
+        if not tmp.exists() or tmp.stat().st_size == 0:
+            raise RuntimeError(f"generate_image returned but wrote nothing to {tmp}")
+        os.replace(tmp, dest)
         return time.time() - t
 
     def unload(self) -> None:
@@ -142,6 +151,8 @@ def generate_shots(
     *,
     generator: KleinGenerator | None = None,
     max_attempts: int = MAX_ATTEMPTS,
+    on_shot=None,
+    unload: bool = True,
     log=print,
 ) -> GenStats:
     """Fill every shot's `image`, generating only what the cache lacks.
@@ -149,6 +160,16 @@ def generate_shots(
     QA runs against the hero reference and against every shot already accepted
     in this run, so a near-duplicate is caught while there is still a cheap
     reroll available rather than after the render.
+
+    Resuming is a re-run. A finished shot is a cache hit, and QA is recomputed
+    from the cached bytes rather than trusted from a checkpoint, so the reroll
+    decisions — and therefore which seed each shot ends up on — come out the
+    same as the first attempt's. `on_shot(shot, stats)` runs after each shot is
+    settled; the worker uses it to checkpoint, and it may raise to stop.
+
+    `unload=False` leaves the model warm for the next job. A worker that
+    reloaded klein per job would be paying the cost PLAN.md section 4 exists
+    to avoid, just once per video instead of once per image.
     """
     refs = [style.hero_crop]
     stats = GenStats()
@@ -164,18 +185,20 @@ def generate_shots(
             # The seed only moves on a reroll, so an accepted first attempt is
             # keyed by the style seed exactly as the style record promises.
             seed = shot.seed if attempt == 1 else shot.seed + 10_000 * (attempt - 1) + shot.index
-            h = image_hash(shot.prompt, seed, refs)
+            # The generator's name is part of the address, so a fake or a
+            # different model can never satisfy a lookup for klein's output.
+            h = image_hash(shot.prompt, seed, refs, model=generator.model_name)
             dest = paths.images / f"{h}.png"
 
             if dest.exists() and dest.stat().st_size > 0:
                 elapsed, source = 0.0, "cached"
                 stats.cached += 1
             else:
-                if not loaded:
+                if not generator.loaded:
                     log(f"  loading image model (one warm process for all "
                         f"{len(shots)} shots)")
                     generator.load(log=log)
-                    loaded = True
+                loaded = True
                 elapsed = generator.generate(shot.prompt, seed, refs, dest)
                 stats.generated += 1
                 stats.times.append(elapsed)
@@ -225,8 +248,10 @@ def generate_shots(
             previous = (shot.shot_id, int(record.qa["phash"], 16))
 
         shot.image = record
+        if on_shot is not None:
+            on_shot(shot, stats)
 
-    if loaded:
+    if loaded and unload:
         generator.unload()
     return stats
 

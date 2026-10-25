@@ -38,7 +38,11 @@ the dirty shots.
 
 ## 2. Status
 
-**Phase 0 (benchmark gate) and Phase 1 (vertical slice) are both complete.**
+**Phases 0, 1 and 2 are complete.** Phase 3 (web app) is next. Its scope in
+PLAN.md section 3 now includes three items carried in from Phase 2: Blob
+storage, the HTTP control plane, and `prompt_log` writes. Blob is the one with
+teeth: until it lands, a worker on a different machine cannot reuse another
+worker's finished shots.
 
 Phase 1's exit criterion is met: `python slice.py` produces a 61.7s narrated,
 illustrated video on this Mac from a hardcoded topic and style, plus a timeline
@@ -46,13 +50,20 @@ JSON that fully describes it. Cold run 279s; warm cache 33s.
 
 Sync was *verified*, not asserted — three independent ways, see PLAN.md 9.2.
 
-**Phase 2 — timeline, queue, worker — is next.** Note that two of its pieces
-already exist in substance: artifacts are content-addressed, and a re-run
-regenerates only what genuinely changed (measured: 33s against 279s). What
-Phase 2 adds is Postgres, job claim with lease and heartbeat, and the worker
-loop. Its exit criterion — kill the worker mid-job, restart, resume without
-redoing finished shots — is a property of the addressing scheme that is already
-in place.
+**Phase 2 — Postgres queue and worker — is done, and its exit criterion was
+met on the real model.** A worker was SIGKILLed after shot 4 of a cold job,
+restarted, and finished the film. All 7 images made before the kill came back as
+cache hits; only S05–S10 were generated; drift was +0ms (PLAN.md 10.1). Three
+findings matter going forward:
+
+- **Resume is "re-run the job"**, with every stage content-addressed. The
+  Postgres checkpoint is a record and is never consulted to skip work. What it
+  did need was **atomic writes**: a kill mid-write used to leave a half-file the
+  cache trusted (10.2).
+- **Every worker write is fenced by a per-claim `lease_token`**, so a Mac that
+  wakes from sleep after its job was reclaimed cannot write over the new owner
+  (10.3).
+- **Kokoro was not deterministic**; it is now seeded per beat (10.4).
 
 ```
 pipeline/
@@ -67,8 +78,19 @@ pipeline/
   assemble.py   ffmpeg Ken Burns segments -> cross-dissolved film
   run.py        the CLI; stage order is cheap-stages-first by design
   selftest.py   weights-free checks, incl. the sync arithmetic against ffmpeg
+  gatecheck.py  negative control: splices words out and proves the gate fires
+  sheet.py      character-sheet generation, anchored to one reference crop
+  production.py the production stage as one resumable function (slice + worker)
+  store.py      Postgres: claim / lease / heartbeat / fenced writes, artifacts
+  worker.py     the polling worker: host lock, heartbeat thread, signals
+  jobs.py       operator CLI: migrate, seed, enqueue, status, cancel, retry
+  fakes.py      weights-free TTS / aligner / generator for testing the machinery
+  queuetest.py  52 queue + kill/resume checks against a throwaway database
+  migrations/   SQL, applied in order by `Store.migrate()`
   fixtures/     the hardcoded Phase 1 script and research documents
-slice.py        entry point
+slice.py        entry point (no DB; same stages as the worker)
+compose.yaml    local Postgres 17 on 127.0.0.1:54329
+deploy/         launchd agent for the worker (KeepAlive, graceful exit)
 ```
 
 Run `python -m pipeline.selftest` first — 51 checks, no weights, a few seconds.
@@ -286,6 +308,15 @@ shape than planned. Details in PLAN.md 9.4 and 9.6.
 ## 11. Running things
 
 ```bash
+# Phase 2: the queue and the worker
+docker compose up -d --wait                       # Postgres
+.venv/bin/python -m pipeline.queuetest            # 52 checks incl. SIGKILL/resume, ~15s
+.venv/bin/python -m pipeline.jobs seed --allow-fixture-sources
+.venv/bin/python -m pipeline.jobs enqueue barbarians-01 --allow-fixture-sources
+.venv/bin/python -m pipeline.worker               # polls forever; Ctrl-C releases cleanly
+.venv/bin/python -m pipeline.jobs status [JOB]    # per-shot generated/cached log
+.venv/bin/python -m pipeline.jobs workers         # online/offline from heartbeat age
+
 # the Phase 1 slice: topic -> out.mp4 + timeline.json
 .venv/bin/python slice.py --allow-fixture-sources
 
@@ -298,7 +329,9 @@ shape than planned. Details in PLAN.md 9.4 and 9.6.
 ```
 
 Output lands in `work/<project>/` (`out.mp4`, `timeline.json`, `narration.wav`,
-`alignment.json`) with content-addressed images and segments in `work/cache/`.
+`alignment.json`) with content-addressed audio, alignments, images and segments
+in `work/cache/`. `DATABASE_URL` points the worker and CLI at a database
+(default: the compose one); moving to Neon is that variable and nothing else.
 Deleting `work/<project>/` re-renders; deleting `work/cache/` regenerates.
 
 `--allow-fixture-sources` is required because the Phase 1 research fixture is

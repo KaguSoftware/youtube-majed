@@ -10,10 +10,10 @@ second; one that fails after image generation costs the whole run.
 
     validate -> tts -> align (+ WER gate) -> plan -> timeline -> images -> render
 
-No database, no queue, no UI, no network beyond model weights. Phase 2 keeps
-every module here and replaces only this file's orchestration with a job claim
-and a heartbeat — which is why the stages take explicit artifacts and return
-explicit artifacts rather than sharing mutable state.
+No database, no queue, no UI, no network beyond model weights. The stages
+themselves live in `production.py`, shared with the Phase 2 worker, so the
+slice and a queued job run identical code; this file is only the CLI around
+them.
 """
 
 from __future__ import annotations
@@ -23,10 +23,20 @@ import sys
 import time
 from pathlib import Path
 
-from . import align, assemble, config, docs, images, shots as shots_mod, tts
-from .timeline import Timeline, upstream_hashes
+from . import config, docs, images, production
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
+
+
+#: What to tell a CLI user when a gate stops the run.
+GATE_HINTS = {
+    "validate": "Fix the artifact, or pass --force to promote anyway (DESIGN.md allows "
+                "the override, but it should take a click).",
+    "narration": "Narration does not match the script. This is failure mode 1 and it "
+                 "fails the job by design — every timestamp downstream would be wrong. "
+                 "Pass --force only if you have listened to the audio.",
+    "plan": "The timeline is not renderable; see the errors above.",
+}
 
 
 class Stage:
@@ -78,154 +88,51 @@ def main(argv: list[str] | None = None) -> int:
 
     stage = Stage()
 
-    # ---------------------------------------------------------- validate
-    stage("validate")
-    research = docs.parse_research(args.research)
-    script = docs.parse_script(args.script)
-    print(f"  {args.research.name}: {len(research.claims)} claims")
-    print(f"  {args.script.name}: {len(script.beats)} beats, "
-          f"{len(script.narration.split())} words, target {script.target_duration:.0f}s")
-
-    reports = {
-        "research.md": docs.validate_research(
-            research, allow_fixture_sources=args.allow_fixture_sources
-        ),
-        "script.md": docs.validate_script(script, research),
-    }
-    failed = False
-    for name, report in reports.items():
-        print(f"  {name}:")
-        print(report.render())
-        failed = failed or not report.ok
-    if failed:
-        if not args.force:
-            print("\nvalidation failed. Fix the artifact, or pass --force to promote "
-                  "anyway (DESIGN.md allows the override, but it should take a click).",
-                  file=sys.stderr)
-            return 1
-        print("\n  --force: promoting past the errors above")
-
-    style = config.PHASE1_STYLE
-    for ref in (style.hero_full, style.hero_crop):
-        if not ref.exists():
-            print(f"missing style reference {ref}", file=sys.stderr)
-            return 1
-    print(f"  style {style.style_id} ({style.preset}), seed {style.seed}, "
-          f"reference {style.hero_crop.name}")
-
-    paths = config.Paths(root=args.out, project=script.meta.get("project", "slice"))
-
-    if args.dry_run:
-        print(f"\n  dry run: {images.eta(args.shots)}")
-        stage.done()
-        return 0
-
-    # --------------------------------------------------------------- tts
-    stage("narrate (kokoro-82m)")
-    narration = tts.synthesize(
-        script.beats, paths.audio, voice_id=script.meta.get("voice", "narrator_male_low")
+    inputs = production.Inputs(
+        project="",
+        topic=args.topic or "",
+        research=docs.parse_research(args.research),
+        script=docs.parse_script(args.script),
+        style=config.PHASE1_STYLE,
+        target_shots=args.shots,
+        allow_fixture_sources=args.allow_fixture_sources,
+        force=args.force,
+        max_wer=args.max_wer,
     )
+    inputs.project = inputs.script.meta.get("project", "slice")
+    inputs.topic = inputs.topic or inputs.research.meta.get("topic", "")
+    paths = config.Paths(root=args.out, project=inputs.project)
 
-    # ------------------------------------------------------------- align
-    stage(f"align + ASR gate ({config.ALIGN_MODEL})")
-    alignment = align.align_narration(narration, max_wer=args.max_wer)
-    align.write_alignment(alignment, paths.alignment)
-    print(f"  overall WER {alignment.overall_wer:.1%} "
-          f"(gate {args.max_wer:.0%}), {len(alignment.words)} words timed")
-    if alignment.errors:
-        for e in alignment.errors:
-            print(f"  ERROR  {e}")
-        if not args.force:
-            # Failure mode 1 is non-negotiable in PLAN.md section 5: audio that
-            # does not match the script makes every downstream timestamp wrong
-            # while the video still looks fine.
-            print("\nnarration does not match the script. This is failure mode 1 and "
-                  "it fails the job by design — every timestamp downstream would be "
-                  "wrong. Pass --force only if you have listened to the audio.",
-                  file=sys.stderr)
-            return 1
-        print("  --force: continuing despite the narration gate")
+    try:
+        if args.dry_run:
+            stage("validate")
+            production.validate(inputs)
+            print(f"\n  dry run: {images.eta(args.shots)}")
+            stage.done()
+            return 0
 
-    # -------------------------------------------------------------- plan
-    stage("plan shots")
-    shot_list = shots_mod.plan(
-        script.beats, alignment, style,
-        target_shots=args.shots, audio_duration=narration.duration,
-    )
-
-    timeline = Timeline(
-        project=paths.project,
-        topic=args.topic or research.meta.get("topic", ""),
-        target_duration=script.target_duration,
-        duration=narration.duration,
-        audio={
-            "path": paths.audio.name,
-            "sample_rate": narration.sample_rate,
-            "duration": round(narration.duration, 4),
-            "voice": narration.voice,
-            "engine": tts.KokoroTTS.name,
-            "overall_wer": round(alignment.overall_wer, 4),
-        },
-        style={
-            "style_id": style.style_id,
-            "preset": style.preset,
-            "prompt_prefix": style.prompt_prefix,
-            "seed": style.seed,
-            "hero_full": str(style.hero_full.name),
-            "hero_crop": str(style.hero_crop.name),
-            "crop_box": list(style.crop_box),
-        },
-        render={
-            "width": config.OUT_WIDTH, "height": config.OUT_HEIGHT,
-            "fps": config.FPS, "xfade": config.XFADE_SECONDS,
-        },
-        models={
-            "image": {
-                "name": config.IMAGE_MODEL, "base": config.IMAGE_BASE_MODEL,
-                "steps": config.GEN_STEPS, "guidance": config.GEN_GUIDANCE,
-                "width": config.GEN_WIDTH, "height": config.GEN_HEIGHT,
-                "licence": "apache-2.0",
-            },
-            "tts": {"name": "hexgrad/Kokoro-82M", "licence": "apache-2.0"},
-            "align": {"name": config.ALIGN_MODEL, "licence": "apache-2.0"},
-        },
-        upstream=upstream_hashes(args.script, args.research, style),
-        shots=shot_list,
-    )
-
-    timeline.write(paths.timeline)          # write() re-validates as it serializes
-    errors = timeline.validation["errors"]
-    for w in timeline.validation["warnings"]:
-        print(f"  warn   {w}")
-    for e in errors:
-        print(f"  ERROR  {e}")
-    print(f"  wrote {paths.timeline}")
-    if errors:
-        print("\ntimeline is not renderable; see the errors above.", file=sys.stderr)
+        result = production.run(
+            inputs, paths, engines=production.Engines(),
+            stop_after="plan" if args.skip_render else None, stage_log=stage,
+        )
+    except production.Gate as gate:
+        print(f"\n{gate.stage} failed:", file=sys.stderr)
+        for e in gate.errors:
+            print(f"  {e}", file=sys.stderr)
+        print(GATE_HINTS.get(gate.stage, ""), file=sys.stderr)
         return 1
 
+    timeline = result.timeline
     if args.skip_render:
-        print(f"\n  --skip-render: stopping before image generation ({images.eta(len(shot_list))})")
+        print(f"\n  --skip-render: stopping before image generation "
+              f"({images.eta(len(timeline.shots))})")
         stage.done()
         return 0
 
-    # ------------------------------------------------------------ images
-    stage(f"generate images ({images.eta(len(shot_list))})")
-    stats = images.generate_shots(shot_list, style, paths)
-    print(f"  {stats.summary()}")
-    timeline.write(paths.timeline)
-    if stats.flagged:
-        print(f"  warn   QA flagged {stats.flagged} after {images.MAX_ATTEMPTS} attempts")
-
-    # ------------------------------------------------------------ render
-    stage("render")
-    video = assemble.build(timeline, paths)
-    timeline.write(paths.timeline)
-
     stage.done()
-    print(f"\nvideo    {video}")
+    print(f"\nvideo    {result.video}")
     print(f"timeline {paths.timeline}")
     print(f"audio    {paths.audio}")
-    if stats.flagged:
-        print(f"\nQA flagged {stats.flagged} — look at those frames before trusting the run.")
+    if result.stats and result.stats.flagged:
+        print(f"\nQA flagged {result.stats.flagged} — look at those frames before trusting the run.")
     return 0

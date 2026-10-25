@@ -140,6 +140,27 @@ class Style:
     hero_crop: Path
     crop_box: tuple[float, float, float, float]
 
+    def to_record(self) -> dict:
+        """The `styles.preset_json` form. Reference paths are repo-relative so
+        a record means the same thing on any checkout of this repo; Phase 3
+        replaces them with Blob URLs."""
+        def rel(p: Path) -> str:
+            return str(p.relative_to(REPO)) if p.is_relative_to(REPO) else str(p)
+
+        return {
+            "preset": self.preset, "prompt_prefix": self.prompt_prefix, "seed": self.seed,
+            "hero_full": rel(self.hero_full), "hero_crop": rel(self.hero_crop),
+            "crop_box": list(self.crop_box),
+        }
+
+    @classmethod
+    def from_record(cls, style_id: str, d: dict) -> "Style":
+        return cls(
+            style_id=style_id, preset=d["preset"], prompt_prefix=d["prompt_prefix"],
+            seed=int(d["seed"]), hero_full=REPO / d["hero_full"], hero_crop=REPO / d["hero_crop"],
+            crop_box=tuple(d["crop_box"]),
+        )
+
     def prompt_for(self, visual: str, mood: str, framing: str | None = None) -> str:
         parts = [self.prompt_prefix.rstrip(", "), visual.strip()]
         if framing:
@@ -164,6 +185,20 @@ PHASE1_STYLE = Style(
     hero_crop=REPO / "bench" / "refs" / "hero_crop.png",
     crop_box=(0.22, 0.0, 0.70, 1.0),
 )
+
+
+def partial(dest: Path) -> Path:
+    """Where to write `dest` before it is complete.
+
+    Every cache here treats "the file exists and is non-empty" as "this work is
+    done", which is what makes a killed run resume for free. It also means a
+    process killed *mid-write* would leave a non-empty half-file that the next
+    run trusts — a truncated PNG or an mp4 without its index, read back as a
+    finished shot. So nothing is written to its final name directly: it is
+    written here and `os.replace`d into place, which is atomic on one volume.
+    The suffix is kept because ffmpeg and PIL pick the format from it.
+    """
+    return dest.with_name(f".{dest.stem}.partial{dest.suffix}")
 
 
 @dataclass
