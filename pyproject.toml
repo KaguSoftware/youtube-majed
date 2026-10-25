@@ -12,5 +12,33 @@ bench = []
 mlx = ["mlx>=0.32.0", "mlx-lm", "pillow", "numpy"]
 comfy = ["requests", "pillow"]
 
+# Phase 1 vertical slice. Pins here are not housekeeping — each one is a
+# failure already paid for (failure mode 10), so they carry their reason.
+slice = [
+    "mflux==0.23.0",
+    "mlx>=0.32.0",
+
+    # pillow 13.0.0 ships a `_typing` module that imports a private name from
+    # `numbers` and crashes on Python 3.12 (PLAN.md 8.6).
+    "pillow==12.3.0",
+
+    "kokoro==0.9.4",
+    "soundfile",
+
+    # preshed 3.0.14 breaks spaCy model loading outright:
+    # "OverflowError: Python int too large to convert to C ssize_t" while
+    # iterating tokenizer special-case keys. Kokoro's English G2P needs the
+    # spaCy POS tagger, so this takes TTS down with it (PLAN.md 8.12).
+    "preshed==3.0.9",
+
+    # Forced alignment and the ASR cross-check. torchaudio is deliberately
+    # absent: it is frozen at 2.11 against torch 2.14 here, and its compiled
+    # forced_align op is a version-coupling risk for one function. The Viterbi
+    # pass lives in pipeline/align.py instead.
+    "torch>=2.4",
+    "transformers>=4.40",
+    "numpy>=2.0",
+]
+
 [tool.uv]
 package = false

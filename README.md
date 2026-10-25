@@ -9,9 +9,39 @@ with a human gate at every point where a mistake would be expensive.
 
 ## Where we are
 
-**Phase 0 — benchmark gate.** Nothing else gets built until we know what this
-machine can actually do. No trustworthy M3-class numbers exist for FLUX.2 klein,
-so we measure instead of guessing.
+**Phase 0 (benchmark gate) and Phase 1 (vertical slice) are complete.**
+`python slice.py` turns a hardcoded topic and style into a 61.7s narrated,
+illustrated video with a timeline JSON that fully describes it — 279s cold, 33s
+warm. Phase 2 (timeline, queue, worker) is next.
+
+## Running the slice
+
+```bash
+# weights-free checks first: 51 of them, including the ffmpeg sync arithmetic
+.venv/bin/python -m pipeline.selftest
+
+# the slice: topic -> work/barbarians-01/out.mp4 + timeline.json
+.venv/bin/python slice.py --allow-fixture-sources
+
+# inspect the plan without spending the GPU budget
+.venv/bin/python slice.py --allow-fixture-sources --dry-run
+```
+
+Stage order is the point, and it is cheap-stages-first:
+
+```
+validate -> narrate -> align (+ gates) -> plan shots -> timeline -> images -> render
+```
+
+Audio is generated **before** images, and shot boundaries come from real
+word-level timestamps, so sync is structural rather than something fixed
+afterwards. The video is not the artifact — `timeline.json` is, and every
+renderer is a pure function of it.
+
+`--allow-fixture-sources` is required because Phase 1 runs from a hand-written
+research fixture whose claims carry a `FIXTURE` source sentinel. The validator
+rejects it by default so hand-written claims cannot be mistaken for researched
+output.
 
 ## Running the benchmark
 

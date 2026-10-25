@@ -25,6 +25,13 @@ media/
 *.png
 !bench/prompts/*.png
 
+# The style references are source inputs, not generated media: hero_crop.png is
+# what every shot conditions on, so a clone without it cannot run the slice.
+!bench/refs/*.png
+
 .env
 .env.local
 .DS_Store
+
+# phase 1 slice output — media and cache, never committed
+work/

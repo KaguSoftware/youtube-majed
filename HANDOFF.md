@@ -38,15 +38,40 @@ the dirty shots.
 
 ## 2. Status
 
-**Phase 0 (benchmark gate) is complete.** Every unknown that could have forced a
-redesign is resolved. Nothing of the product itself is built yet.
+**Phase 0 (benchmark gate) and Phase 1 (vertical slice) are both complete.**
 
-**Phase 1 — the vertical slice — is next:** one CLI script, hardcoded topic and
-style, 10 shots, 60 seconds, no DB, no UI, `out.mp4`. Exit criterion: a
-watchable 60-second video with synced audio, plus a timeline JSON that fully
-describes it.
+Phase 1's exit criterion is met: `python slice.py` produces a 61.7s narrated,
+illustrated video on this Mac from a hardcoded topic and style, plus a timeline
+JSON that fully describes it. Cold run 279s; warm cache 33s.
 
-What exists today is the benchmark harness that produced the numbers below.
+Sync was *verified*, not asserted — three independent ways, see PLAN.md 9.2.
+
+**Phase 2 — timeline, queue, worker — is next.** Note that two of its pieces
+already exist in substance: artifacts are content-addressed, and a re-run
+regenerates only what genuinely changed (measured: 33s against 279s). What
+Phase 2 adds is Postgres, job claim with lease and heartbeat, and the worker
+loop. Its exit criterion — kill the worker mid-job, restart, resume without
+redoing finished shots — is a property of the addressing scheme that is already
+in place.
+
+```
+pipeline/
+  config.py     locked production config, every value cited to a measurement
+  docs.py       research.md + script.md parsing and the grounding validators
+  tts.py        Kokoro behind a swappable TTS interface; synthesis is per beat
+  align.py      CTC forced alignment in numpy + the ASR gate (one forward pass)
+  shots.py      beats + measured word timings -> shots
+  timeline.py   the artifact: schema, content addressing, contiguity validators
+  images.py     warm Flux2KleinEdit, content-addressed, QA-driven rerolls
+  qa.py         blur/artefact checks + near-duplicate detection
+  assemble.py   ffmpeg Ken Burns segments -> cross-dissolved film
+  run.py        the CLI; stage order is cheap-stages-first by design
+  selftest.py   weights-free checks, incl. the sync arithmetic against ffmpeg
+  fixtures/     the hardcoded Phase 1 script and research documents
+slice.py        entry point
+```
+
+Run `python -m pipeline.selftest` first — 51 checks, no weights, a few seconds.
 
 ---
 
@@ -208,23 +233,60 @@ same licence. This removes the need for a separate Phase 4 edit model.
 
 ## 10. Highest-value unresolved risks
 
-1. **TTS silently dropping a word** would desync everything downstream while
-   looking fine. ASR the generated audio, diff against the script, fail the job
-   over a WER threshold. Cheapest insurance in the project.
-2. **Per-image QA must catch near-duplicates**, not just artefacts. Phase 0
-   produced technically perfect images that were useless because they repeated
-   the reference.
-3. **Multi-reference with 3–4 crops is untested** — only one crop was validated.
-   Unknown whether more references improve identity or cost more.
-4. **Narration quality may cap perceived quality.** Keep TTS behind an interface
-   so ElevenLabs can be swapped in.
+Risks 1 and 2 were addressed in Phase 1, and both turned out to need a different
+shape than planned. Details in PLAN.md 9.4 and 9.6.
+
+1. ~~**TTS silently dropping a word.**~~ Gated — but **not** by the WER
+   threshold the plan called for. Measured on *correct* narration, per-beat WER
+   runs 0–16%, all of it the acoustic model's own compound splits and rare-word
+   spellings. A threshold high enough to avoid false positives cannot catch one
+   dropped word in a 26-word beat, which moves WER by under four points. The
+   real gates are **zero-length words in the forced alignment** (a word the TTS
+   never spoke has nowhere to go, so this observes the drop rather than
+   inferring it) and **ASR deletions specifically**. Both measured a clean zero.
+   WER stays as a backstop.
+2. ~~**Per-image QA must catch near-duplicates.**~~ Done, with thresholds
+   calibrated against labelled Phase 0 output — the bad arms hash at distance
+   0–9, the good arm at 17+. The addition the plan did not anticipate:
+   **adjacency matters**. Two similar images thirty seconds apart read as a
+   motif; back to back they read as a video that has stopped. The preceding
+   shot is judged on the stricter threshold.
+3. **Multi-reference with 3–4 crops is still untested** — only one crop has been
+   validated. The code path takes a list and needs no change to try more.
+4. **Narration quality may cap perceived quality.** Kokoro is behind a `TTS`
+   interface with an abstract voice map, so ElevenLabs is a config change. Not
+   yet judged on a finished video.
+5. **The narration gate's calibration rests on one script and one voice.** The
+   zero-deletion baseline is clean but has a single sample behind it.
 
 ---
 
 ## 11. Running things
 
 ```bash
-# validate the harness, no weights needed
+# the Phase 1 slice: topic -> out.mp4 + timeline.json
+.venv/bin/python slice.py --allow-fixture-sources
+
+# weights-free checks, including the xfade sync arithmetic (a few seconds)
+.venv/bin/python -m pipeline.selftest
+
+# see the plan without spending the GPU budget
+.venv/bin/python slice.py --allow-fixture-sources --dry-run
+.venv/bin/python slice.py --allow-fixture-sources --skip-render
+```
+
+Output lands in `work/<project>/` (`out.mp4`, `timeline.json`, `narration.wav`,
+`alignment.json`) with content-addressed images and segments in `work/cache/`.
+Deleting `work/<project>/` re-renders; deleting `work/cache/` regenerates.
+
+`--allow-fixture-sources` is required because the Phase 1 research fixture is
+hand-written and its claims carry a `FIXTURE` source sentinel. The validator
+rejects it by default, so hand-written claims can never be mistaken for
+researched output. `--force` overrides any validator or the narration gate, and
+prints what it is overriding.
+
+```bash
+# validate the Phase 0 harness, no weights needed
 python3 -m bench.run_bench --backend synthetic
 
 # the production config

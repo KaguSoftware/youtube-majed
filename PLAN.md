@@ -562,3 +562,181 @@ faster.
 **Consequence for the architecture.** Section 8.3's prediction holds — one
 model, one warm process, one Apache-2.0 licence covers both
 consistency-conditioned generation and the Phase 4 editing page.
+
+### 8.12 Dependency drift, a second live instance: `preshed==3.0.14`
+
+Phase 1 hit the same class of failure as 8.6's pillow pin, in a different
+package, on the first day of use.
+
+`preshed==3.0.14` breaks spaCy model loading outright:
+
+```
+OverflowError: Python int too large to convert to C ssize_t
+  spacy/tokenizer.pyx in Tokenizer._flush_specials
+```
+
+It surfaces while iterating the tokenizer's special-case keys, so it only fires
+on a model with populated rules — a bare `Tokenizer` loads fine, which makes it
+look like a model problem rather than a dependency one. Versions were *not*
+mismatched: spaCy 3.8.16 with `en_core_web_sm` 3.8.0, which declares
+`spacy>=3.8.0,<3.9.0`. Checking the version matrix would have cleared it.
+
+It takes TTS down with it. Kokoro's English G2P (`misaki.en.G2P`) needs the
+spaCy POS tagger to disambiguate homographs, so there is no narration at all
+until this is pinned. **`preshed==3.0.9` is correct**; the pin is in
+`pyproject.toml` with the reason attached.
+
+The lesson is the one already in 8.6 and failure mode 10, now with two
+instances: pin everything, and record *why* beside the pin.
+
+---
+
+## 9. Phase 1 findings — verified on this machine
+
+The vertical slice is built and has produced a complete video end to end.
+Measured, not assumed.
+
+### 9.1 The slice runs in under five minutes
+
+| stage | time | notes |
+|---|---|---|
+| validate | <0.1s | document contracts and the grounding check |
+| narrate (Kokoro-82M) | 12.0s | 61.67s of audio, ~3x real time, CPU |
+| align + ASR gate | 2.3s | 153 words timed, both jobs from one forward pass |
+| plan shots | <0.1s | 10 shots from 6 beats |
+| generate images | 229.5s | 12 images including 4 QA rerolls |
+| render | 35.2s | 10 Ken Burns segments plus the dissolve pass |
+| **total** | **279.3s** | cold cache |
+| **total, warm cache** | **32.6s** | nothing regenerated but the render |
+
+Per-image median was **19.4s**, against the 15.26s Phase 0 measured for the same
+resolution and reference. The difference is prompt length: production prompts
+carry the style prefix, the beat's visual, a framing clause and a mood — roughly
+forty words against the bench's short lines. A 60-shot job therefore lands near
+**19.4 min**, still comfortably inside the hour.
+
+### 9.2 Sync was verified three ways, not asserted
+
+The pipeline's central claim is that audio and image cannot drift. That claim
+was checked rather than trusted:
+
+1. **Duration.** The rendered file is 61.667s against a 61.675s timeline — 8ms,
+   under a quarter of a frame.
+2. **Image placement.** Every shot's frame was extracted at `start + 0.5s` and
+   perceptually hashed against all ten source images. All ten matched their own
+   shot, each time with a clear margin over the runner-up.
+3. **Word placement.** The audio was sliced at the timeline's shot boundaries
+   and re-transcribed. Every slice returned the words the timeline assigns that
+   shot, with no word leaking across a cut.
+
+### 9.3 `xfade` silently shortens the film — compensate explicitly
+
+The one real trap in assembly. `xfade` consumes its transition from the output,
+so cross-dissolving n clips removes `(n-1) * t` from the total. At ten shots and
+a 0.4s dissolve that is 3.6s, and the result is a video that plays perfectly
+while every shot after the first sits progressively early against its narration.
+
+The fix is arithmetic, not a flag: render each segment one dissolve *longer*
+than its visible duration and place transition i at `start(i+1) - t`. Then each
+shot becomes fully visible exactly at its own start and the total equals the sum
+of the durations. `pipeline/selftest.py` asserts this against real ffmpeg on
+uniform, ragged, single-shot and two-shot timelines, and separately asserts the
+output is *not* the uncompensated length — the check that would actually fail if
+someone removed the compensation.
+
+### 9.4 Near-duplicate QA needed a proximity rule, and the thresholds are calibrated
+
+Risk 2 was understated. A duplicate threshold alone passed images that play as a
+stuck video.
+
+The detector is a 64-bit dHash, with thresholds calibrated against *labelled*
+Phase 0 output rather than chosen by feel — Phase 0 conveniently left both a
+known-bad and a known-good arm on disk:
+
+| arm | distance |
+|---|---|
+| `image_strength` sweep, all six shots, 0.15 vs 0.25 vs 0.35 | **0** |
+| full-scene reference, shot 3, against the hero frame | **0** |
+| full-scene reference, shot 5, against the hero frame | 9 |
+| character-crop reference, six shots vs the hero crop | 27–36 |
+| character-crop reference, closest pair among themselves | 17 |
+
+Bad cases sit at 0–9, good ones at 17+, nothing between. A duplicate threshold
+of 8 separates them with margin. It also independently confirms 8.11's two
+findings: the strength sweep really is perceptually identical, and the
+full-scene reference really was being reproduced.
+
+**But proximity changes what similarity means.** The first full run produced
+S03/S04 at distance 11 and S06/S07 at distance 9. Both passed the duplicate
+check; both play as a single held image for ten seconds, because they are
+adjacent. Two similar images thirty seconds apart read as a motif; back to back
+they read as a video that has stopped.
+
+So the immediately preceding shot is judged at the stricter `SIMILAR_DISTANCE`
+of 14. On the re-run that gate fired on all three pairs and the rerolls cleared
+them — the tightest adjacent pair is now 16.
+
+### 9.5 The root cause was the prompt, not the seed
+
+Shots within one beat share `visual` and `mood`, so the framing clause is the
+only thing distinguishing their prompts. The original ladder — "wide
+establishing shot" / "close detail shot" — was too weak to move the composition,
+and the model obligingly produced the same picture twice.
+
+Rerolling on a new seed rescues it, but that is a lottery against a prompt that
+is asking for the same image. Making the ladder directive about vantage,
+distance and what fills the frame fixed it at the source. This is the same shape
+as 8.11's conclusion: **the lever is what you put in, not a strength dial.**
+
+### 9.6 A WER ceiling is the wrong gate for a dropped word
+
+Failure mode 1 is TTS silently dropping a word, and the planned defence — ASR
+the audio, diff against the script, fail over a WER threshold — turns out to be
+poorly matched to the failure.
+
+Measured on correct narration, per beat: 15.4%, 0%, 4.2%, 16.0%, 0%, 0%. The
+non-zero rows are entirely the acoustic model's own behaviour — compound splits
+(`TREELINE` → `TREE LINE`, `SOMEONE` → `SOME ONE`) and rare-word spellings
+(`WOAD` → `WODE`, `BYRED` → `BIRED`). None is a narration defect.
+
+So the gate has to sit above ~16% to avoid firing on correct audio. But one
+dropped word in a 26-word beat moves WER by under four points. **The threshold
+that avoids false positives cannot catch the failure it exists for.**
+
+Two sharper signals replace it, both measured at a clean zero on correct audio:
+
+- **Zero-length words — the direct observation.** Forced alignment must place
+  every script word somewhere. A word the TTS never spoke has nowhere to go and
+  collapses to no duration. This sees the dropped word rather than inferring it.
+- **ASR deletions specifically.** The acoustic model's errors on this material
+  are substitutions and splits; a word it finds no trace of is a different
+  signal. Zero deletions across all 153 words.
+
+The WER ceiling stays as a backstop for catastrophe. It is no longer the gate.
+
+### 9.7 Licence-clean alignment: not MMS
+
+`ctc-forced-aligner` is the obvious package for this and its default checkpoint
+is MMS, which is **cc-by-nc-4.0** — verified via the HF API, and a licensing
+incident under 1.6. The LibriSpeech wav2vec2 models are apache-2.0, so the
+clean path is to drive one directly.
+
+`torchaudio` was also declined: it is frozen at 2.11 against torch 2.14 here,
+and coupling to its compiled `forced_align` op for one function is a version
+risk. The CTC Viterbi pass is ~50 lines of numpy in `pipeline/align.py`, has no
+build step, and yields per-word confidence for 5's drift assertions as a
+by-product.
+
+Every model in the slice is apache-2.0, recorded on the timeline.
+
+### 9.8 Unresolved, carried into Phase 2
+
+- **The WER gate's calibration rests on one script and one voice.** The
+  zero-deletion baseline is clean but has a single sample behind it. Confirm it
+  holds before relying on `MAX_DELETIONS_PER_BEAT = 0`.
+- **Multi-reference is still untested** (8.3). The slice passes one crop. The
+  code path takes a list and needs no change to try more.
+- **Research and script generation are not wired.** Phase 1 runs from a
+  hand-written fixture whose claims carry a `FIXTURE` source sentinel that the
+  validator rejects unless explicitly allowed. The dual-mode slot from
+  DESIGN.md — human paste or `claude -p` — is Phase 3's work.
