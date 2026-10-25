@@ -72,6 +72,12 @@ slice.py        entry point
 ```
 
 Run `python -m pipeline.selftest` first — 51 checks, no weights, a few seconds.
+`python -m pipeline.gatecheck` is the negative control for the narration gate
+and needs the aligner weights plus one completed run.
+
+Two Phase 1 loose ends are now closed, both against their predictions:
+multi-reference is **not** worth it (9.9), and the narration gate works but not
+via the detector that was documented as primary (9.6).
 
 ---
 
@@ -251,13 +257,29 @@ shape than planned. Details in PLAN.md 9.4 and 9.6.
    **adjacency matters**. Two similar images thirty seconds apart read as a
    motif; back to back they read as a video that has stopped. The preceding
    shot is judged on the stricter threshold.
-3. **Multi-reference with 3–4 crops is still untested** — only one crop has been
-   validated. The code path takes a list and needs no change to try more.
+3. ~~**Multi-reference with 3–4 crops is untested.**~~ Tested and **rejected**.
+   Three crops cost 3.4x per image rising to nearly 6x by the third image, and
+   drove the machine to 15.6 GB of swap — 8.9's disqualifying signature, with
+   the 1-crop arm flat in the same process immediately before. With identical
+   seeds the two arms produced near-identical images, so there is no quality
+   gain to pay for. Reference cost is **superlinear** in reference area, which
+   follows from references being attention tokens. One character crop stays the
+   production configuration. PLAN.md 9.9.
 4. **Narration quality may cap perceived quality.** Kokoro is behind a `TTS`
    interface with an abstract voice map, so ElevenLabs is a config change. Not
    yet judged on a finished video.
 5. **The narration gate's calibration rests on one script and one voice.** The
-   zero-deletion baseline is clean but has a single sample behind it.
+   zero-deletion baseline is clean but has a single sample behind it. A
+   negative control (`python -m pipeline.gatecheck`) now proves the gate fires:
+   it splices words out of the real narration and catches **6/6 content words**
+   while staying silent on untouched audio. It also showed the detector I had
+   documented as primary — zero-length words — never fires at all; **ASR
+   deletions do the work**. PLAN.md 9.6.
+6. **There is no automatic identity check on a character sheet, by decision.**
+   A colour-palette metric was built and removed: a known-different man scored
+   *higher* than the real matches. Consistency rests on the single-anchor rule
+   and human review until an embedding model clears a licence review. PLAN.md
+   9.10.
 
 ---
 

@@ -53,6 +53,24 @@ NEG_INF = -1e30
 #: baseline on correct Kokoro narration: no word in 153 scored under this.
 WEAK_WORD_SCORE = 0.25
 
+#: A word that occupies implausibly little audio *for its length*.
+#:
+#: The first version of this check tested for zero duration and never fired,
+#: which the negative control in gatecheck.py exposed: forced alignment has to
+#: put every word somewhere, so a word spliced out of the audio borrows a frame
+#: or two from its neighbour rather than collapsing to exactly nothing.
+#:
+#: Length-normalizing makes it work. Measured on correct narration, 153 words:
+#:   median                       45.0 ms/char
+#:   floor, all words             20.0 ms/char  (articles: A, THE, IS, OF)
+#:   floor, words of 5+ chars     31.5 ms/char  (THROUGH, 0.220s)
+#: A spliced-out 11-character word lands near 2 ms/char. 15 ms/char sits in the
+#: empty space between, with the length guard keeping legitimately elided
+#: articles out of it — they are short because English elides them, not because
+#: anything is missing.
+MIN_MS_PER_CHAR = 15.0
+MIN_CHARS_FOR_DURATION_CHECK = 5
+
 #: Characters the LibriSpeech wav2vec2 vocabulary knows. Everything else has to
 #: be normalized away before alignment or the trellis has no token for it.
 _PUNCT = re.compile(r"[^A-Z' ]+")
@@ -398,11 +416,16 @@ def _check_monotonic(words: list[WordTiming], beat_id: str) -> tuple[list[str], 
         if b.start < a.end - 1e-3:
             fatal.append(f"{beat_id}: {a.word!r} and {b.word!r} overlap")
 
-    zero = [w.word for w in words if w.duration <= 0]
-    if zero:
+    starved = [
+        w.word for w in words
+        if w.duration <= 0
+        or (len(w.word) >= MIN_CHARS_FOR_DURATION_CHECK
+            and w.duration / len(w.word) * 1000 < MIN_MS_PER_CHAR)
+    ]
+    if starved:
         fatal.append(
-            f"{beat_id}: {len(zero)} word(s) occupy no audio {zero[:5]} — "
-            "the narration is missing words the script contains"
+            f"{beat_id}: {len(starved)} word(s) occupy too little audio for their "
+            f"length {starved[:5]} — the narration is missing words the script contains"
         )
     weak = [w.word for w in words if 0 < w.score < WEAK_WORD_SCORE]
     if weak:

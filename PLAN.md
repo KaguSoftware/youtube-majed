@@ -703,16 +703,44 @@ So the gate has to sit above ~16% to avoid firing on correct audio. But one
 dropped word in a 26-word beat moves WER by under four points. **The threshold
 that avoids false positives cannot catch the failure it exists for.**
 
-Two sharper signals replace it, both measured at a clean zero on correct audio:
+Two sharper signals replace it, both measured at a clean zero on correct audio.
+**A negative control then showed only one of them does the work**, which is the
+sort of thing that stays hidden if a gate is only ever tested on good input.
 
-- **Zero-length words — the direct observation.** Forced alignment must place
-  every script word somewhere. A word the TTS never spoke has nowhere to go and
-  collapses to no duration. This sees the dropped word rather than inferring it.
-- **ASR deletions specifically.** The acoustic model's errors on this material
-  are substitutions and splits; a word it finds no trace of is a different
-  signal. Zero deletions across all 153 words.
+`pipeline/gatecheck.py` splices individual words out of the real narration,
+leaves the script untouched, and checks the gate notices. Results:
+
+| | |
+|---|---|
+| control, untouched audio | gate silent (no false positives) |
+| **content words** (longest per beat, 0.42–0.76s) | **6 / 6 caught** |
+| function words (shortest per beat, 0.02–0.04s) | 0 / 6 caught |
+| caught by ASR deletion | 5 |
+| caught by WER backstop | 1 |
+| caught by the duration check | **0** |
+
+- **ASR deletions are the real gate.** The acoustic model's own errors on this
+  material are substitutions and splits; a word it finds no trace of is a
+  different kind of event. This caught five of six.
+- **The zero-length check never fired, and the reasoning behind it was wrong.**
+  The prediction was that a word the TTS never spoke has nowhere to go and
+  collapses to no duration. In practice forced alignment reassigns a frame or
+  two from the neighbouring words, so the word is short but not empty.
+  Length-normalizing it (flagging under 15 ms/char for words of 5+ characters,
+  against a measured floor of 31.5 ms/char on real content words) did not
+  change this — it still fired on nothing. It is kept as a cheap invariant, not
+  counted as a defence.
+- **The missed function words are not a real gap.** They are `A`, `IN`, `OF`,
+  `IS`, `ON` — words the aligner assigned 20–40ms, the floor, because English
+  elides them. Removing 20ms of audio is not what a dropped word sounds like,
+  and losing an article does not change what the video claims.
 
 The WER ceiling stays as a backstop for catastrophe. It is no longer the gate.
+
+**This is why the control was worth building.** Before it, "no errors on good
+audio" was equally consistent with a gate that works and a gate that does
+nothing, and the detector documented here as primary would have been the one
+that never fires.
 
 ### 9.7 Licence-clean alignment: not MMS
 
@@ -740,3 +768,96 @@ Every model in the slice is apache-2.0, recorded on the timeline.
   hand-written fixture whose claims carry a `FIXTURE` source sentinel that the
   validator rejects unless explicitly allowed. The dual-mode slot from
   DESIGN.md — human paste or `claude -p` — is Phase 3's work.
+
+### 9.9 Multi-reference: tested, and not worth it
+
+Risk 3 from section 6, open since Phase 0, is now closed — against the
+prediction in 8.3.
+
+**Method.** A character sheet was generated first (see 9.10), cropped to the
+character, and the two best views added as extra references. Both arms ran the
+same six consistency prompts at the same seed in the same warm process, back to
+back, 1 reference against 3.
+
+| arm | references | reference area | per image |
+|---|---|---|---|
+| 1 ref | hero crop | 191k px | **19.0s, flat** (21.2, 19.0, 19.0, 18.5, 22.3, 18.5) |
+| 3 ref | + front + detail crops | 628k px | **64.6s, 108.2s, 115.2s — climbing** |
+
+**Cost is superlinear in reference area, and it ends in swap.** 3.3x the
+reference area produced 3.4x the time on the first image and nearly 6x by the
+third, still rising. During the 3-ref arm the machine reached **15.6 GB of swap
+in use and 18.7M swapouts, with 7,747 pages free**; killing the run dropped
+swap back to 7.3 GB. That is 8.9's signature exactly, and by the standard set
+there it disqualifies the configuration regardless of speed.
+
+The within-run control is what makes this attributable: the 1-reference arm was
+*flat* in the same process immediately before. Nothing else changed.
+
+Superlinearity is expected once the mechanism from 8.11 is taken seriously.
+References are attention tokens, and attention is quadratic in sequence length,
+so reference area compounds rather than adds. 8.11 already measured the gentle
+end of this curve — 2x area for +25% time — without extrapolating it.
+
+**And there is no quality gain to pay for.** With identical seeds the two arms
+produced near-identical images: same pose, same composition, same character,
+same light. Whatever a single character crop is doing, it is already doing it.
+
+**Decision: one character crop stays the production configuration.** The run was
+stopped after three images of the second arm because the result was monotonic
+and the machine was suffering; four more images would have added nothing but
+risk.
+
+Not ruled out: *much* smaller references, such as a tight 200x200 face crop,
+sit at a different point on the cost curve. But with no visible identity
+improvement from 3.3x the area, the upside looks small.
+
+### 9.10 Generating a character sheet, and the identity check that does not exist
+
+Making the model draw the character from other angles works, with one
+structural rule and one honest admission.
+
+**The rule: one anchor.** Every view is generated conditioned on the same
+original hero crop, never on another generated view. Chaining view onto view is
+how drift compounds; anchoring all of them to one ground-truth frame bounds it.
+Three views — front, three-quarter profile, head-and-shoulders detail — came
+back unmistakably the same man as the anchor: same face, beard, olive wool
+layers, fur-trimmed mantle, leather chest strap.
+
+Views are generated against a flat studio background so the crop carries
+costume and face and nothing else. Cropping still matters for cost, and the
+background is textured enough in an impasto style that a naive
+background-difference threshold selects the whole frame; 130 summed over RGB was
+measured as the level at which the box stops moving.
+
+**The admission: there is no automatic identity check, and one was tried.** A
+saturation-weighted hue histogram over the character region, compared by
+Bhattacharyya coefficient, calibrated against a *matched* control — a view
+generated with no reference under the same prompt, background and light, which
+8.11 established yields a different man:
+
+| pair | score |
+|---|---|
+| anchor ~ front (same man) | 0.056 |
+| anchor ~ profile (same man) | 0.229 |
+| front ~ profile (same man) | 0.935 |
+| **front ~ control (different man)** | **0.968** |
+| detail ~ control (different man) | 0.931 |
+
+The different man scores **higher than any real match**. The metric tracks
+background and dominant garment hue, not identity: everything generated on grey
+in olive clothing looks alike to it. An earlier attempt to calibrate the same
+metric against Phase 0's full-scene arms failed the same way (same-character
+0.154–0.412 overlapping different-person up to 0.603), which is what prompted
+building the matched control.
+
+It was removed. A gate that cannot tell two different men apart is worse than no
+gate, because it gets trusted. A real check needs an image embedding model,
+which is a new dependency, a new download and a new licence review under 1.6 —
+a Phase 2 decision, not something to fake.
+
+What protects consistency instead: the single-anchor rule, which is the
+mechanism that actually produced the result; human review, which DESIGN.md
+already requires at the style stage; and an automatic *distinctness* check,
+which is mechanically decidable — two views that came back near-identical cost
+reference area and add nothing.
