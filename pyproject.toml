@@ -1,0 +1,16 @@
+[project]
+name = "youtube-majed-pipeline"
+version = "0.1.0"
+description = "Research-to-video pipeline: worker, benchmarks, assembly"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.optional-dependencies]
+# Phase 0 benchmark only. Image backends are installed per-backend
+# so a broken backend can never block the whole harness.
+bench = []
+mlx = ["mlx>=0.32.0", "mlx-lm", "pillow", "numpy"]
+comfy = ["requests", "pillow"]
+
+[tool.uv]
+package = false

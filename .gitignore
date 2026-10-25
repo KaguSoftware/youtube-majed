@@ -1,0 +1,30 @@
+# python
+.venv/
+__pycache__/
+*.pyc
+.uv/
+
+# node
+node_modules/
+.next/
+
+# bench artifacts
+bench/results/*.json
+bench/results/*.md
+bench/out/
+!bench/results/.gitkeep
+
+# models & media — never commit weights
+models/
+*.safetensors
+*.gguf
+*.ckpt
+media/
+*.wav
+*.mp4
+*.png
+!bench/prompts/*.png
+
+.env
+.env.local
+.DS_Store

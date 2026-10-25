@@ -1,0 +1,62 @@
+
+=== mflux-warm / int4-1024x1024-s4 ===
+    1 warmup + 4 measured @ 1024×1024, 4 steps, int4
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:07<00:23,  7.84s/it] 50%|█████     | 2/4 [00:14<00:14,  7.38s/it] 75%|███████▌  | 3/4 [00:21<00:07,  7.24s/it]100%|██████████| 4/4 [00:29<00:00,  7.16s/it]100%|██████████| 4/4 [00:29<00:00,  7.25s/it]
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:09<00:29,  9.79s/it] 50%|█████     | 2/4 [00:16<00:16,  8.20s/it] 75%|███████▌  | 3/4 [00:23<00:07,  7.66s/it]100%|██████████| 4/4 [00:30<00:00,  7.41s/it]100%|██████████| 4/4 [00:30<00:00,  7.73s/it]
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:23<01:10, 23.36s/it] 50%|█████     | 2/4 [00:30<00:27, 13.77s/it] 75%|███████▌  | 3/4 [00:37<00:10, 10.70s/it]100%|██████████| 4/4 [00:44<00:00,  9.25s/it]100%|██████████| 4/4 [00:44<00:00, 11.12s/it]
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:17<00:51, 17.12s/it] 50%|█████     | 2/4 [00:24<00:22, 11.21s/it] 75%|███████▌  | 3/4 [00:31<00:09,  9.32s/it]100%|██████████| 4/4 [00:38<00:00,  8.43s/it]100%|██████████| 4/4 [00:38<00:00,  9.58s/it]
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:08<00:26,  8.92s/it] 50%|█████     | 2/4 [00:15<00:15,  7.82s/it] 75%|███████▌  | 3/4 [00:22<00:07,  7.46s/it]100%|██████████| 4/4 [00:30<00:00,  7.29s/it]100%|██████████| 4/4 [00:30<00:00,  7.51s/it]
+    [warmup  00]   34.86s
+    [measured 01]   60.19s
+    [measured 02]   84.91s
+    [measured 03]   63.07s
+    [measured 04]   67.21s
+    cold load 0.70s · median 65.14s · p90 84.91s · peak 11.1 GB  ** SWAPPED **
+    wall 312.6s
+
+=== mflux-warm / int4-1216x704-s4 ===
+    1 warmup + 4 measured @ 1216×704, 4 steps, int4
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:06<00:19,  6.48s/it] 50%|█████     | 2/4 [00:12<00:12,  6.05s/it] 75%|███████▌  | 3/4 [00:17<00:05,  5.91s/it]100%|██████████| 4/4 [00:23<00:00,  5.84s/it]100%|██████████| 4/4 [00:23<00:00,  5.93s/it]
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:08<00:24,  8.33s/it] 50%|█████     | 2/4 [00:14<00:13,  6.82s/it] 75%|███████▌  | 3/4 [00:19<00:06,  6.33s/it]100%|██████████| 4/4 [00:25<00:00,  6.10s/it]100%|██████████| 4/4 [00:25<00:00,  6.40s/it]
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:07<00:23,  7.90s/it] 50%|█████     | 2/4 [00:13<00:13,  6.67s/it] 75%|███████▌  | 3/4 [00:19<00:06,  6.25s/it]100%|██████████| 4/4 [00:25<00:00,  6.05s/it]100%|██████████| 4/4 [00:25<00:00,  6.30s/it]
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:13<00:41, 13.96s/it] 50%|█████     | 2/4 [00:19<00:18,  9.14s/it] 75%|███████▌  | 3/4 [00:25<00:07,  7.59s/it]100%|██████████| 4/4 [00:31<00:00,  6.87s/it]100%|██████████| 4/4 [00:31<00:00,  7.81s/it]
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:20<01:00, 20.00s/it] 50%|█████     | 2/4 [00:25<00:23, 11.66s/it] 75%|███████▌  | 3/4 [00:31<00:08,  8.98s/it]100%|██████████| 4/4 [00:37<00:00,  7.73s/it]100%|██████████| 4/4 [00:37<00:00,  9.35s/it]
+    [warmup  00]   29.27s
+    [measured 01]   40.25s
+    [measured 02]   54.90s
+    [measured 03]   72.83s
+    [measured 04]   78.98s
+    cold load 1.05s · median 63.86s · p90 78.98s · peak 11.1 GB  ** SWAPPED **
+    wall 279.0s
+
+====================================================================
+# Phase 0 — benchmark results
+
+Host: Apple M3 Pro · 36.0 GB · 12 cores · python 3.12.15
+Started: 2026-10-25T16:07:13
+
+## Results
+
+Cold load is weight-load time, which on a first run also includes the model download — discard it there. Swap is measured over the generation phase only; `ext` means swap was seen while this run held too little memory to have caused it.
+
+| backend | config | res | steps | cold load | median | p90 | worst | peak mem | swap | 60-shot | verdict |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| `mflux-warm` | int4-1024x1024-s4 | 1024×1024 | 4 | 0.70s | **65.14s** | 84.91s | 84.91s | 11.1 GB (mlx) | ext | 84.9 min | OVER |
+| `mflux-warm` | int4-1216x704-s4 | 1216×704 | 4 | 1.05s | **63.86s** | 78.98s | 78.98s | 11.1 GB (mlx) | ext | 79.0 min | OVER |
+
+## Verdicts
+
+- **OVER** · `mflux-warm` / int4-1024x1024-s4 — 84.9 min for 60 shots; 3808712 swapouts observed at only 31% of RAM — attributed to other processes, timings may be noisy — exceeds the 60 min budget
+- **OVER** · `mflux-warm` / int4-1216x704-s4 — 79.0 min for 60 shots; 3097610 swapouts observed at only 31% of RAM — attributed to other processes, timings may be noisy — exceeds the 60 min budget
+
+## Recommendation
+
+**Phase 0 exit criterion not met on this machine.**
+
+2 configuration(s) swapped — those do not fit in unified memory. Try a smaller quantization or lower resolution.
+Fastest viable configuration projects 79.0 min per 60-shot job. Per PLAN.md section 6 this is the trigger to decide on a rented GPU now rather than in Phase 3 — the worker is a stateless client, so relocating it is a deployment change.
+
+====================================================================
+
+JSON:   /Users/majedahdab/Desktop/All repos/youtube-Majed/bench/results/bench-20261025-161704-res-sweep.json
+Report: /Users/majedahdab/Desktop/All repos/youtube-Majed/bench/results/bench-20261025-161704-res-sweep.md
