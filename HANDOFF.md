@@ -38,6 +38,18 @@ the dirty shots.
 
 ## 2. Status
 
+**Phase 4 (the editing page and edit agent) is built, and its exit criterion
+was met on this machine:** "the mood at 1:24 doesn't match", typed into the
+editing page, put a corrected film on screen in 47.9 s (PLAN.md 12.1). The
+film is now delivered as one chunk per shot played as HLS, so an edit re-cuts
+two chunks instead of re-encoding six minutes; every edit is a new immutable
+cut and undo moves a pointer. **Production still runs Phase 3 code**: run
+migration 005 on Neon, deploy `web/`, then re-run `deploy/install-worker.sh`,
+in that order (PLAN.md 12.11). Also
+pending: `jobs prune-films --apply` frees 519 MB of the 1 GB store. The
+Phase 3 exit run below is also still outstanding; Phase 4 was started ahead of
+it at the owner's request.
+
 **Phases 0, 1 and 2 are complete; Phase 3 (web app) is nearly done.** Every
 stage, idea through research, script, look and render, is built in `web/` and
 was driven through the browser on real output: Claude research and scripts on
@@ -79,12 +91,18 @@ pipeline/
   timeline.py   the artifact: schema, content addressing, contiguity validators
   images.py     warm Flux2KleinEdit, content-addressed, QA-driven rerolls
   qa.py         blur/artefact checks + near-duplicate detection
-  assemble.py   ffmpeg Ken Burns segments -> cross-dissolved film
+  assemble.py   ffmpeg Ken Burns segments -> per-shot chunks (HLS) -> mp4 on request
   run.py        the CLI; stage order is cheap-stages-first by design
   selftest.py   weights-free checks, incl. the sync arithmetic against ffmpeg
   gatecheck.py  negative control: splices words out and proves the gate fires
   sheet.py      character-sheet generation, anchored to one reference crop
   production.py the production stage as one resumable function (slice + worker)
+  edits.py      the edit operations on a draft timeline (mood, repaint, retouch, cuts)
+  edit_tools.py those operations as an MCP server for `claude -p` (stdio, no deps)
+  editor.py     the edit agent: prompt, the claude run, what changed
+  media.py      local cache in front of Blob; chunks, narration, stills, refs
+  upkeep.py     heal-cuts and prune-films: the store whole and under 1 GB
+  writer.py     Claude writes research and scripts (`claude -p`, light lane)
   store.py      Postgres: claim / lease / heartbeat / fenced writes, artifacts
   worker.py     the polling worker: host lock, heartbeat thread, signals
   jobs.py       operator CLI: migrate, seed, enqueue, status, cancel, retry
@@ -97,7 +115,9 @@ compose.yaml    local Postgres 17 on 127.0.0.1:54329
 deploy/         launchd agent for the worker (KeepAlive, graceful exit)
 ```
 
-Run `python -m pipeline.selftest` first — 51 checks, no weights, a few seconds.
+Run `python -m pipeline.selftest` first — 105 checks, no weights, under a
+minute (it renders real chunks through ffmpeg). `pipeline.queuetest` is 118
+checks including a full edit round trip with a scripted stand-in for Claude.
 `python -m pipeline.gatecheck` is the negative control for the narration gate
 and needs the aligner weights plus one completed run.
 
@@ -321,6 +341,12 @@ docker compose up -d --wait                       # Postgres
 .venv/bin/python -m pipeline.jobs status [JOB]    # per-shot generated/cached log
 .venv/bin/python -m pipeline.jobs workers         # online/offline from heartbeat age
 
+# Phase 4: edits and downloads (the editing page does the same)
+.venv/bin/python -m pipeline.jobs edit PROJECT "the mood at 1:24 doesn't match"
+.venv/bin/python -m pipeline.jobs export PROJECT [--version N]
+.venv/bin/python -m pipeline.jobs heal-cuts [--project P]   # every cut playable from the store
+.venv/bin/python -m pipeline.jobs prune-films [--apply]     # delete mp4s no cut needs
+
 # the Phase 1 slice: topic -> out.mp4 + timeline.json
 .venv/bin/python slice.py --allow-fixture-sources
 
@@ -360,7 +386,22 @@ Results land in `bench/results/` as JSON plus a markdown report with verdicts.
 
 ---
 
-## 12. Working agreements
+## 12. Phase 4 in one paragraph
+
+An edit is a job on the GPU lane. `claude -p --effort low` (Opus) runs with
+`pipeline/edit_tools.py` as its only MCP server and changes a draft timeline:
+it resolves the timecode, views the frame, and sets a mood, repaints, retouches
+a boxed region, nudges a cut onto a word boundary, or splits or merges shots.
+Tools never paint. The worker then paints the marked shots on the warm model
+(QA holds a repaint to the picture it replaces), re-encodes the chunks they
+touch, uploads only those, and commits the draft as a new cut whose parent is
+the cut it was made from. The browser plays a cut from per-request HLS
+playlists of presigned chunk URLs (`/api/films/[id]/cuts/[version]/...`).
+Three traps are written up in PLAN.md 12: timestamps (12.2), whole-frame
+retouches changing what they were told to keep (12.5), and QA rerolling an
+edit against a likeness the film already had (12.6).
+
+## 13. Working agreements
 
 - **All frontend work goes through the `/impeccable` skill** — every page and
   every revision, from Phase 3 on. Not for the worker, harness or ffmpeg code.

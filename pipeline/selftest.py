@@ -8,9 +8,10 @@ that would otherwise be discovered by watching a finished video and noticing
 that it feels slightly wrong.
 
 The cross-dissolve sync check is the reason this file exists. It renders real
-segments through real ffmpeg from throwaway stills and asserts the output
-length against the timeline, because an off-by-one-transition error produces a
-video that plays perfectly and drifts a third of a second per cut.
+segments and chunks through real ffmpeg from throwaway stills and asserts the
+output length and every chunk's timestamps against the timeline, because an
+off-by-one-transition error produces a video that plays perfectly and drifts
+a third of a second per cut.
 """
 
 from __future__ import annotations
@@ -75,6 +76,14 @@ def _timeline(shots: list[Shot], duration: float) -> Timeline:
                 "xfade": config.XFADE_SECONDS},
         shots=shots,
     )
+
+
+def _first_pts(path: Path) -> float:
+    """Presentation time of the first frame or sample in a stream file."""
+    import subprocess
+    out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "packet=pts_time",
+                          "-of", "csv=p=0", str(path)], capture_output=True, text=True).stdout
+    return min(float(x.strip(",")) for x in out.split() if x.strip(","))
 
 
 def main() -> int:
@@ -188,8 +197,8 @@ def main() -> int:
                 from .tts import _write_wav
                 _write_wav(wav, np.zeros(int(total * 24000), dtype=np.float32), 24000)
 
-                out = assemble.stitch(tl, segs, wav, paths.video, log=lambda *a: None)
-                got = assemble.probe_duration(out)
+                rendered = assemble.build(tl, paths, audio=wav, log=lambda *a: None)
+                got = assemble.probe_duration(rendered.video)
                 c.near(f"{label}: film length == sum of shot durations", got, total, 1.5 / config.FPS)
 
                 naive = total - config.XFADE_SECONDS * (len(durations) - 1)
@@ -200,6 +209,97 @@ def main() -> int:
                         abs(got - naive) > 0.1,
                         f"got {got:.3f}s, which matches the un-compensated length",
                     )
+                frames = [ch.frames for ch, _ in rendered.chunks]
+                c.check(f"{label}: chunks tile the film in whole frames",
+                        sum(frames) == round(total * config.FPS)
+                        and all(assemble.count_frames(p) == ch.frames for ch, p in rendered.chunks),
+                        f"{frames} vs {round(total * config.FPS)}")
+                firsts = [_first_pts(p) for _, p in rendered.chunks]
+                want = [assemble.TS_BASE + ch.start / config.FPS for ch, _ in rendered.chunks]
+                c.check(f"{label}: each chunk is stamped with its own film time",
+                        all(abs(a - b) < 1e-3 for a, b in zip(firsts, want)), f"{firsts} vs {want}")
+
+            # The property the editing page rests on: change one shot and only
+            # its chunk and the one dissolving into it are encoded again.
+            print("\n-- an edit re-encodes two chunks, not the film --")
+            tl = _timeline(_fake_shots([3.0, 3.5, 2.8, 3.2], stills), 12.5)
+            paths = config.Paths(root=tmp / "edit", project="p")
+            for i, s in enumerate(tl.shots):
+                s.image.path = str(stills[i % len(stills)].resolve())
+            wav = paths.run / "narration.wav"
+            from .tts import _write_wav
+            _write_wav(wav, np.zeros(int(12.5 * 24000), dtype=np.float32), 24000)
+            before = assemble.build(tl, paths, audio=wav, log=lambda *a: None)
+            tl.shots[2].image.hash, tl.shots[2].image.path = "fake-new", str(stills[0].resolve())
+            seen: list[str] = []
+            after = assemble.render_chunks(tl, paths, log=seen.append)
+            changed = [ch.index for (ch, _), (old, _) in zip(after, before.chunks) if ch.hash != old.hash]
+            c.check("a new still in shot 3 changes chunks 2 and 3 only", changed == [1, 2], str(changed))
+            c.check("and only those two are encoded", any("2 encoded, 2 unchanged" in m for m in seen), str(seen))
+            c.check("the narration stream is shared by every version",
+                    assemble.narration_stream(tl, wav, paths)[0] == before.narration)
+            c.near("narration stream starts at the base", _first_pts(before.narration),
+                   assemble.TS_BASE - 1024 / 48000, 1e-3)
+            import json as _json
+            slices = _json.loads(before.narration_index.read_text())
+            c.check("narration slices cover the file and the film",
+                    sum(x[1] for x in slices) == before.narration.stat().st_size
+                    and abs(sum(x[0] for x in slices) - 12.5) < 0.05, str(slices))
+
+    print("\n-- edits: the operations the edit agent's tools apply --")
+    from . import edits
+
+    c.check("timecodes read as seconds", [edits.parse_timecode(x) for x in ("84", "1:24", "1:24.5", "0:01:02")]
+            == [84.0, 84.0, 84.5, 62.0])
+
+    def worded(durations):
+        shots = _fake_shots(durations, [Path("x.png")])
+        for sh in shots:  # four words a shot, evenly spread
+            span = sh.duration / 4
+            sh.words = [{"word": f"W{sh.index}{k}", "start": sh.start + k * span,
+                         "end": sh.start + (k + 0.8) * span, "score": 1.0} for k in range(4)]
+            sh.text = " ".join(w["word"] for w in sh.words)
+        return _timeline(shots, sum(durations))
+
+    def session(durations):
+        return edits.Session(worded(durations), lambda v, m, f: f"{v}|{m}|{f}")
+
+    e = session([8.0, 8.0, 8.0])
+    e.set_shot_mood("S02", "cold dawn")
+    c.check("a mood change marks one shot for repainting, with a rebuilt prompt",
+            [x.shot_id for x in e.pending()] == ["S02"] and e.timeline.shots[1].prompt == "v|cold dawn|None")
+    e = session([8.0, 8.0, 8.0])
+    e.nudge_shot_boundary("S02", "start", 1.0)
+    a, b = e.timeline.shots[0], e.timeline.shots[1]
+    c.check("a nudged cut lands after a word and moves that word with it",
+            a.end == b.start and any(abs(a.end - w["end"]) < 1e-9 for w in a.words)
+            and len(a.words) == 5 and len(b.words) == 3 and not e.pending(), f"{a.end} {len(a.words)}")
+    e = session([8.0, 8.0, 8.0])
+    e.split_shot("S02")
+    sh = e.timeline.shots
+    c.check("a split makes two shots tiling the old one, the second to be painted",
+            len(sh) == 4 and sh[1].end == sh[2].start and sh[1].start == 8.0 and sh[2].end == 16.0
+            and [x.shot_id for x in e.pending()] == ["S03"] and sh[3].shot_id == "S04"
+            and not e.timeline.validate()[0])
+    e.merge_shots("S02", keep="first")
+    c.check("a merge undoes it, keeping the first picture",
+            len(e.timeline.shots) == 3 and e.timeline.shots[1].end == 16.0
+            and len(e.timeline.shots[1].words) == 4 and not e.timeline.validate()[0])
+    e = session([2.05, 8.0, 8.0])   # no word ends after 2 s in S01
+    before = [(x.start, x.end) for x in e.timeline.shots]
+    try:
+        e.nudge_shot_boundary("S02", "start", -1.0)
+        refused = False
+    except edits.EditError:
+        refused = True
+    c.check("a nudge that would leave a shot under 2 s is refused, and nothing changes",
+            refused and [(x.start, x.end) for x in e.timeline.shots] == before and not e.ops)
+    try:
+        e.edit_shot_image("S09", "x")
+        refused = False
+    except edits.EditError as exc:
+        refused = "S01-S03" in str(exc)
+    c.check("an unknown shot is refused with the shots that exist", refused)
 
     print("\n-- docs.check: the one entry point both slot modes share --")
     r_text = (FIXTURES / "barbarians-01.research.md").read_text()

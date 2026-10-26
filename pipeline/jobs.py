@@ -3,6 +3,10 @@
     python -m pipeline.jobs migrate
     python -m pipeline.jobs seed --allow-fixture-sources
     python -m pipeline.jobs enqueue barbarians-01
+    python -m pipeline.jobs edit barbarians-01 "the mood at 0:24 doesn't match"
+    python -m pipeline.jobs export barbarians-01 [--version N]
+    python -m pipeline.jobs heal-cuts [--project P]   # every cut playable from the store
+    python -m pipeline.jobs prune-films [--apply]     # delete mp4s nothing needs
     python -m pipeline.jobs status [JOB]
     python -m pipeline.jobs cancel JOB | retry JOB
     python -m pipeline.jobs workers
@@ -109,6 +113,69 @@ def cmd_enqueue(store: Store, args) -> int:
     print(f"job {job_id}: production for {args.project} "
           f"(research v{research['version']}, script v{script['version']})")
     return 0
+
+
+def cmd_edit(store: Store, args) -> int:
+    current = store.current_timeline(args.project)
+    if current is None:
+        print(f"{args.project} has no film to edit yet", file=sys.stderr)
+        return 1
+    payload = {"base_version": current["version"], "request": args.request,
+               "at": docs_seconds(args.at) if args.at else None}
+    if args.fake:
+        payload["fake"] = True
+    try:
+        job_id = store.enqueue(args.project, "edit", payload, max_attempts=1)
+    except Exception as exc:
+        if "jobs_one_live_per_project" in str(exc):
+            print(f"{args.project} already has an edit in progress", file=sys.stderr)
+            return 1
+        raise
+    print(f"job {job_id}: edit of {args.project} v{current['version']}: {args.request}")
+    return 0
+
+
+def cmd_export(store: Store, args) -> int:
+    row = store.timeline(args.project, args.version) if args.version else store.current_timeline(args.project)
+    if row is None:
+        print(f"{args.project} has no such version", file=sys.stderr)
+        return 1
+    payload = {"version": row["version"], **({"fake": True} if args.fake else {})}
+    job_id = store.enqueue(args.project, "export", payload)
+    print(f"job {job_id}: export of {args.project} v{row['version']}")
+    return 0
+
+
+def _media_env():
+    """The store and work root the installed worker uses."""
+    from . import media, worker
+
+    worker.load_env_file(Path(os.environ.get("WORKER_ENV_FILE", worker.DEFAULT_ENV_FILE)))
+    return media.remote_from_env(), Path(os.environ.get("WORK_ROOT", "work")).resolve()
+
+
+def cmd_heal_cuts(store: Store, args) -> int:
+    from . import upkeep
+
+    remote, root = _media_env()
+    out = upkeep.heal_cuts(store, root, remote, project=args.project)
+    print(f"{out['healed']} healed, {out['fine']} already playable, {len(out['skipped'])} skipped")
+    return 1 if out["skipped"] else 0
+
+
+def cmd_prune_films(store: Store, args) -> int:
+    from . import upkeep
+
+    remote, _ = _media_env()
+    out = upkeep.prune_films(store, remote, apply=args.apply)
+    print(f"{'freed' if args.apply else 'would free'} {out['freed_mb']} MB"
+          + ("" if args.apply else "; run again with --apply to delete"))
+    return 0
+
+
+def docs_seconds(value: str) -> float:
+    from .edits import parse_timecode
+    return parse_timecode(value)
 
 
 def _ago(ts, now) -> str:
@@ -266,6 +333,22 @@ def main(argv: list[str] | None = None) -> int:
     e.add_argument("--render-size", default=None, help="e.g. 640x360 for a fast preview")
     e.add_argument("--fake", action="store_true", help="for a `worker --fake` only")
 
+    ed = sub.add_parser("edit", help="ask Claude for a change to the current version of a film")
+    ed.add_argument("project")
+    ed.add_argument("request")
+    ed.add_argument("--at", default=None, help="the playhead, e.g. 1:24")
+    ed.add_argument("--fake", action="store_true", help="for a `worker --fake` only")
+
+    ex = sub.add_parser("export", help="make an mp4 of a version for download")
+    ex.add_argument("project")
+    ex.add_argument("--version", type=int, default=None)
+    ex.add_argument("--fake", action="store_true", help="for a `worker --fake` only")
+
+    hc = sub.add_parser("heal-cuts", help="make every cut playable from the media store")
+    hc.add_argument("--project", default=None)
+    pf = sub.add_parser("prune-films", help="delete whole-film mp4s no cut needs")
+    pf.add_argument("--apply", action="store_true")
+
     st = sub.add_parser("status")
     st.add_argument("job", type=int, nargs="?")
     st.add_argument("--limit", type=int, default=15)
@@ -286,6 +369,8 @@ def main(argv: list[str] | None = None) -> int:
     with Store() as store:
         return {
             "migrate": cmd_migrate, "seed": cmd_seed, "enqueue": cmd_enqueue,
+            "edit": cmd_edit, "export": cmd_export, "heal-cuts": cmd_heal_cuts,
+            "prune-films": cmd_prune_films,
             "status": cmd_status, "cancel": cmd_cancel, "retry": cmd_retry,
             "workers": cmd_workers, "adduser": cmd_adduser, "passwd": cmd_passwd,
             "signout-all": cmd_signout_all,

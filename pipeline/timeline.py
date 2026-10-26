@@ -91,6 +91,13 @@ class Shot:
     words: list[dict] = field(default_factory=list)
     image: ImageRecord | None = None
     segment: dict = field(default_factory=dict)
+    #: Set when the still is an edit of an earlier one rather than a painting
+    #: of `prompt`: {"instruction", "base": the edited image's hash}.
+    retouch: dict | None = None
+    #: Only in a draft an edit is building (pipeline/edits.py): this shot must
+    #: be painted again before the version is committed. {"mode": "generate"}
+    #: or {"mode": "retouch", "instruction", "base": {"hash", "path"}}.
+    repaint: dict | None = None
 
     @property
     def duration(self) -> float:

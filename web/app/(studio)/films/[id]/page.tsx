@@ -15,23 +15,29 @@ import { one } from "@/lib/db";
 import { getProject, nextStep, type ProjectRow } from "@/lib/projects";
 
 import { AskClaudeForm } from "./[doc]/forms";
+import { Editing } from "./editing";
 import { Progress } from "./progress";
 import { RenderButton } from "./render-button";
 import { stopRender } from "./look/actions";
 
-export default function FilmPage({ params }: PageProps<"/films/[id]">) {
+export default function FilmPage({ params, searchParams }: PageProps<"/films/[id]">) {
   return (
     <div className="mx-auto max-w-6xl px-6 pb-24 pt-10">
       <Suspense fallback={<div className="h-40 animate-pulse rounded bg-raised" aria-hidden />}>
-        <Film params={params} />
+        <Film params={params} searchParams={searchParams} />
       </Suspense>
     </div>
   );
 }
 
-async function Film({ params }: { params: Promise<{ id: string }> }) {
+const FILM_STATES = new Set(["editing", "finalized", "posted"]);
+
+async function Film({ params, searchParams }: {
+  params: Promise<{ id: string }>; searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   await requireUser();
   const { id } = await params;
+  const { cut } = await searchParams;
   const p = await getProject(id);
   if (!p) notFound();
   const step = nextStep(p);
@@ -58,10 +64,14 @@ async function Film({ params }: { params: Promise<{ id: string }> }) {
       </header>
       <StageStrip state={p.state} size="full" />
 
-      <section aria-labelledby="next" className="flex flex-col gap-5 border-t border-hairline pt-8">
-        <h2 id="next" className="eyebrow text-muted">Next</h2>
-        <StagePanel p={p} step={step} />
-      </section>
+      {FILM_STATES.has(p.state) ? (
+        <Editing p={p} cutParam={typeof cut === "string" ? cut : undefined} />
+      ) : (
+        <section aria-labelledby="next" className="flex flex-col gap-5 border-t border-hairline pt-8">
+          <h2 id="next" className="eyebrow text-muted">Next</h2>
+          <StagePanel p={p} step={step} />
+        </section>
+      )}
 
       {(research || script) && (
         <section aria-labelledby="docs" className="flex flex-col gap-3 border-t border-hairline pt-8">
@@ -73,7 +83,7 @@ async function Film({ params }: { params: Promise<{ id: string }> }) {
         </section>
       )}
 
-      {p.sheet && sheetUrl && <Filmstrip sheet={p.sheet} url={sheetUrl} title={p.topic} count={10} />}
+      {p.sheet && sheetUrl && !FILM_STATES.has(p.state) && <Filmstrip sheet={p.sheet} url={sheetUrl} title={p.topic} count={10} />}
     </article>
   );
 }
@@ -202,23 +212,8 @@ async function StagePanel({ p, step }: { p: ProjectRow; step: ReturnType<typeof 
     );
   }
 
-  // editing and beyond: the film exists.
-  const film = await one<{ film: string | null }>(
-    "SELECT timeline_json->'media'->>'film' AS film FROM timelines WHERE project_id = $1 ORDER BY version DESC LIMIT 1", [p.id]);
-  const filmUrl = film?.film ? await mediaUrl(film.film).catch(() => null) : null;
-  return (
-    <div className="flex flex-col gap-5">
-      {headline}
-      {filmUrl ? (
-        <>
-          <video src={filmUrl} controls preload="metadata" className="aspect-video w-full rounded-sm bg-raised" />
-          <a href={filmUrl} download className={`${button.secondary} self-start`}>Download the film</a>
-        </>
-      ) : (
-        <p className="text-sm text-muted">This film was rendered without the media store, so it can only be played on the studio machine.</p>
-      )}
-    </div>
-  );
+  // Editing and beyond are the editing room (./editing.tsx), not a panel.
+  return headline;
 }
 
 /** The worker's gate messages, in the studio's words (web/PRODUCT.md). */

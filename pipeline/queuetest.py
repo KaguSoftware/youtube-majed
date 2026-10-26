@@ -76,7 +76,7 @@ def queue_semantics(c: Checks, url: str) -> None:
     store = Store(url)
     print("\n-- schema --")
     c.check("migrations apply", store.migrate() == ["001_init.sql", "002_web.sql", "003_library_style.sql",
-                                                  "004_narrative.sql"])
+                                                  "004_narrative.sql", "005_editing.sql"])
     c.check("migrations are idempotent", store.migrate() == [])
     payload = seed(store)
     again = seed(store)
@@ -412,11 +412,13 @@ def media_takeover(c: Checks, url: str) -> None:
                 r["narration_cached"], r["out"][:600])
         c.check("B fetched A's images, narration and alignment",
                 r["done"].get("fetched", 0) >= len(before) + 3, str(r["done"]))
-        film = r["done"].get("film")
-        c.check("the film was published under its content address",
-                bool(film) and film.startswith("films/") and (media_dir / film).is_file(), str(film))
         tl = store.latest_timeline("barbarians-01")["timeline_json"]
-        c.check("the timeline points at the published film", tl.get("media", {}).get("film") == film)
+        hls = tl.get("media", {}).get("hls") or {}
+        c.check("the film was published as its chunks and narration, under their content addresses",
+                hls.get("chunks") and all((media_dir / ch["key"]).is_file() for ch in hls["chunks"])
+                and (media_dir / hls.get("narration", "-")).is_file(), str(hls)[:300])
+        c.check("the timeline points at the published chunks, and no whole-film mp4 was uploaded",
+                not tl.get("media", {}).get("film") and not list((media_dir / "films").glob("*.mp4")))
         sheet = tl.get("media", {}).get("sheet", {})
         c.check("...and at a contact sheet holding every shot",
                 (media_dir / sheet.get("key", "-")).is_file() and len(sheet.get("shots", [])) == 10
@@ -691,6 +693,159 @@ def looks(c: Checks, url: str) -> None:
     store.close()
 
 
+def editing(c: Checks, url: str) -> None:
+    """Phase 4: an edit is a new cut made of two new chunks, undo is free,
+    and the film never changes behind the user's back."""
+    import json as _json
+
+    store = Store(url)
+    payload = {**seed(store), "fake": True, "render_size": [320, 180]}
+    project = "barbarians-01"
+    print("\n-- editing: Claude changes the timeline, the worker re-cuts two chunks --")
+    with tempfile.TemporaryDirectory() as td:
+        media_dir, root = Path(td) / "blob", Path(td) / "work"
+        stub = Path(td) / "claude"
+        stub.write_text(f"#!/bin/sh\nPYTHONPATH={shlex.quote(str(REPO))} "
+                        f"exec {shlex.quote(sys.executable)} -m pipeline.fake_claude \"$@\"\n")
+        stub.chmod(0o755)
+
+        def run(ops=(), **extra_env) -> str:
+            env = {"MEDIA_DIR": str(media_dir), "CLAUDE_BIN": str(stub),
+                   "FAKE_CLAUDE_EDIT": _json.dumps(list(ops)), **extra_env}
+            return _worker(url, root, "--exit-when-idle", env=env).communicate(timeout=180)[0]
+
+        def edit(request: str, ops, base: int | None = None) -> tuple[int, str]:
+            base = base or store.current_timeline(project)["version"]
+            job = store.enqueue(project, "edit", {"fake": True, "base_version": base, "request": request})
+            return job, run(ops)
+
+        job = store.enqueue(project, "production", payload)
+        out = run()
+        v1 = store.current_timeline(project)
+        n = v1["version"] if v1 else -1
+        c.check("a render becomes the next cut and the film points at it",
+                store.job(job)["state"] == "done" and v1 and v1["job_id"] == job
+                and store.project(project)["timeline_version"] == n, out[-600:])
+        hls1 = v1["timeline_json"]["media"]["hls"]
+        c.check("...its chunks and narration slices are in the store",
+                all((media_dir / ch["key"]).is_file() for ch in hls1["chunks"])
+                and (media_dir / hls1["narration"]).is_file() and hls1["narration_slices"])
+
+        shots = v1["timeline_json"]["shots"]
+        target = shots[3]
+        job, out = edit("the mood at 0:20 is wrong", [
+            ["resolve_timecode", {"time": str(target["start"] + 0.5)}],
+            ["view_shot", {"shot_id": target["shot_id"]}],
+            ["set_shot_mood", {"shot_id": target["shot_id"], "mood": "cold blue dawn, hushed"}]])
+        v2 = store.current_timeline(project)
+        c.check("an edit is committed as the next cut, made from the render",
+                store.job(job)["state"] == "done" and v2["version"] == n + 1 and v2["parent_version"] == n,
+                f"{store.job(job)['error']}\n{out[-800:]}")
+        new_shots = v2["timeline_json"]["shots"]
+        changed = [a["shot_id"] for a, b in zip(shots, new_shots) if a["image"]["hash"] != b["image"]["hash"]]
+        c.check("...repainting only the shot asked about", changed == [target["shot_id"]], str(changed))
+        k1 = [ch["key"] for ch in hls1["chunks"]]
+        k2 = [ch["key"] for ch in v2["timeline_json"]["media"]["hls"]["chunks"]]
+        c.check("...re-cutting exactly two chunks: the shot's own and the one dissolving into it",
+                [i for i, (a, b) in enumerate(zip(k1, k2)) if a != b] == [2, 3], str(k2))
+        c.check("...on the same narration", v2["timeline_json"]["media"]["hls"]["narration"] == hls1["narration"])
+        change = v2["change"]
+        c.check("...recording the request, Claude's reply and the operation",
+                change["request"] == "the mood at 0:20 is wrong" and change["summary"]
+                and [o["tool"] for o in change["ops"]] == ["set_shot_mood"])
+        kinds = [e["kind"] for e in store.events(job)]
+        c.check("...with Claude's tool calls streamed as events for the progress view",
+                kinds.count("tool") == 3 and "shot" in kinds, str(kinds))
+        c.check("...and the prompt logged",
+                store.conn.execute("SELECT count(*) AS n FROM prompt_log WHERE job_id = %s AND kind = 'edit'",
+                                   (job,)).fetchone()["n"] == 1)
+
+        a, b = new_shots[4], new_shots[5]
+        job, out = edit("hold shot 5 a bit longer", [
+            ["nudge_shot_boundary", {"shot_id": b["shot_id"], "edge": "start", "seconds": 0.8}]])
+        v3 = store.current_timeline(project)
+        t3 = v3["timeline_json"]
+        moved = t3["shots"][5]["start"] - b["start"]
+        c.check("a nudged cut moves later onto a word boundary, pictures untouched",
+                v3["version"] == n + 2 and moved > 0
+                and any(abs(t3["shots"][4]["end"] - w["end"]) < 1e-3 for w in a["words"] + b["words"])
+                and [s["image"]["hash"] for s in t3["shots"]] == [s["image"]["hash"] for s in new_shots],
+                f"moved {moved:.3f}\n{out[-600:]}")
+        frames = sum(ch["frames"] for ch in t3["media"]["hls"]["chunks"])
+        c.check("...and the chunks still add up to the narration, frame for frame",
+                frames == sum(ch["frames"] for ch in hls1["chunks"]), str(frames))
+
+        last = t3["shots"][-1]["shot_id"]
+        job, out = edit("merge the last shot with the next", [["merge_shots", {"shot_id": last}]])
+        c.check("a refused operation leaves the film alone and closes the job without a cut",
+                store.job(job)["state"] == "done" and store.current_timeline(project)["version"] == n + 2
+                and any(e["kind"] == "tool" and not e["data"]["ok"] for e in store.events(job)),
+                f"{store.job(job)['state']} {store.job(job)['error']}")
+
+        job, out = edit("darker", [["set_shot_mood", {"shot_id": "S02", "mood": "dark"}]], base=n)
+        c.check("an edit made on a cut that is no longer the film is refused, not applied",
+                store.job(job)["state"] == "failed" and f"not {n}" in (store.job(job)["error"] or "")
+                and store.current_timeline(project)["version"] == n + 2, str(store.job(job)["error"]))
+
+        store.conn.execute("UPDATE projects SET timeline_version = %s WHERE id = %s", (n + 1, project))
+        job, out = edit("retouch the lamp", [
+            ["edit_shot_image", {"shot_id": "S01", "instruction": "a clay oil lamp",
+                                 "region": [0.6, 0.0, 0.85, 0.4]}]])
+        v4 = store.current_timeline(project)
+        s1 = v4["timeline_json"]["shots"][0]
+        c.check("after an undo, an edit branches from the cut the film is, keeping the undone one",
+                v4["version"] == n + 3 and v4["parent_version"] == n + 1 and store.timeline(project, n + 2) is not None,
+                f"{store.job(job)['error']}\n{out[-600:]}")
+        c.check("...a region retouch records its region and the picture it edited",
+                (s1.get("retouch") or {}).get("region") == [0.6, 0.0, 0.85, 0.4]
+                and s1["retouch"]["base"] == new_shots[0]["image"]["hash"], str(s1.get("retouch")))
+        from PIL import Image
+        import numpy as np
+        old_px = np.asarray(Image.open(media_dir / new_shots[0]["image"]["path"].removeprefix("cache/")).convert("RGB"))
+        new_px = np.asarray(Image.open(media_dir / s1["image"]["path"].removeprefix("cache/")).convert("RGB"))
+        from .images import retouch_box
+        x0, y0, x1, y1 = retouch_box([0.6, 0.0, 0.85, 0.4], (old_px.shape[1], old_px.shape[0]))
+        outside = np.ones(old_px.shape[:2], bool)
+        outside[y0:y1, x0:x1] = False
+        c.check("...and leaves every pixel outside the region exactly as it was",
+                np.array_equal(old_px[outside], new_px[outside]) and not np.array_equal(old_px, new_px))
+
+        job = store.enqueue(project, "export", {"fake": True, "version": n + 3})
+        out = run()
+        j = store.job(job)
+        film = (j["checkpoint"] or {}).get("film", "")
+        c.check("an export makes one mp4 of a cut, in the store",
+                j["state"] == "done" and film.startswith("films/") and (media_dir / film).is_file(),
+                f"{j['error']}\n{out[-600:]}")
+        if film:
+            from . import assemble
+            c.near("...as long as the narration", assemble.probe_duration(media_dir / film),
+                   v4["timeline_json"]["duration"], 1.5 / config.FPS)
+
+        print("\n-- upkeep: every cut playable from the store, mp4s nobody needs removed --")
+        from . import media as _media, upkeep
+        remote = _media.DirRemote(media_dir)
+        store.conn.execute(
+            "UPDATE timelines SET timeline_json = jsonb_set(timeline_json, '{media}', "
+            "  (timeline_json->'media') - 'hls' || jsonb_build_object('film', %s::text)) "
+            "WHERE project_id = %s AND version = %s", (film, project, n))
+        kept = upkeep.prune_films(store, remote, apply=True, log=lambda *a: None)
+        c.check("prune keeps an mp4 a cut still plays from", film in kept["kept"] and (media_dir / film).is_file())
+        healed = upkeep.heal_cuts(store, root, remote, project=project, log=lambda *a: None)
+        t1 = store.timeline(project, n)["timeline_json"]["media"]
+        c.check("heal gives a cut from before chunks its chunks, drops its mp4, and touches nothing else",
+                healed["healed"] == 1 and healed["fine"] >= 4 and "film" not in t1
+                and [ch["key"] for ch in t1["hls"]["chunks"]] == k1
+                and store.timeline(project, n)["timeline_json"]["shots"] == v1["timeline_json"]["shots"],
+                str(healed))
+        out = upkeep.prune_films(store, remote, apply=True, log=lambda *a: None)
+        c.check("then prune deletes the mp4, and its export reads as never made",
+                film in out["deleted"] and not (media_dir / film).exists()
+                and "film" not in (store.job(job)["checkpoint"] or {}))
+    drain(store)
+    store.close()
+
+
 def main() -> int:
     try:
         psycopg.connect(database_url(), connect_timeout=3).close()
@@ -707,6 +862,7 @@ def main() -> int:
         doorbell(c, url)
         writing(c, url)
         looks(c, url)
+        editing(c, url)
 
     print(f"\n{c.run - len(c.failures)}/{c.run} checks passed")
     if c.failures:

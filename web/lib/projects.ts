@@ -34,7 +34,7 @@ const PROJECT_SELECT = `
     (SELECT row_to_json(j) FROM (SELECT id, kind, state, error, progress FROM jobs
        WHERE project_id = p.id ORDER BY id DESC LIMIT 1) j) AS job,
     (SELECT timeline_json->'media'->'sheet' FROM timelines
-       WHERE project_id = p.id ORDER BY version DESC LIMIT 1) AS sheet,
+       WHERE project_id = p.id ORDER BY (version = p.timeline_version) DESC, version DESC LIMIT 1) AS sheet,
     GREATEST(p.updated_at,
       (SELECT max(created_at) FROM artifacts WHERE project_id = p.id),
       (SELECT max(e.at) FROM job_events e JOIN jobs j ON j.id = e.job_id WHERE j.project_id = p.id)
@@ -67,6 +67,8 @@ export function nextStep(p: ProjectRow): NextStep {
       case "research": return { text: "Researching your topic", tone: "machine" };
       case "script": return { text: "Writing the script", tone: "machine" };
       case "style": return { text: "Painting three looks", tone: "machine" };
+      case "edit": return { text: "Making a change", tone: "machine" };
+      case "export": return { text: "Preparing a download", tone: "machine" };
       default: {
         const { stage, done, total } = job.progress ?? {};
         if (stage === "images" && total) return { text: `Rendering, frame ${done ?? 0} of ${total}`, tone: "machine" };

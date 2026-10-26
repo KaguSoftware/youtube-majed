@@ -15,6 +15,10 @@ import { getCache } from "@vercel/functions";
  */
 
 const RING = "doorbell:ring";
+const HOT = "doorbell:hot";
+/** How long one sign of editing keeps the worker polling fast. The editing
+ *  page renews it while it is open (components/keep-warm.tsx). */
+export const HOT_MS = 5 * 60_000;
 const WORKERS = "doorbell:workers";
 const RING_TTL = 30 * 24 * 3600;
 /** A worker entry is refreshed at most this often, to keep cache writes low. */
@@ -31,6 +35,17 @@ function fresh(prefix: string): string {
 /** Call after every enqueue, once the job row is committed. */
 export async function ring(): Promise<void> {
   await cache().set(RING, fresh("e"), { ttl: RING_TTL, name: "worker doorbell" });
+}
+
+/** Someone is editing: the worker polls every 2s rather than every 15s until
+ *  HOT_MS from now, so an edit starts at once (pipeline/worker.py). */
+export async function warm(): Promise<void> {
+  await cache().set(HOT, Date.now() + HOT_MS, { ttl: Math.ceil(HOT_MS / 1000), name: "editing in progress" });
+}
+
+export async function isHot(): Promise<boolean> {
+  const until = await cache().get(HOT);
+  return typeof until === "number" && until > Date.now();
 }
 
 export async function currentRing(): Promise<string> {

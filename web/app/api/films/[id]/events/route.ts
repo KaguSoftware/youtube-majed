@@ -3,8 +3,9 @@ import { query } from "@/lib/db";
 import { imageKey, mediaUrls } from "@/lib/media";
 
 /*
- * The render's progress as server-sent events, read from job_events (one row
- * per stage and per shot, written by the worker; PLAN.md section 3).
+ * A render's or an edit's progress as server-sent events, read from
+ * job_events (one row per stage, per shot and, for an edit, per tool Claude
+ * calls; written by the worker; PLAN.md section 3).
  *
  * Vercel functions must finish inside 60s, so each stream closes itself at
  * STREAM_MS. EventSource reconnects on its own and sends Last-Event-ID, which
@@ -20,8 +21,13 @@ type EventRow = { id: string; job_id: string; attempt: number; kind: string; dat
 export async function GET(request: Request, ctx: RouteContext<"/api/films/[id]/events">) {
   if (!(await getUser())) return new Response("unauthorized", { status: 401 });
   const { id } = await ctx.params;
-  const [job] = await query<{ id: string; state: string }>(
-    "SELECT id, state FROM jobs WHERE project_id = $1 AND kind = 'production' ORDER BY id DESC LIMIT 1", [id]);
+  // ?job= follows one job (an edit); without it, the film's latest render.
+  const jobParam = Number(new URL(request.url).searchParams.get("job") ?? 0);
+  const [job] = jobParam
+    ? await query<{ id: string; state: string }>(
+      "SELECT id, state FROM jobs WHERE project_id = $1 AND id = $2", [id, jobParam])
+    : await query<{ id: string; state: string }>(
+      "SELECT id, state FROM jobs WHERE project_id = $1 AND kind = 'production' ORDER BY id DESC LIMIT 1", [id]);
   if (!job) return new Response("no render", { status: 404 });
 
   let after = Number(request.headers.get("last-event-id") ?? new URL(request.url).searchParams.get("after") ?? 0) || 0;

@@ -17,13 +17,15 @@ mirror of the remote one and nothing needs translating:
     images/<hash>.png       generated stills, every attempt including rerolls
     audio/<hash>.wav|json   narration and its beat index
     align/<hash>.json       forced alignment
-    films/<sha>.mp4         finished renders, keyed by their bytes
+    films/<sha>.mp4         an mp4 of a film version, made for a download
     refs/<sha>.png          style references (hero crops)
+    chunks/<hash>.ts        the delivered film, one chunk per shot (assemble.py)
+    narration/<hash>.ts     the narration as the film's audio stream
 
 ### What is uploaded, and what is not
 
 Only what is expensive to make or must be seen in the browser. Images are the
-GPU's output. Narration and alignment are cheap, but they are not reproducible
+GPU's output. Chunks and the narration stream are the film the browser plays. Narration and alignment are cheap, but they are not reproducible
 *across machines* — a different torch build can synthesize different samples,
 the aligner then times different words, and the shot plan moves — so a
 takeover must read the original bytes. Films are the deliverable.
@@ -59,6 +61,7 @@ from __future__ import annotations
 import os
 import shutil
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Protocol
 
@@ -69,13 +72,16 @@ from .timeline import file_sha
 #: likes. The store's own default is one month.
 IMMUTABLE_MAX_AGE = 365 * 24 * 3600
 
+#: Uploads at once in `publish_many`.
+UPLOAD_JOBS = 4
+
 #: Above this a single PUT is replaced by a multipart upload (Vercel's advice
 #: is 100 MB). A 3-minute film at the current bitrate is around 100 MB.
 MULTIPART_ABOVE = 64 * 1024 * 1024
 PART_SIZE = 16 * 1024 * 1024
 
 CONTENT_TYPES = {".png": "image/png", ".wav": "audio/wav", ".json": "application/json",
-                 ".mp4": "video/mp4"}
+                 ".mp4": "video/mp4", ".ts": "video/mp2t", ".webp": "image/webp"}
 
 
 class Remote(Protocol):
@@ -87,6 +93,9 @@ class Remote(Protocol):
     def put(self, key: str, src: Path) -> None:
         """Upload `src` as `key`. Idempotent: an existing key is success."""
 
+    def delete(self, key: str) -> None:
+        """Remove `key`. Upkeep only (pipeline/upkeep.py)."""
+
 
 class NoRemote:
     """Local cache only: the Phase 2 behaviour, and the slice's."""
@@ -97,6 +106,9 @@ class NoRemote:
         return False
 
     def put(self, key: str, src: Path) -> None:
+        pass
+
+    def delete(self, key: str) -> None:
         pass
 
 
@@ -127,6 +139,9 @@ class DirRemote:
         dest = self.root / key
         if not dest.exists():
             _atomic_copy(src, dest)
+
+    def delete(self, key: str) -> None:
+        (self.root / key).unlink(missing_ok=True)
 
 
 class BlobRemote:
@@ -180,6 +195,11 @@ class BlobRemote:
             # worker that got there first.
             if "already exists" not in str(exc):
                 raise
+
+    def delete(self, key: str) -> None:
+        """Only upkeep deletes (pipeline/upkeep.py): content-addressed media is
+        otherwise never removed, since some cut may still name it."""
+        self._b.delete_blob(key)
 
 
 def remote_from_env() -> Remote:
@@ -235,6 +255,14 @@ class Mirror:
     def path(self, key: str) -> Path:
         return self.cache / key
 
+    def has(self, path: Path) -> bool:
+        """Is `path` made, here or in the store? Never downloads. For work
+        that only needs to know whether to redo something, such as an edit
+        deciding which chunks to encode."""
+        if path.exists() and path.stat().st_size > 0:
+            return True
+        return self.enabled and self.index is not None and self.index.known(self.key(path))
+
     def ensure(self, path: Path) -> bool:
         """True if `path` is available locally, fetching it if the store has it."""
         if path.exists() and path.stat().st_size > 0:
@@ -285,6 +313,22 @@ class Mirror:
         if self.index is not None:
             self.index.record(key, size=path.stat().st_size, kind=kind)
         return key
+
+    def publish_many(self, paths: list[Path], kind: str) -> list[str]:
+        """`publish` for a batch, asking the index once rather than per file.
+        An edit publishes a film's 50 chunks of which two are new; from the
+        Mac to Neon each lookup is a ~100 ms round trip."""
+        keys = [self.key(p) for p in paths]
+        if not self.enabled:
+            return keys
+        known = self.index.known_many(keys) if self.index is not None and hasattr(self.index, "known_many") \
+            else set()
+        todo = [path for path, key in zip(paths, keys) if key not in known]
+        # In parallel: one upload does not fill this Mac's uplink (1.7 MB/s
+        # measured over many), and an edit waits on these before it commits.
+        with ThreadPoolExecutor(min(UPLOAD_JOBS, max(1, len(todo)))) as ex:
+            list(ex.map(lambda path: self.publish(path, kind), todo))
+        return keys
 
     def publish_film(self, video: Path) -> str:
         """Films are keyed by their bytes, so a re-render that changed nothing

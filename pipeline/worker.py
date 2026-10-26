@@ -87,9 +87,10 @@ from datetime import datetime, timezone
 
 import psycopg
 
-from . import config, docs, media, production, writer
-from .timeline import text_sha
-from .store import GPU_KINDS, LIGHT_KINDS, Claim, LeaseLost, MediaIndex, Store, database_url
+from . import assemble, config, docs, editor, images, media, production, writer
+from .timeline import Timeline, text_sha
+from .store import (GPU_KINDS, LIGHT_KINDS, Claim, FilmMoved, LeaseLost, MediaIndex, Store,
+                    database_url)
 
 #: How long a claim survives without a heartbeat. Long enough to ride out a
 #: model load and a slow image; short enough that a dead worker's job is picked
@@ -108,6 +109,10 @@ RETRY_DELAY_SECONDS = 30.0
 #: Doorbell cadence. 15s keeps two lanes at ~350k function invocations a month,
 #: about a third of Vercel Hobby's allowance, for at most 15s of pickup delay.
 DOORBELL_SECONDS = 15.0
+#: Doorbell cadence while the editing page is open (the bell says "hot"). The
+#: Phase 4 exit is a corrected film within 60 s of asking, and a 15 s pickup
+#: would spend a quarter of it. An hour of editing costs ~1,800 invocations.
+HOT_DOORBELL_SECONDS = 2.0
 #: The safety-net poll while the bell is quiet. Each one wakes Neon for about
 #: five minutes, so four a day cost ~2.5 of the free tier's 100 CU-hours a month.
 IDLE_DB_SECONDS = 6 * 3600.0
@@ -234,7 +239,13 @@ class Doorbell:
             "X-Worker-Kinds": ",".join(self.kinds),
         })
         with urllib.request.urlopen(req, timeout=self.timeout) as r:
-            return str(json.loads(r.read())["ring"])
+            body = json.loads(r.read())
+        # Someone has the editing page open: an edit should start within a
+        # couple of seconds, not up to fifteen (PLAN.md 12.4).
+        self.hot = bool(body.get("hot"))
+        return str(body["ring"])
+
+    hot = False
 
 
 class Worker:
@@ -346,7 +357,7 @@ class Worker:
                                  f"polling the database every {DOORBELL_DOWN_DB_SECONDS:.0f}s")
                     next_db = min(next_db, time.monotonic() + DOORBELL_DOWN_DB_SECONDS)
                 if time.monotonic() < next_db:
-                    self._sleep(self.doorbell_every)
+                    self._sleep(HOT_DOORBELL_SECONDS if self.doorbell.hot else self.doorbell_every)
                     continue
 
             try:
@@ -436,6 +447,17 @@ class Worker:
                 self.log(f"<< job {claim.job_id} done in {time.time() - t0:.1f}s: "
                          f"{len(row['candidates_json'])} candidate looks")
                 return
+            if claim.kind == "edit":
+                out = self.edit_film(claim, hooks)
+                self.store.event(claim, "done", {**out, "seconds": round(time.time() - t0, 1)})
+                self.log(f"<< job {claim.job_id} done in {time.time() - t0:.1f}s: "
+                         + (f"timeline v{out['version']}" if out.get("version") else "no change"))
+                return
+            if claim.kind == "export":
+                out = self.export_film(claim, hooks)
+                self.store.event(claim, "done", {**out, "seconds": round(time.time() - t0, 1)})
+                self.log(f"<< job {claim.job_id} done in {time.time() - t0:.1f}s: {out['film']}")
+                return
             if claim.kind != "production":
                 raise production.Gate("kind", [f"no handler for {claim.kind!r} jobs in this worker yet"])
             free = shutil.disk_usage(self.work_root).free
@@ -469,6 +491,14 @@ class Worker:
             self._quietly(lambda: self.store.release(claim))
             self._quietly(lambda: self.store.event(claim, "released", {"stage": hooks.current}))
             self.log(f"<< job {claim.job_id} released at {hooks.current}")
+        except FilmMoved as exc:
+            # Not retryable: the edit was made on a version that is no longer
+            # the film. The user asks again on the film as it is now.
+            message = f"edit: {exc}"
+            self._quietly(lambda: self.store.fail(claim, message))
+            self._quietly(lambda: self.store.event(
+                claim, "failed", {"stage": "commit", "errors": [message], "retry": False}))
+            self.log(f"<< job {claim.job_id} failed (not retryable): {exc}")
         except writer.WriterGate as gate:
             # Claude declined (usage limit, sign-in): a retry would repeat it.
             # The studio offers paste mode instead (failure mode 12).
@@ -585,6 +615,140 @@ class Worker:
             prompt=f"[system]\n{written.system}\n\n[user]\n{written.prompt}",
             response_raw=written.response_raw, meta=written.meta,
         )
+
+    # ------------------------------------------------------------- editing
+
+    def _film(self, claim: Claim, version: int) -> tuple[Timeline, media.Mirror, config.Paths, Path]:
+        """A committed version and everything needed to change or export it:
+        the paths, the mirror, and the narration it was cut to."""
+        row = self.store.timeline(claim.project_id, version)
+        if row is None:
+            raise production.Gate("inputs", [f"{claim.project_id} has no version {version}"])
+        timeline = Timeline.from_json(row["timeline_json"])
+        mirror = media.Mirror(
+            self.work_root / "cache", self.remote,
+            MediaIndex(self.store, self.remote.name, project_id=claim.project_id, job_id=claim.job_id),
+            log=self.log)
+        paths = config.Paths(root=self.work_root, project=claim.project_id, mirror=mirror)
+        wav = mirror.path(timeline.audio["key"]) if timeline.audio.get("key") else paths.audio
+        if not (mirror.ensure(wav) if timeline.audio.get("key") else wav.exists()):
+            raise production.Gate("inputs", [
+                f"the narration this film was cut to is not available ({wav.name}); render it again"])
+        return timeline, mirror, paths, wav
+
+    def _edit_context(self, claim: Claim, timeline: Timeline) -> dict:
+        """The film-wide words every prompt was built from. Recorded on the
+        timeline since Phase 4; for an older film, read from its script."""
+        st = timeline.style
+        period, protagonist = st.get("period"), st.get("protagonist")
+        if period is None and protagonist is None:
+            script = self.store.latest_approved(claim.project_id, "script")
+            if script:
+                parsed = docs.parse_script_text(script["markdown_raw"])
+                period, protagonist = parsed.meta.get("period"), list(docs.protagonist(parsed) or []) or None
+        return {"prompt_prefix": st["prompt_prefix"], "period": period, "protagonist": protagonist}
+
+    def edit_film(self, claim: Claim, hooks: JobHooks) -> dict:
+        """An edit job: Claude changes a draft of the film's timeline, the
+        warm model paints what changed, two chunks per change are re-cut,
+        and the result is committed as the next version (pipeline/editor.py)."""
+        p = claim.payload
+        base = int(p["base_version"])
+        timeline, mirror, paths, wav = self._film(claim, base)
+        context = self._edit_context(claim, timeline)
+        timings: dict[str, float] = {}
+
+        hooks.stage("understanding")
+        t = time.monotonic()
+        result = editor.run_agent(
+            timeline, p["request"], at=p.get("at"), context=context, work_root=self.work_root,
+            should_stop=hooks.check, log=self.log,
+            on_op=lambda op: self.store.event(claim, "tool", {
+                "tool": op["tool"], "args": op["args"], "ok": op["ok"], "result": op["result"][:300]}))
+        timings["understanding"] = round(time.monotonic() - t, 2)
+        self._quietly(lambda: self.store.record_prompt(
+            project_id=claim.project_id, kind="edit", prompt=result.prompt,
+            response_raw=result.response_raw, job_id=claim.job_id, meta=result.meta))
+        changed = editor.changes(result.ops)
+        hooks.check()
+        if not changed:
+            self.store.finish_job(claim)
+            return {"version": None, "summary": result.summary, "timings": timings}
+
+        draft = result.draft
+        errors, _ = draft.validate()
+        if errors:
+            raise production.Gate("edit", errors)
+        pending = [s for s in draft.shots if s.repaint]
+        if pending:
+            hooks.stage("painting")
+            style = self._film_style(claim, timeline, mirror)
+            t = time.monotonic()
+            done = 0
+
+            def on_shot(shot, stats):
+                nonlocal done
+                done += 1
+                hooks.shot(shot, stats, done, len(pending))
+
+            images.repaint_shots(draft.shots, style, paths, generator=self.engines.generator,
+                                 on_shot=on_shot, log=self.log)
+            timings["painting"] = round(time.monotonic() - t, 2)
+
+        hooks.stage("cutting")
+        t = time.monotonic()
+        rendered = assemble.build(draft, paths, audio=wav, mp4=False, log=self.log)
+        timings["encoding"] = round(time.monotonic() - t, 2)
+        production.publish_render(draft, rendered, paths, log=self.log)
+        timings["cutting"] = round(time.monotonic() - t, 2)
+        hooks.check()
+        change = {
+            "request": p["request"], "at": p.get("at"), "summary": result.summary,
+            "ops": [{"tool": o["tool"], "args": o["args"], "result": o["result"]} for o in changed],
+            "shots": sorted({s.shot_id for s in draft.shots if s.image and (
+                s.image.hash not in {x.image.hash for x in timeline.shots if x.image})}),
+            "chunks_encoded": len(rendered.encoded), "timings": timings,
+            "agent": {"turns": result.meta.get("num_turns"), "model": result.meta.get("model")},
+        }
+        version = self.store.finish_edit(claim, draft.to_json(), parent=base, change=change,
+                                         created_by=p.get("requested_by"))
+        return {"version": version, "summary": result.summary, "timings": timings,
+                "chunks_encoded": len(rendered.encoded)}
+
+    def _film_style(self, claim: Claim, timeline: Timeline, mirror: media.Mirror) -> config.Style:
+        """The style an edit paints with: the film's own, with its hero crop."""
+        row = self.store.style(timeline.style["style_id"])
+        if row is None:
+            raise production.Gate("inputs", [f"the film's look {timeline.style['style_id']} is gone"])
+        preset = row["preset_json"]
+        if not preset.get("hero_crop"):
+            preset = {**preset, "hero_crop": self.materialize_crop(row["id"], preset, mirror)}
+        style = config.Style.from_record(row["id"], preset, resolve=lambda ref: resolve_ref(ref, mirror))
+        if not style.hero_crop.exists():
+            raise production.Gate("inputs", [f"the character reference {style.hero_crop.name} is missing"])
+        return style
+
+    def export_film(self, claim: Claim, hooks: JobHooks) -> dict:
+        """An mp4 of one version, for download: the chunks by stream copy,
+        so seconds of work and one upload."""
+        version = int(claim.payload["version"])
+        timeline, mirror, paths, wav = self._film(claim, version)
+        hooks.stage("exporting")
+        hls = timeline.media.get("hls")
+        if hls:
+            chunks = [mirror.path(c["key"]) for c in hls["chunks"]]
+            for c in chunks:
+                if not mirror.ensure(c):
+                    raise production.Gate("inputs", [f"chunk {c.name} of version {version} is missing"])
+        else:
+            # A film from before chunks: cut them now (its stills are needed).
+            rendered = assemble.build(timeline, paths, audio=wav, mp4=False, log=self.log)
+            chunks = [path for _, path in rendered.chunks]
+        dest = paths.run / f"v{version}.mp4"
+        assemble.film(timeline, chunks, wav, dest, log=self.log)
+        key = mirror.publish_film(dest)
+        self.store.finish_export(claim, film_key=key, size=dest.stat().st_size)
+        return {"film": key, "version": version, "bytes": dest.stat().st_size}
 
     def materialize_crop(self, style_id: str, preset: dict, mirror: media.Mirror) -> str:
         """First use of a project style: build its hero crop and record it."""

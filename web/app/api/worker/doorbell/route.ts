@@ -1,4 +1,4 @@
-import { currentRing, noteWorker } from "@/lib/doorbell";
+import { currentRing, isHot, noteWorker } from "@/lib/doorbell";
 import { isWorker } from "@/lib/tokens";
 
 // Answers from the runtime cache alone. This route must never query the
@@ -9,6 +9,7 @@ export async function GET(request: Request) {
   }
   const id = (request.headers.get("x-worker-id") ?? "").slice(0, 200);
   const kinds = (request.headers.get("x-worker-kinds") ?? "").split(",").filter(Boolean).slice(0, 8);
-  const [ring] = await Promise.all([currentRing(), id ? noteWorker(id, kinds) : Promise.resolve()]);
-  return Response.json({ ring }, { headers: { "Cache-Control": "no-store" } });
+  const [ring, hot] = await Promise.all([
+    currentRing(), isHot().catch(() => false), id ? noteWorker(id, kinds) : Promise.resolve()]);
+  return Response.json({ ring, hot }, { headers: { "Cache-Control": "no-store" } });
 }

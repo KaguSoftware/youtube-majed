@@ -74,6 +74,10 @@ class Narration:
     beats: list[BeatAudio]
     duration: float
     voice: str
+    #: The content-addressed original in the cache, when there is one. The
+    #: timeline records its key, so an edit on any machine can fetch the
+    #: exact narration its film was cut to.
+    source: Path | None = None
 
 
 class TTS(ABC):

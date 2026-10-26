@@ -98,12 +98,14 @@ class FakeGenerator:
     def load(self, log=print) -> None:
         self._loaded = True
 
-    def generate(self, prompt: str, seed: int, refs: list[Path], dest: Path) -> float:
+    def generate(self, prompt: str, seed: int, refs: list[Path], dest: Path, *,
+                 size: tuple[int, int] | None = None) -> float:
         t = time.time()
+        w, h = size or (config.GEN_WIDTH, config.GEN_HEIGHT)
         rng = np.random.default_rng(_seed(prompt, seed))
         blocks = rng.integers(0, 256, size=(6, 10, 3), dtype=np.uint8)
-        img = Image.fromarray(blocks).resize((config.GEN_WIDTH, config.GEN_HEIGHT), Image.BICUBIC)
-        arr = np.asarray(img).astype(np.int16) + rng.integers(-24, 24, (config.GEN_HEIGHT, config.GEN_WIDTH, 3))
+        img = Image.fromarray(blocks).resize((w, h), Image.BICUBIC)
+        arr = np.asarray(img).astype(np.int16) + rng.integers(-24, 24, (h, w, 3))
         if self.delay:
             time.sleep(self.delay)
         dest.parent.mkdir(parents=True, exist_ok=True)

@@ -4,6 +4,12 @@ Reads the prompt on stdin and prints what the real CLI prints with
 `--output-format json`: a research document built from the Phase 1 fixture
 (with URL sources in place of the FIXTURE sentinel), or the fixture script.
 
+With `--mcp-config` (an edit) it is an MCP client instead: it starts the
+tool server the config names, exactly as the CLI would, and calls the tools
+listed in FAKE_CLAUDE_EDIT, a JSON list of [tool, arguments] pairs. So the
+queue test exercises the real tool server, the real draft and the real
+repaint and re-cut, with only the decisions scripted.
+
 FAKE_CLAUDE_MODE picks the behaviour:
     ok       a well-formed document (default)
     limit    the usage-limit error a subscription returns
@@ -30,8 +36,43 @@ def research_doc() -> str:
     return re.sub(r"source: FIXTURE", lambda _: f"source: https://example.org/source/{next(n)}", text)
 
 
+def edit(argv: list[str], prompt: str) -> int:
+    import subprocess
+
+    config = json.loads(Path(argv[argv.index("--mcp-config") + 1]).read_text())
+    server = next(iter(config["mcpServers"].values()))
+    proc = subprocess.Popen([server["command"], *server["args"]], stdin=subprocess.PIPE,
+                            stdout=subprocess.PIPE, text=True,
+                            env={**os.environ, **server.get("env", {})})
+    ids = iter(range(1, 1000))
+
+    def call(method: str, params: dict) -> dict:
+        mid = next(ids)
+        proc.stdin.write(json.dumps({"jsonrpc": "2.0", "id": mid, "method": method, "params": params}) + "\n")
+        proc.stdin.flush()
+        return json.loads(proc.stdout.readline())
+
+    call("initialize", {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "fake"}})
+    tools = {t["name"] for t in call("tools/list", {})["result"]["tools"]}
+    done = []
+    for name, args in json.loads(os.environ.get("FAKE_CLAUDE_EDIT", "[]")):
+        if name not in tools:
+            raise SystemExit(f"fake claude: no tool {name}")
+        res = call("tools/call", {"name": name, "arguments": args})["result"]
+        done.append(f"{name}: {'error' if res.get('isError') else 'ok'}")
+    proc.stdin.close()
+    proc.wait(timeout=10)
+    print(json.dumps({"type": "result", "subtype": "success", "is_error": False,
+                      "result": "Changed the shot as asked (" + "; ".join(done) + ").",
+                      "num_turns": len(done) + 1, "duration_ms": 900, "total_cost_usd": 0.0,
+                      "session_id": "fake", "prompt_chars": len(prompt)}))
+    return 0
+
+
 def main() -> int:
     prompt = sys.stdin.read()
+    if "--mcp-config" in sys.argv:
+        return edit(sys.argv, prompt)
     mode = os.environ.get("FAKE_CLAUDE_MODE", "ok")
     if mode == "slow":
         time.sleep(float(os.environ.get("FAKE_CLAUDE_DELAY", "30")))

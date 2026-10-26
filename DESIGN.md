@@ -181,6 +181,48 @@ its own hero frame without drifting from the house style.
 
 ---
 
+## Stage: `editing`
+
+The film exists; the user watches it and asks for changes in plain words
+("the mood at 1:24 doesn't match"). Claude makes them through tools that
+change a draft timeline (pipeline/edits.py, pipeline/edit_tools.py); the
+worker paints what changed and re-cuts it. Built in Phase 4, PLAN.md 12.
+
+### Cuts
+
+Each timeline version is a **cut**, immutable. The film is the cut
+`projects.timeline_version` points at.
+
+| event | timelines | pointer |
+|---|---|---|
+| render | new cut, `parent_version` NULL | moves to it |
+| edit | new cut, `parent_version` = the cut edited, `change` = request, summary, operations | moves to it |
+| undo / choose a cut | nothing | moves |
+
+An edit that finishes after the pointer moved off its base is refused.
+Nothing is ever deleted, so any cut can be watched, compared or chosen again.
+
+### What an edit may change
+
+| tool | changes | repaints |
+|---|---|---|
+| `set_shot_mood` | the shot's mood, its prompt | the shot |
+| `regenerate_shot` | the shot's visual (or only its seed) | the shot |
+| `edit_shot_image` | a region of the current still (`retouch`) | that region |
+| `nudge_shot_boundary` | one cut, onto a word boundary | nothing |
+| `split_shot` / `merge_shots` | the shot list | the new half / nothing |
+
+Never the narration, its words or their timing: the audio is the film's
+spine, so an edit never changes `upstream` and never makes a cut stale. A
+change to the script or the look is a new render, not an edit.
+
+### Delivery
+
+`timeline.media.hls`: the chunks in film order (`key`, `frames`), the
+narration stream and its byte-range slices, fps and the 10 s timestamp base.
+The browser reads HLS playlists written from this per request. The mp4 is an
+export, made on request (`jobs.kind = 'export'`).
+
 ## Staleness: the rule that keeps gates honest
 
 Each artifact stores the hash of its upstream input.
@@ -207,7 +249,8 @@ artifacts     (id, project_id, kind, version, markdown_raw, parsed_json,
                doc_status, upstream_hash, validator_report, approved_at)
 styles        (id, name, preset_json, is_library)
 style_runs    (id, project_id, candidates_json, selected_seed, hero_blob)
-timelines     (id, project_id, version, timeline_json, created_at)
+timelines     (id, project_id, version, timeline_json, parent_version, change,
+               created_by, created_at)        -- projects.timeline_version: the film
 jobs          (id, project_id, kind, state, progress, claimed_by,
                heartbeat_at, error)
 prompt_log    (id, project_id, kind, prompt_text, response_raw, hash, created_at)

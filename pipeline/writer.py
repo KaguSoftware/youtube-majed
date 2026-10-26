@@ -438,21 +438,28 @@ def run_claude(system: str, prompt: str, *, kind: str, should_stop=None, log=pri
                 raise TimeoutError(f"claude -p gave no answer in {timeout // 60} minutes")
             time.sleep(1.0)
         out, err = proc.stdout.read() if proc.stdout else "", proc.stderr.read() if proc.stderr else ""
+    result = parse_result(out, err, proc.returncode)
+    log(f"  claude: {result.get('num_turns')} turns, {result.get('duration_ms', 0) / 1000:.0f}s, "
+        f"${result.get('total_cost_usd', 0):.2f} equivalent")
+    return result
+
+
+def parse_result(out: str, err: str, returncode: int | None) -> dict:
+    """The CLI's `--output-format json` result, or the reason there is none.
+    Claude declining (limit, sign-in) is a `WriterGate`: retrying soon repeats it."""
     try:
         result = json.loads(out)
     except json.JSONDecodeError:
         tail = (err or out).strip()[-600:]
         if re.search(r"limit|quota|rate|log ?in|auth|credit", tail, re.I):
             raise WriterGate(f"Claude did not run: {tail}") from None
-        raise RuntimeError(f"claude -p exited {proc.returncode} without a result: {tail}") from None
+        raise RuntimeError(f"claude -p exited {returncode} without a result: {tail}") from None
     if result.get("is_error"):
         message = str(result.get("result") or result.get("subtype") or "unknown error")
         status = result.get("api_error_status")
         if status in (401, 403, 429) or re.search(r"limit|quota|log ?in|auth", message, re.I):
             raise WriterGate(f"Claude did not run: {message}")
         raise RuntimeError(f"claude -p reported an error ({status}): {message[:600]}")
-    log(f"  claude: {result.get('num_turns')} turns, {result.get('duration_ms', 0) / 1000:.0f}s, "
-        f"${result.get('total_cost_usd', 0):.2f} equivalent")
     return result
 
 

@@ -20,6 +20,7 @@ type WorkerRow = {
 const DOING: Record<string, string> = {
   production: "Rendering", style: "Painting looks for", research: "Claude is researching",
   script: "Claude is writing the script for",
+  edit: "Changing", export: "Preparing a download of",
 };
 
 /**
@@ -61,7 +62,7 @@ export async function machineStatus(): Promise<Record<Lane, MachineState>> {
 export async function waitingWork(): Promise<{ gpu: number; light: number; renders: number; looks: number }> {
   const [row] = await query<{ renders: string; looks: string; light: string }>(`
     SELECT count(*) FILTER (WHERE kind = 'production') AS renders,
-           count(*) FILTER (WHERE kind = 'style') AS looks,
+           count(*) FILTER (WHERE kind IN ('style', 'edit', 'export')) AS looks,
            count(*) FILTER (WHERE kind IN ('research', 'script')) AS light
     FROM jobs WHERE state = 'queued' AND coalesce((payload->>'fake')::boolean, false) = false`);
   const renders = Number(row?.renders ?? 0), looks = Number(row?.looks ?? 0);

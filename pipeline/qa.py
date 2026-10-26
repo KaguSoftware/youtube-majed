@@ -121,6 +121,7 @@ def inspect(
     reference: Path | None = None,
     others: dict[str, int] | None = None,
     adjacent: dict[str, int] | None = None,
+    adjacent_limits: dict[str, int] | None = None,
 ) -> ImageQA:
     """Check one generated image. `others`/`adjacent` map shot_id -> dhash.
 
@@ -130,6 +131,12 @@ def inspect(
     a video that has stopped. The first Phase 1 run made this concrete — S03/S04
     at distance 11 and S06/S07 at distance 9 both passed the duplicate check and
     both play as one held image for ten seconds.
+
+    `adjacent_limits` lowers the adjacent limit per neighbour. An edit uses it
+    to hold a repaint to the picture it replaces rather than to the absolute
+    rule: two shots of one beat can sit at 12 because the film was made that
+    way, and rerolling an edit three times to beat a likeness the original
+    already had cost 68 s of a 99 s edit (PLAN.md 12.6).
     """
     gray = _gray(path)
     lap = laplacian_variance(gray)
@@ -153,7 +160,8 @@ def inspect(
     for shot_id, other in (others or {}).items():
         candidates.append((shot_id, hamming(h, other), DUPLICATE_DISTANCE))
     for shot_id, other in (adjacent or {}).items():
-        candidates.append((f"{shot_id} (adjacent)", hamming(h, other), SIMILAR_DISTANCE))
+        limit = (adjacent_limits or {}).get(shot_id, SIMILAR_DISTANCE)
+        candidates.append((f"{shot_id} (adjacent)", hamming(h, other), limit))
 
     if candidates:
         name, distance, _ = min(candidates, key=lambda c: c[1])

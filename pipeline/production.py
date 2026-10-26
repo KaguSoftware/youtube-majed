@@ -220,6 +220,7 @@ def narrate(inputs: Inputs, paths: config.Paths, engines: Engines, *, log=print)
         ],
         duration=len(samples) / sr,
         voice=index["voice"],
+        source=wav,
     )
 
 
@@ -275,6 +276,7 @@ def plan(inputs: Inputs, narration: tts.Narration, alignment: align.Alignment,
         duration=narration.duration,
         audio={
             "path": paths.audio.name,
+            "key": paths.mirror.key(narration.source) if narration.source else None,
             "sample_rate": narration.sample_rate,
             "duration": round(narration.duration, 4),
             "voice": narration.voice,
@@ -289,6 +291,10 @@ def plan(inputs: Inputs, narration: tts.Narration, alignment: align.Alignment,
             "hero_full": str(style.hero_full.name),
             "hero_crop": str(style.hero_crop.name),
             "crop_box": list(style.crop_box),
+            # What every prompt was built with besides the shot's own words,
+            # so an edit rebuilds a prompt exactly as the planner did.
+            "period": inputs.script.meta.get("period"),
+            "protagonist": list(docs.protagonist(inputs.script) or []) or None,
         },
         render={"width": width, "height": height, "fps": config.FPS, "xfade": config.XFADE_SECONDS},
         models={
@@ -359,6 +365,9 @@ def contact_sheet(timeline: Timeline, paths: config.Paths) -> tuple[Path, dict]:
     rows = max(1, -(-len(shots) // cols))
     sheet = Image.new("RGB", (cols * w, rows * h), (20, 19, 18))
     for i, shot in enumerate(shots):
+        # Through the mirror: an edit on a machine that did not paint the film
+        # has only the stills it repainted on disk.
+        paths.mirror.ensure(paths.root / shot.image.path)
         with Image.open(paths.root / shot.image.path) as im:
             frame = im.convert("RGB").resize((w, h), Image.LANCZOS)
         sheet.paste(frame, ((i % cols) * w, (i // cols) * h))
@@ -371,16 +380,45 @@ def contact_sheet(timeline: Timeline, paths: config.Paths) -> tuple[Path, dict]:
                   "shots": [s.shot_id for s in shots]}
 
 
-def render(timeline: Timeline, paths: config.Paths, *, log=print) -> Path:
-    video = assemble.build(timeline, paths, log=log)
-    sheet, layout = contact_sheet(timeline, paths)
+def publish_render(timeline: Timeline, rendered: assemble.Rendered, paths: config.Paths, *,
+                   log=print) -> None:
+    """Put what the browser plays into the store and on the timeline.
+
+    `media.hls` lists the chunks in film order with their frame counts, which
+    is everything the web app needs to write the playlists. Upload first,
+    pointer second: the timeline that names these keys is written after."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    fps = timeline.render["fps"]
+    # The contact sheet is built while the chunks upload: an edit waits on both.
+    with ThreadPoolExecutor(1) as ex:
+        sheet_job = ex.submit(contact_sheet, timeline, paths)
+        keys = paths.mirror.publish_many([path for _, path in rendered.chunks], "chunk")
+        sheet, layout = sheet_job.result()
+    chunks = [{"key": key, "frames": chunk.frames} for (chunk, _), key in zip(rendered.chunks, keys)]
+    narration = paths.mirror.publish(rendered.narration, "audio")
+    paths.mirror.publish(rendered.narration_index, "audio")
+    paths.mirror.ensure(rendered.narration_index)
+    slices = json.loads(rendered.narration_index.read_text())
+    timeline.media["hls"] = {
+        "fps": fps, "base": assemble.TS_BASE, "codecs": assemble.HLS_CODECS,
+        "width": timeline.render["width"], "height": timeline.render["height"],
+        "narration": narration, "narration_slices": slices,
+        "duration": round(timeline.duration, 4), "chunks": chunks,
+    }
+    timeline.media["sheet"] = {"key": paths.mirror.publish(sheet, "sheet"), **layout}
+    # A version's mp4 is made on request (an export), not with every render:
+    # the store is 1 GB, and the chunks already are the film.
+    timeline.media.pop("film", None)
     if paths.mirror.enabled:
-        # Before the timeline that points at them is written anywhere durable.
-        timeline.media["film"] = paths.mirror.publish_film(video)
-        timeline.media["sheet"] = {"key": paths.mirror.publish(sheet, "sheet"), **layout}
-        log(f"  published {timeline.media['film']} and contact sheet")
+        log(f"  published the chunks ({len(rendered.encoded)} new), the narration stream and the contact sheet")
+
+
+def render(timeline: Timeline, paths: config.Paths, *, log=print) -> Path:
+    rendered = assemble.build(timeline, paths, log=log)
+    publish_render(timeline, rendered, paths, log=log)
     timeline.write(paths.timeline)
-    return video
+    return rendered.video
 
 
 # ----------------------------------------------------------------------- run

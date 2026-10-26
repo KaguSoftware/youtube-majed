@@ -28,8 +28,9 @@
     </array>
     <key>EnvironmentVariables</key>
     <dict>
+        <!-- ~/.local/bin: edits run `claude -p` on this lane (pipeline/editor.py). -->
         <key>PATH</key>
-        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <string>HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
     </dict>
     <key>KeepAlive</key>
     <true/>

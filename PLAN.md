@@ -205,7 +205,10 @@ Segment-level render cache so an edit re-renders one shot, not the film.
 Immutable timeline versions for free undo and A/B.
 
 **Exit:** "the mood at 1:24 doesn't match" produces a corrected video in under
-60 seconds.
+60 seconds. **Met: 47.9 s from the click to the new cut on screen, 50.1 s to
+playable (section 12.1).** The film is delivered as per-shot chunks rather than
+one mp4 (12.2), and the editing model is the generation model (8.2), so
+Qwen-Image-Edit (1.3) was never needed.
 
 ### Phase 5 — Hardening (~1 week)
 
@@ -1304,4 +1307,192 @@ to stop a render from the app.
 `claude -p` runs from a launchd agent on the subscription sign-in (probe:
 "ok"). Live state: production on Neon with migrations 001-004, account
 `majed`, both agents running on the doorbell.
+
+## 12. Phase 4 findings — verified on this machine
+
+The editing page, the edit agent, chunked delivery and immutable cuts are
+built. Every number below was measured with real Claude, the real klein model
+and the real Blob store, driving the page in Chrome; the local worker ran
+against the local database. Production (Neon, Vercel, the installed agents)
+has not been updated: section 12.11.
+
+### 12.1 The exit, measured
+
+"the mood at 1:24 doesn't match", typed into the editing page of the Aztec
+film and timed by a browser script from the click on "Make the change":
+
+| | seconds |
+|---|---|
+| request saved, picked up by the worker | 0.9 |
+| Claude: find the shot, look at it and its neighbour, set a mood (3 turns) | 8.6 |
+| paint the shot (one attempt, passed QA) | 23.4 |
+| segment, two chunks, uploads (4.3 MB), contact sheet | 11.9 |
+| the click itself, and the page noticing and showing the new cut | 3.2 |
+| **new cut on screen / ready to play** | **47.9 / 50.1** |
+
+Claude's change was S13 only ("cooler, level daylight, thoughtful and
+questioning rather than radiant"), reasoned against the narration and the
+shot before it, and its one-line summary said so in plain words. The two
+attempts before the passing one took 111.5 s and 55.3 s; what they found is
+12.6.
+
+### 12.2 One chunk per shot, played as HLS: the film is no longer one file
+
+Re-stitching the Roman film (6:00, 50 shots) with the old full-film `xfade`
+pass took **105 s**, and the result was an 87 MB upload against a 1 GB store
+per edit. Neither fits a 60 s exit. So each shot's stretch of the film is now
+its own content-addressed MPEG-TS chunk (the shot's segment plus the
+dissolve into the next), placed by integer frames, and the browser plays the
+chunks as HLS beside one narration stream. An edit to one shot re-encodes two
+chunks (**2.1 s each**), uploads ~4 MB, and undo costs nothing because every
+cut's chunks are already in the store.
+
+- **The chunked film equals the old stitch:** 10,813 frames each, per-frame
+  PSNR 32 dB minimum, 43 dB median against the full-film render of the same
+  timeline. A full render is no slower: 112 s one chunk at a time, 89 s four at
+  a time (x264 threads well alone).
+- **Timestamps had to be fixed by hand.** Muxed separately, the video landed
+  45-67 ms after its narration: ffmpeg shifts each stream by its own start
+  delay (B-frame reordering on one side, AAC priming on the other). With
+  `-muxdelay 0 -avoid_negative_ts disabled` and an explicit base of 10 s, the
+  first frame of chunk i is presented at exactly 10 + F_i/30 and the first
+  narration sample at 10.000 (selftest checks every chunk).
+- **The store serves this without a proxy.** Presigned private URLs answer
+  cross-origin GETs (`access-control-allow-origin: *`), and Chrome's byte-range
+  reads go through without a preflight (206). Playlists are written per
+  request with fresh signatures; nothing streams through a function.
+- **The narration is read in slices.** As one 7.9 MB segment, the player
+  downloaded all of it before starting (7.6 s of the 55 s run). Written by
+  ffmpeg's HLS muxer as one file with 6 s byte ranges, it is also smaller
+  (6.5 MB for six minutes) and playback starts after the first slice.
+- **The mp4 is made on request** ("Prepare a download"): the chunks
+  concatenated by stream copy plus the narration encoded once, under 3 s.
+  Uploading one with every render would halve how many films fit in the store.
+- Cost on the free tier: a render now uploads 50 chunks rather than one film,
+  about 110 uploads per film against 2,000 a month. Upload speed from this
+  Mac measured 1.7 MB/s.
+
+### 12.3 The agent: `claude -p`, one MCP server, tools that never paint
+
+The tools of section 3 (plus `view_shot`) are a ~200-line stdio MCP server
+(`pipeline/edit_tools.py`) over a draft of the timeline; `claude -p` is
+started with it as its only tool server. Tools change the draft and mark
+shots for repainting; the worker paints after Claude exits. Measured on the
+exit request:
+
+| model | seconds | turns | |
+|---|---|---|---|
+| Haiku | 13.2 | 4 | |
+| Sonnet | 50.7 | 4 | |
+| Opus, default effort | 11.3-21.1 | 4-5 | the only one to weigh the neighbouring shots |
+| **Opus, `--effort low`** | **8.5-9.2** | 3 | same decisions; still looked and boxed regions on a harder request |
+
+The CLI's own start-up is ~3.5 s of each run. The shot list (timecodes, words,
+description, mood) is in the prompt, so Claude rarely needs more than
+resolve, look, change.
+
+### 12.4 Pickup: the doorbell runs hot while someone is editing
+
+At 15 s a doorbell poll would spend a quarter of the budget waiting. The
+editing page marks the doorbell "hot" for five minutes and renews it every
+four while open; a hot bell is polled every 2 s. An hour of editing is about
+1,800 invocations. Measured pickup: under 1 s.
+
+### 12.5 Retouching: whole-frame edits change what they were told to keep
+
+Klein edits a still well when the still is the reference: the composition
+holds (the full-frame effect section 8.11 avoids, used on purpose). But asked
+to replace the glass lantern in the Roman grain store, it also turned the
+bronze measure in the other man's hands into a clay pot, in two of two
+attempts, with the instruction naming the measure as something to keep.
+**Region retouch fixed it:** Claude boxes the object on the frame it viewed,
+only that region (plus a 6% margin) is repainted at ~768 px and feathered
+back in, and every pixel outside is unchanged (queuetest checks this). It is
+also faster: 13.4 s against 27 s for a whole-frame retouch.
+
+### 12.6 What the failed runs found
+
+- **QA fought the film.** S13 is the second shot of S12's beat: the same
+  scene, another framing, distance 12-14 from S12 since the first render. A
+  repaint held to the absolute adjacent limit (14) failed three times, 68 s of
+  a 99 s edit. An edit is now held to the picture it replaces: a neighbour it
+  was already close to keeps that distance as its limit, never below the
+  duplicate floor (8).
+- **One index lookup per chunk.** Publishing a cut asked the media index about
+  all 50 chunks, one query each; from the Mac to Neon that is ~5 s. Now one
+  query per cut.
+- **"At 0:00".** Before the film is played, the playhead sent with a request
+  meant nothing and told Claude the wrong place. It is sent only once the user
+  has played or moved the film.
+
+### 12.7 Cuts: immutable versions and a pointer
+
+Every edit is a new `timelines` row with `parent_version` and `change` (the
+request, Claude's summary, the operations); `projects.timeline_version` says
+which cut the film is. Undo moves the pointer to the parent. An edit made
+after an undo branches from there and the undone cut stays in the list. An
+edit that finishes on a cut that is no longer the film (someone chose another
+meanwhile) is refused, not applied (`FilmMoved`). A/B on the page switches
+between a cut and its parent at the same playhead (hls.js's start position;
+a plain seek after load is overridden by it).
+
+### 12.8 Other decisions
+
+- Claude cannot change the narration: no tool adds, removes or retimes a
+  word, and cuts move only onto word boundaries. A request that needs a new
+  line is answered, not attempted.
+- `split_shot` paints the new half closer (the next framing on the ladder) or
+  from a given description, with the opposite Ken Burns move, so the cut
+  between two pictures of one scene does not read as a stutter.
+- The timeline now records the period and protagonist every prompt was built
+  from, so an edit rebuilds a prompt exactly as the planner did. Older films
+  read them from their approved script.
+- Edits run on the GPU lane (the model is warm there); the GPU worker's
+  launchd PATH now includes `~/.local/bin` for `claude`.
+- The cutting step: uploads now run four at a time and the contact sheet is
+  built while they go, which took cutting from 11.9 s to 10.7 s (job 44.0 s on
+  the next mood edit). What is left is CPU: the changed shot's Ken Burns
+  segment (2.7 s, of which the zoompan filter is 1.65 s) and its two chunks
+  (4.8 s; x264 already uses every core, so encoding them in parallel gains
+  nothing over one after the other).
+
+### 12.9 Keeping the store whole: heal-cuts and prune-films
+
+Two operator commands (`pipeline/upkeep.py`), both checked by the queue test:
+
+- `jobs heal-cuts` makes every cut playable from the store: a cut from before
+  chunks is cut into them from its own timeline, anything the store lacks is
+  uploaded, and only the cut's `media` is rewritten (derived delivery data;
+  its shots are untouched, which the test asserts). Run on the local
+  database: 12 cuts healed, 2 already fine, 0 skipped; the Roman film's
+  first cut, once a 218 MB mp4, then played from chunks in Chrome.
+- `jobs prune-films [--apply]` deletes whole-film mp4s no cut points at, and
+  exports (rebuilt from chunks in seconds; the page goes back to offering a
+  download). After the heal, all four mp4s in the store, 519 MB of 870 MB,
+  are unused. The delete itself has not been run (12.10).
+
+### 12.10 Browsers
+
+Chrome (hls.js) and WebKit were both driven: in WebKit through hls.js, as
+desktop Safari takes it, and through WebKit's own HLS, the path iPhones and
+iPads take (`use-film-source.ts` falls back to it without Media Source
+Extensions). Both played the chunks and the byte-range narration, with one
+audio track, seeking and playback.
+
+### 12.11 Not yet done
+
+- **Production is on Phase 3 code.** Shipping Phase 4 is, in this order:
+  1. migration 005 on Neon: `DATABASE_URL=<direct Neon URL> python -m
+     pipeline.jobs migrate`. Additive (new columns, two more job kinds), so
+     the Phase 3 app and workers carry on unaffected;
+  2. `vercel deploy --prod` from the repo root. Its pages read the new
+     columns, so not before step 1;
+  3. `deploy/install-worker.sh`. Not before step 2: a Phase 4 worker no
+     longer uploads a whole-film mp4, which is all the Phase 3 page can play.
+  Phase 3 films keep playing from their mp4 and are cut into chunks on their
+  first edit (two to three minutes, once), or at once with `jobs heal-cuts`.
+- `python -m pipeline.jobs prune-films --apply` (with `DATABASE_URL` at the
+  database whose cuts were healed) frees 519 MB of the shared store.
+- The Phase 3 exit run by the non-technical user on production is still
+  outstanding (HANDOFF section 2).
 

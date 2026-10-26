@@ -54,6 +54,10 @@ class LeaseLost(RuntimeError):
     """This worker no longer owns the job. Stop work; write nothing further."""
 
 
+class FilmMoved(RuntimeError):
+    """An edit finished on a version that is no longer the film."""
+
+
 @dataclass(frozen=True)
 class Claim:
     """A worker's hold on one job. `token` fences every write it makes."""
@@ -72,7 +76,7 @@ class Claim:
 #: Every job kind, and the lane each runs on. The GPU lane holds the warm image
 #: model; the light lane runs `claude -p`, which needs no GPU and should not
 #: wait twenty minutes behind someone else's render.
-GPU_KINDS = ("production", "style")
+GPU_KINDS = ("production", "style", "edit", "export")
 LIGHT_KINDS = ("research", "script")
 
 
@@ -202,7 +206,8 @@ class Store:
     #: The project state a job of each kind belongs to. Enqueueing moves the
     #: project there, so the studio shows the stage the work is happening in.
     STATE_FOR_KIND = {"production": "production", "style": "style",
-                      "research": "staging", "script": "scripting"}
+                      "research": "staging", "script": "scripting",
+                      "edit": "editing", "export": "editing"}
 
     def enqueue(self, project_id: str, kind: str, payload: dict, *, max_attempts: int = 3) -> int:
         with self.conn.transaction():
@@ -358,8 +363,71 @@ class Store:
                 "VALUES (%s, %s, %s, %s)",
                 (claim.project_id, version, Jsonb(timeline_json), claim.job_id),
             )
-            self.conn.execute("UPDATE projects SET state = 'editing' WHERE id = %s", (claim.project_id,))
+            self.conn.execute("UPDATE projects SET state = 'editing', timeline_version = %s, "
+                              "updated_at = now() WHERE id = %s", (version, claim.project_id))
         return version
+
+    def finish_edit(self, claim: Claim, timeline_json: dict, *, parent: int, change: dict,
+                    created_by: int | None) -> int:
+        """Add an edited version on top of `parent` and make it the film, all
+        or nothing. Refused if the film moved off `parent` while the edit ran
+        (an undo, or a new render): committing anyway would silently throw
+        that away."""
+        with self.conn.transaction():
+            self._fenced(
+                claim,
+                "state = 'done', finished_at = now(), lease_token = NULL, error = NULL, "
+                "progress = progress || '{\"stage\": \"done\"}'::jsonb",
+            )
+            current = self._one("SELECT timeline_version FROM projects WHERE id = %s FOR UPDATE",
+                                 (claim.project_id,))
+            if current is None or current["timeline_version"] != parent:
+                raise FilmMoved(f"the film is at version {current and current['timeline_version']}, "
+                                f"not {parent}, which this edit was made on")
+            version = self._one(
+                "SELECT coalesce(max(version), 0) + 1 AS v FROM timelines WHERE project_id = %s",
+                (claim.project_id,),
+            )["v"]
+            self.conn.execute(
+                "INSERT INTO timelines (project_id, version, timeline_json, job_id, parent_version, "
+                " change, created_by) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                (claim.project_id, version, Jsonb(timeline_json), claim.job_id, parent,
+                 Jsonb(change), created_by),
+            )
+            self.conn.execute("UPDATE projects SET timeline_version = %s, updated_at = now() "
+                              "WHERE id = %s", (version, claim.project_id))
+        return version
+
+    def finish_job(self, claim: Claim) -> None:
+        """Close a job that produced nothing to store (an edit Claude decided
+        not to make); its outcome is in its events."""
+        self._fenced(
+            claim,
+            "state = 'done', finished_at = now(), lease_token = NULL, error = NULL, "
+            "progress = progress || '{\"stage\": \"done\"}'::jsonb",
+        )
+
+    def finish_export(self, claim: Claim, *, film_key: str, size: int) -> None:
+        """An mp4 of one version is in the store; the job records where."""
+        self._fenced(
+            claim,
+            "state = 'done', finished_at = now(), lease_token = NULL, error = NULL, "
+            "checkpoint = checkpoint || jsonb_build_object('film', %(k)s::text, 'size', %(n)s::bigint), "
+            "progress = progress || '{\"stage\": \"done\"}'::jsonb",
+            {"k": film_key, "n": size},
+        )
+
+    def timeline(self, project_id: str, version: int) -> dict | None:
+        return self._one("SELECT * FROM timelines WHERE project_id = %s AND version = %s",
+                         (project_id, version))
+
+    def record_prompt(self, *, project_id: str, kind: str, prompt: str, response_raw: str,
+                      job_id: int | None, meta: dict) -> None:
+        self.conn.execute(
+            "INSERT INTO prompt_log (project_id, kind, prompt_text, response_raw, hash, job_id, meta) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+            (project_id, kind, prompt, response_raw, text_sha(prompt), job_id, Jsonb(meta)),
+        )
 
     def finish_document(self, claim: Claim, *, kind: str, markdown: str, verdict: dict,
                         upstream_hash: str | None, prompt: str, response_raw: str,
@@ -485,6 +553,14 @@ class Store:
             (project_id,),
         )
 
+    def current_timeline(self, project_id: str) -> dict | None:
+        """The version the film is (projects.timeline_version), which after an
+        undo is not the newest one."""
+        return self._one(
+            "SELECT t.* FROM timelines t JOIN projects p ON p.id = t.project_id "
+            "AND t.version = p.timeline_version WHERE p.id = %s", (project_id,),
+        )
+
     # -------------------------------------------------------------- workers
 
     def touch_worker(self, worker: str, *, hostname: str, pid: int, current_job: int | None,
@@ -533,6 +609,11 @@ class MediaIndex:
 
     def known(self, key: str) -> bool:
         return self.size(key) is not None
+
+    def known_many(self, keys: list[str]) -> set[str]:
+        rows = self.store._all("SELECT key FROM media WHERE store = %s AND key = ANY(%s)",
+                               (self.remote, list(keys)))
+        return {r["key"] for r in rows}
 
     def record(self, key: str, *, size: int, kind: str) -> None:
         self.store.media_record(self.remote, key, size=size, kind=kind,
