@@ -997,3 +997,311 @@ deletions.
   the HTTP control plane (the worker talks to Postgres directly over TLS, which
   still satisfies "the worker pulls"), and prompt logging. All three are now in
   Phase 3's scope (section 3), with what each involves.
+
+---
+
+## 11. Phase 3 findings, so far — verified on this machine
+
+Steps 0 (spikes), 1 (media store, migration 002, doorbell), 2 (app shell),
+3 (research and script slots, both modes) and 4 (the look stage) are built,
+and step 5 (render from the browser, live progress over SSE, film playback)
+produced its first real film: 6:00, 50 shots, drift +8 ms, 22 minutes on the
+Mac, published to Blob and played with seeking in the browser. Every stage was driven through the browser on
+real output: Claude research, Claude scripts, real klein looks, a real render.
+
+### 11.1 The free tier shapes the architecture
+
+Decision: Vercel Hobby, Neon Free, Blob on Hobby. Each has a hard ceiling that
+locks the service until the next period when crossed, so they are design
+constraints, not cost lines:
+
+| | limit | what it forced |
+|---|---|---|
+| Neon | 100 CU-hours/month; scale to zero after 5 min, not disableable | an idle worker must not poll Postgres (11.2) |
+| Blob | 1 GB, 2,000 uploads, 10,000 cache-miss reads, 10 GB transfer | segments stay local; contact sheets instead of per-shot thumbs (11.4) |
+| Vercel | 1M invocations, 4 h active CPU | doorbell every 15s, two lanes: ~350k invocations/month |
+
+Vercel's terms restrict Hobby to non-commercial use; noted to the owner, who
+chose free.
+
+### 11.2 The doorbell: idle without waking the database
+
+Polling Postgres every 5s keeps Neon's compute awake around the clock, about
+180 CU-hours a month against 100. Moving the control plane to HTTP would not
+help: the API routes would query Neon just the same.
+
+So an idle worker polls `GET /api/worker/doorbell`, which answers from Vercel's
+runtime cache and never touches the database; enqueueing changes the value.
+The worker reads Postgres when the value changes, after each job, when
+`Store.next_due` says a retry or an expiring lease comes due, and every six
+hours as a safety net. An evicted value is rewritten fresh and reads as a
+ring, so eviction costs one poll, never a missed job. The baseline is read
+before the first database poll, or a job enqueued in between would wait for
+the safety net. Neon drops idle connections when it scales to zero, so the
+worker reconnects on `OperationalError`. The control plane otherwise stays
+direct Postgres (decision 1); `Store` remains the seam for HTTP later.
+
+`queuetest` proves the gating: an idle worker polls the bell and not the
+database, a job enqueued without a ring is not claimed, a ring is answered
+within two intervals, and a broken doorbell falls back to a slow poll.
+
+### 11.3 Media: local, then Blob, then generate — and publishing heals
+
+`pipeline/media.py` puts a private Blob store behind `work/cache/`. Keys are
+cache paths, so the local cache is a mirror. Images (every attempt, rerolls
+included), narration and alignment are uploaded; narration because Kokoro is
+seeded but not promised bit-identical across torch builds, and a different
+wav plans different shots. Segments are not uploaded.
+
+**Measured on the real model and the real store:** worker A was SIGKILLed after
+shot 4; worker B, on an *empty* disk, took the narration, the alignment and
+all seven of A's images (three were rerolls) from Blob, reproduced A's reroll
+decisions from those bytes, and generated only S05 onward. Drift +0ms. The
+film downloaded from Blob is byte-identical to the local render.
+
+**What the run found:** one transient `BlobUnknownError` on S09's upload failed
+attempt 2. Attempt 3 finished the film, at attempts 3 of 3, but S09 was a
+*local* cache hit on attempt 3 and publishing only followed generation, so
+the timeline named a still the store did not have. Two fixes: uploads retry
+with backoff before a failure reaches the job, and every artifact a run
+*uses* is published (one indexed-key query when already there). The repair
+was confirmed on the real store. `queuetest` now injects upload failures and
+checks that a cache built without a store is published by the next run.
+
+Two more, found writing the tests: the `media` index must be keyed per store
+(otherwise a new store inherits the old index and nothing is uploaded to it),
+and a fetched file is checked against the size recorded at upload, because a
+key addresses inputs rather than bytes and nothing else would notice a short
+download (the same failure as 10.2, from the network instead of a kill).
+
+### 11.4 Browser media
+
+The browser fetches private media through short-lived presigned URLs signed
+locally from one store-wide token per function instance (1.2s to issue once;
+~1ms per URL). Measured: range requests return 206, so video seeks, and
+repeat reads are CDN hits that cost no metered operations. Nothing streams
+through a function. Filmstrips read frames out of a per-film WebP contact
+sheet (`production.contact_sheet`) by CSS background position: one upload per
+film instead of one per shot, a few hundred KB per page instead of megabytes.
+
+### 11.5 Validators run once, in Python
+
+`docs.check()` is the single entry point for both slot modes. The web app calls
+it through a Vercel Python function (`web/api/validate.py`), so the UI and the
+worker cannot disagree. Vercel bundles only `web/`; `includeFiles` with `../`
+fails the deploy and a symlink arrives dangling, so a prebuild step copies
+`pipeline/{__init__,docs}.py` into the bundle. Warm calls ~0.35s.
+
+### 11.6 Observed in the artifacts
+
+- **An anachronism QA cannot see.** S03/S04's prompt asks for "a distant Roman
+  watchtower"; klein painted a medieval stone keep. Image QA checks sharpness
+  and near-duplicates, not history. Correct prompts do not guarantee correct
+  pictures; this belongs to the Phase 4 editing page.
+- Images ran 19-21s against the 15.3s median during the takeover run, with
+  ~80 MB free memory (Docker VM, iCloud sync, VS Code resident). Swapouts rose
+  only ~44k pages over the run, not 8.9's millions. Load, not a regression.
+
+### 11.7 Web app conventions
+
+- Next.js 16 with Cache Components: every session read sits behind a
+  `<Suspense>`, and `getUser()` calls `connection()` first, because reading
+  cookies does not by itself stop a prerender from freezing `Date.now()`.
+- Auth: named accounts (`python -m pipeline.jobs adduser`), scrypt hashes in a
+  format both Python and `node:crypto` read, HMAC-signed session cookies with a
+  per-user epoch for sign-out-everywhere. The proxy only checks signatures (no
+  database); `requireUser()` is the authority on every page and action.
+- Design context lives in `web/PRODUCT.md`; run impeccable with
+  `IMPECCABLE_CONTEXT_DIR=web` so the repo-root DESIGN.md (pipeline contracts)
+  is not read as a visual design file.
+
+### 11.8 Claude writes the documents: `claude -p` on the light lane
+
+Research and script jobs run `claude -p` headless on the worker's Claude Code
+sign-in (not `--bare`, which skips the keychain where a subscription lives),
+in an empty temporary directory, research with WebSearch and WebFetch only.
+The document, its `prompt_log` row and the job's completion commit in one
+fenced transaction. A usage limit fails at once with a pointer to paste mode
+(failure mode 12); a malformed reply is kept as an `invalid` version.
+
+Measured on the first real film ("What did Roman soldiers eat on Hadrian's
+Wall?", 5 minutes):
+
+| | research | script |
+|---|---|---|
+| run | 57 turns, 595 s | 1 turn, 188 s |
+| equivalent cost | $2.29 | $0.47 |
+| result | 41 claims, 25 distinct sources, all pages answered | 28 beats, ~800 words, valid |
+
+The research is specific and sourced to Roman Inscriptions of Britain and the
+Vindolanda Trust. Paste mode offers "Copy instructions for Claude": the
+studio's own prompt, from the same Python (`pipeline/webapi.py`), so the
+fallback asks exactly what the worker would.
+
+**Source URLs are checked live.** `docs.check(verify_sources=True)` asks every
+cited page whether it exists: 404 or no such host is an error (a constructed
+URL), 401/403/429 a warning. From the Mac this tells invented pages from real
+ones. **From Vercel it cannot:** the British Museum answers 403 to every page
+from a datacenter address, real or invented. Claude's research is checked on
+the worker and so is fully verified; pasted research, checked in the Vercel
+function, degrades to "could not confirm". Follow-up: run the paste path's
+source check on the worker too.
+
+### 11.9 The image model does not know history; the prompts must
+
+Looking at the artifacts found four failures the metrics never would. Each was
+fixed at the source and measured on the real model, same seed, before and after:
+
+1. **No period, no history.** "A soldier" came back in a brimmed hat and
+   19th-century work clothes. Fix: script front matter `period`, prepended to
+   every image prompt.
+2. **Period alone is not enough.** "The auxiliary Victor" came back in First
+   World War helmets under an electric light bulb. Naming the equipment fixed
+   it outright. Fix: `protagonist` and `protagonist_look` in front matter, the
+   look spliced into every visual that names them (`Style.prompt_for`), and a
+   writer rule to name every light source in period terms.
+3. **Places become castles.** A period line of "the fort at Vindolanda behind
+   Hadrian's Wall" put a crenellated stone castle in all three looks; "Roman
+   Britain, about AD 100, the northern frontier" on the same seed did not. The
+   barbarians film's "Roman watchtower" (11.6) was the same failure. Fix: the
+   period line names era and region only; the validator warns otherwise.
+4. **One reference, many people.** Every shot conditions on one character
+   crop, so a script with a clerk, a trader, a cook and an officer would paint
+   them all as one man. Fix: the writer follows one protagonist; others are
+   hands, tools or distant figures.
+
+The look stage now tells the reviewer to check period details before choosing,
+because the painter cannot. Residual, seen in the first real render: a bronze
+measure painted like a metal bucket, an oil lamp like a later lantern. Those
+belong to the Phase 4 editing page.
+
+`Flux2KleinEdit` cannot paint without a reference (its predict step
+concatenates the reference latents unconditionally). Candidate looks need
+none, so `Flux2Klein` borrows the edit model's loaded weights rather than
+loading a second 4.3 GB copy: peak RSS stayed 4.3 GB alternating both.
+
+### 11.10 The narration gate met its second script
+
+The first real script failed the gate in three beats, every word present in
+the audio. Greedy CTC ran two words together: SOUTH SHIELDS -> SOUTHSHIELDS,
+NICK HODGSON -> NICKHODSEN, EXTRA MODIUS -> EXTRAMODIUS, which aligns as a
+deletion plus a substitution, the exact shape of a dropped word. HANDOFF risk 5
+predicted this kind of miscalibration from a single-script baseline.
+`align.deletions` now calls a deletion a merge only when the word at the
+adjacent script position was heard as this word joined to it; anything else
+still fails. `pipeline.gatecheck` after the change: 6/6 dropped content words
+caught, silent on good audio, identical to 9.6. The alignment cache key moved
+to `align-v2`, because the cached alignment carries the gate's verdict.
+
+**Then the third script (the Aztecs) failed it again, on correct audio.** Three
+beats broke the 18% WER backstop, every error a Nahuatl name spelled by ear
+(NAHUATL -> "NOW OTTLE", TENOCHTITLAN -> "TENACHTET LAN") or a compound split
+(EVERYONE -> "EVERY ONE"; a split costs two WER points for one spoken word),
+and "CAN SEAL" heard as "CONCEAL", a merge by sound rather than by spelling.
+The backstop now rejoins splits and does not count substitutions spelled like
+the script's word (`align.effective_wer`); merges are recognised by sound.
+
+That loosening cost the negative control a catch: content words went from 6/6
+to 5/6. Cutting EVENINGS out left a scrap the recogniser heard as "ETN", and
+the old WER catch had only cleared 18% because of unrelated spelling noise. A
+long word heard as a short scrap unlike it is now its own detector. Result:
+6/6 content words caught, all by the specific detector, none by WER luck; zero
+fires across all 198 real beats on disk (three scripts). Cache key `align-v3`.
+The lesson is HANDOFF risk 5 made concrete: each new topic brings vocabulary
+the English recogniser has never heard, so the gate is judged on what it
+catches (`gatecheck`) and what it spares (every real alignment), never on one.
+
+### 11.11 The look stage
+
+Three candidates of the hero beat on fresh seeds, no reference (~15 s each).
+The user picks one and frames the character in a crop editor (drag, corners,
+arrow keys; a live preview of exactly what conditions the shots; a warning
+above 45% of the frame). The worker builds the crop from the frame and box on
+first use and records it on the style (`refs/<sha>.png`); a queue test checks
+the crop's exact pixel size and that every shot conditioned on it. Candidates
+painted before the current script was approved are set aside, never offered.
+
+### 11.12 Deployment state
+
+Neon (free, us-east-1) is connected to the Vercel project and migrated (001-003).
+`SESSION_SECRET` and `WORKER_TOKEN` are set for production and preview. The
+worker's secrets are in `~/.config/youtube-majed/worker.env` (direct Neon
+URL: psycopg's prepared statements do not survive the transaction pooler).
+A protected preview deployment was verified: sign-in redirect, the Python
+function (prompts and checks), and the doorbell on Vercel's runtime cache.
+Production deployment and installing the launchd agents are left for the
+owner. Preview deployments share the production database; branch it before
+previews carry real work.
+
+### 11.13 The first real film, measured
+
+Topic to finished video, driven through the browser: research (Claude, 10 min),
+script (Claude, 3 min; revised twice under the rules in 11.9, once by paste),
+look (3 candidates, 52 s), render (22 min: 54 images at a median 17.25 s,
+4 QA rerolls, 0 flagged; 50 segments; drift +8 ms).
+
+- **The film runs long:** 360 s against a 300 s target. 802 words in 360 s is
+  134 words a minute; the script budget assumes 150 (docs.WPM). Kokoro's pace
+  plus 28 inter-beat pauses (0.35 s each) explains it. Calibrate the budget to
+  the voice before the next phase; the validator's +/-25% band passed it.
+- **Character consistency held** across all 50 shots under one crop.
+- **Residual anachronisms are small objects:** a brass lamp with a glass
+  chimney, a hanging glass lantern, one log-cabin-like hut. For the Phase 4
+  editing page.
+
+### 11.14 Style held only where the character was
+
+The Aztec film (look: "make it stick figure doodles") came back consistent in
+character and inconsistent in style: storybook watercolour where the character
+stood, photographs where he did not (an empty lake, a desert). Three causes,
+read off the prompts:
+
+1. The style was five words at the front of a 400-600 character prompt, and
+   phrased as an instruction, which the model does not take.
+2. The shot planner's framing ladder spoke camera ("shallow depth of field,
+   background dissolved"): the same lake shot came back drawn under one
+   framing and photographed under the other.
+3. The candidates never were doodles (this model will not draw stick figures
+   for detailed scenes), so the chosen frame, which conditions every shot,
+   pulled one way while the words pulled another.
+
+Fixes: the style opens *and* closes every prompt (`all of it as <style>`),
+instructions are reduced to descriptions (`config.style_text`), the framing
+ladder describes composition instead of lens, and the look's words are edited
+at lock time to describe the chosen frame. Measured on four of the drifting
+shots, same seeds and reference: the new shape alone removed every
+photographic frame; words matching the chosen frame ("hand-drawn storybook
+illustration, ink outlines, soft watercolour washes") held one look across
+lake, reeds and desert. Also fixed: the protagonist splice broke possessives
+("the farmer, a lean man...,'s hands") and could leave double commas.
+
+These change every prompt, so earlier films repaint their frames on their next
+render. Also added: "Stop the render" on the progress view; there was no way
+to stop a render from the app.
+
+### 11.15 Going live: three things only production showed
+
+- **Background agents cannot read ~/Desktop.** macOS privacy protection (TCC)
+  blocks launchd agents from Desktop and Documents; the agents exited 78
+  (EX_CONFIG) without a line of output, and a probe agent running `ls` on the
+  repo got "Operation not permitted". Hand-started workers had worked only
+  because they inherit the terminal's permission. Rather than grant an
+  interpreter Full Disk Access or move the repo, `deploy/install-worker.sh`
+  installs the worker as an app under ~/Library/Application Support with the
+  repo venv's exact package versions, logs under ~/Library/Logs/youtube-majed.
+  Re-run it after changing pipeline code: it is the worker's deploy step.
+- **launchd's PATH has no /usr/sbin,** so the worker could not run `scutil`
+  and took the DHCP address as its id (192.168.1.111), the exact failure 10.3
+  warned of. Both plists now carry /usr/sbin:/sbin; the id is MacBook-Pro-3.
+  Also, `launchctl bootout` is asynchronous: bootstrapping straight after it
+  failed silently and left the old process running; the installer waits.
+- **Production shipped with no utility classes.** Tailwind's automatic source
+  detection found nothing on Vercel's build machine (the deploy is assembled
+  from the repo root with web/ as the project root); `next dev` and a local
+  build were fine, which is where every screenshot had been taken. Sources are
+  now named in globals.css; a preview build carries the classes.
+
+`claude -p` runs from a launchd agent on the subscription sign-in (probe:
+"ok"). Live state: production on Neon with migrations 001-004, account
+`majed`, both agents running on the doorbell.
+

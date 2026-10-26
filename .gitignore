@@ -35,3 +35,5 @@ media/
 
 # phase 1 slice output — media and cache, never committed
 work/
+.vercel
+.env*

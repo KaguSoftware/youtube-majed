@@ -148,19 +148,29 @@ generations end up depicting the same world.
 
 ### Contract — style record
 
+`styles.preset_json`, as `config.Style.to_record()` writes it:
+
 ```json
 {
-  "style_id": "sty_7f3a",
   "preset": "dark-oil-painting",
-  "base_model": "flux1-schnell",
-  "lora": { "name": "oil_painting_xl", "weight": 0.75 },
+  "prompt_prefix": "dark oil painting, heavy impasto, chiaroscuro, muted earth palette, cinematic documentary still,",
   "seed": 88412,
-  "prompt_prefix": "dark oil painting, heavy impasto, chiaroscuro, muted earth palette,",
-  "negative": "modern objects, text, watermark, signature",
-  "hero_image": "blob://projects/barbarians-01/hero_c2.png",
-  "ipadapter": { "weight": 0.45 }
+  "hero_full": "images/3f9c0a1d2e4b5c6d.png",
+  "hero_crop": "refs/8a7b6c5d4e3f2a1b.png",
+  "crop_box": [0.22, 0.0, 0.70, 1.0]
 }
 ```
+
+`hero_full` and `hero_crop` are media keys (pipeline/media.py), or repo paths
+for the Phase 1 library style. The model is fixed by the locked configuration
+(FLUX.2 klein 4B, HANDOFF.md section 3), not chosen per style.
+
+What the record deliberately does **not** have, because the locked model has
+no such lever (HANDOFF.md section 5): no negative prompt (FLUX.2 has no
+negative branch), no guidance or strength (distilled klein requires guidance
+1.0; reference influence is architectural), no LoRA weight, no IP-Adapter
+weight. The style UI must not offer any of them. An earlier draft of this
+contract listed all four, from before the Phase 0 benchmark.
 
 ### Styles are reusable entities, not per-project throwaways
 

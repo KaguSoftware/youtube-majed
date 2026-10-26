@@ -33,6 +33,32 @@ time inside one image generation and much longer inside a model load. A
 heartbeat sent only between shots would put the lease at the mercy of the
 slowest single step.
 
+### Lanes
+
+`--kinds` picks which job kinds this process claims. The default GPU lane runs
+`production` and `style` and keeps klein warm; a second process with
+`--kinds research,script` runs `claude -p`, which needs no GPU and should not
+wait behind a twenty-minute render. One process per lane, each on its own work
+root, so the host lock still guarantees one image generation at a time.
+
+### The doorbell: idle without waking the database
+
+Polling Postgres every few seconds keeps a serverless database awake around
+the clock. On Neon's free tier that is ~180 compute-hours a month against an
+allowance of 100, after which the database is suspended until the next month.
+
+So with `DOORBELL_URL` set, an idle worker polls a Vercel route instead. The
+route answers from Vercel's runtime cache and never touches the database; the
+web app changes the value whenever it enqueues a job. The worker reads
+Postgres only when the value changes, after finishing a job, when a retry's
+backoff or a dead worker's lease comes due (`Store.next_due`), and otherwise
+every `IDLE_DB_SECONDS` as a safety net. If the cache evicts the value, the
+route writes a fresh one, which reads as a ring: a lost ring costs one
+database poll, never a missed job.
+
+Without `DOORBELL_URL` the worker polls Postgres every `--poll` seconds, as in
+Phase 2. Local development and the queue test run that way.
+
 ### Shutdown
 
 SIGTERM or Ctrl-C asks for a graceful stop: the current shot finishes, the job
@@ -55,8 +81,15 @@ import time
 import traceback
 from pathlib import Path
 
-from . import config, docs, production
-from .store import Claim, LeaseLost, Store, database_url
+import json
+import urllib.request
+from datetime import datetime, timezone
+
+import psycopg
+
+from . import config, docs, media, production, writer
+from .timeline import text_sha
+from .store import GPU_KINDS, LIGHT_KINDS, Claim, LeaseLost, MediaIndex, Store, database_url
 
 #: How long a claim survives without a heartbeat. Long enough to ride out a
 #: model load and a slow image; short enough that a dead worker's job is picked
@@ -72,6 +105,16 @@ MIN_FREE_BYTES = 2 * 1024**3
 #: Backoff before an unexpected failure is retried: attempt n waits n times this.
 RETRY_DELAY_SECONDS = 30.0
 
+#: Doorbell cadence. 15s keeps two lanes at ~350k function invocations a month,
+#: about a third of Vercel Hobby's allowance, for at most 15s of pickup delay.
+DOORBELL_SECONDS = 15.0
+#: The safety-net poll while the bell is quiet. Each one wakes Neon for about
+#: five minutes, so four a day cost ~2.5 of the free tier's 100 CU-hours a month.
+IDLE_DB_SECONDS = 6 * 3600.0
+#: When the doorbell itself is unreachable, fall back to polling Postgres at
+#: this pace rather than every few seconds.
+DOORBELL_DOWN_DB_SECONDS = 300.0
+
 
 class Stopping(Exception):
     """A graceful shutdown was requested; release the job."""
@@ -85,9 +128,10 @@ class Heartbeat(threading.Thread):
     """Extends the lease on its own connection until stopped or the lease is lost."""
 
     def __init__(self, claim: Claim, *, url: str, lease: float, every: float,
-                 hostname: str, log) -> None:
+                 hostname: str, log, kinds: tuple[str, ...] = GPU_KINDS) -> None:
         super().__init__(name=f"heartbeat-{claim.job_id}", daemon=True)
         self.claim, self.url, self.lease, self.every = claim, url, lease, every
+        self.kinds = kinds
         self.hostname, self.log = hostname, log
         self.lost: str | None = None
         self._halt = threading.Event()
@@ -99,7 +143,8 @@ class Heartbeat(threading.Thread):
                 store = store or Store(self.url)
                 store.heartbeat(self.claim, self.lease)
                 store.touch_worker(self.claim.worker, hostname=self.hostname,
-                                   pid=os.getpid(), current_job=self.claim.job_id)
+                                   pid=os.getpid(), current_job=self.claim.job_id,
+                                   kinds=self.kinds)
             except LeaseLost as exc:
                 self.lost = str(exc)
                 self.log(f"  heartbeat: {exc}")
@@ -173,10 +218,32 @@ class JobHooks(production.Hooks):
         self.check()
 
 
+class Doorbell:
+    """The idle worker's view of the queue, without the database. See the
+    module docstring. `check()` returns the bell's current value."""
+
+    def __init__(self, url: str, token: str, *, worker_id: str, kinds: tuple[str, ...],
+                 timeout: float = 10.0) -> None:
+        self.url, self.token, self.timeout = url, token, timeout
+        self.worker_id, self.kinds = worker_id, kinds
+
+    def check(self) -> str:
+        req = urllib.request.Request(self.url, headers={
+            "Authorization": f"Bearer {self.token}",
+            "X-Worker-Id": self.worker_id,
+            "X-Worker-Kinds": ",".join(self.kinds),
+        })
+        with urllib.request.urlopen(req, timeout=self.timeout) as r:
+            return str(json.loads(r.read())["ring"])
+
+
 class Worker:
     def __init__(self, *, url: str, work_root: Path, worker_id: str, engines: production.Engines,
                  lease: float = LEASE_SECONDS, heartbeat: float = HEARTBEAT_SECONDS,
-                 poll: float = POLL_SECONDS, fake: bool = False, log=print) -> None:
+                 poll: float = POLL_SECONDS, fake: bool = False, log=print,
+                 kinds: tuple[str, ...] = GPU_KINDS, remote: media.Remote | None = None,
+                 doorbell: Doorbell | None = None, doorbell_every: float = DOORBELL_SECONDS,
+                 idle_db: float = IDLE_DB_SECONDS) -> None:
         self.url = url
         self.store = Store(url)
         self.work_root = work_root
@@ -186,6 +253,10 @@ class Worker:
         self.lease, self.heartbeat_every, self.poll = lease, heartbeat, poll
         self.fake = fake
         self.log = log
+        self.kinds = kinds
+        self.remote = remote or media.NoRemote()
+        self.doorbell = doorbell
+        self.doorbell_every, self.idle_db = doorbell_every, idle_db
         self.stopping = False
         self._lock_fd: int | None = None
 
@@ -242,25 +313,86 @@ class Worker:
         self.install_signals()
         self.sweep_partials()
         self.log(f"worker {self.worker_id} (pid {os.getpid()}) on {self.work_root}, "
-                 f"lease {self.lease:.0f}s, heartbeat {self.heartbeat_every:.0f}s")
+                 f"kinds {','.join(self.kinds)}, media {self.remote.name}, "
+                 f"lease {self.lease:.0f}s, heartbeat {self.heartbeat_every:.0f}s, "
+                 + (f"doorbell every {self.doorbell_every:.0f}s" if self.doorbell
+                    else f"polling the database every {self.poll:.0f}s"))
 
         first = True
+        next_db = 0.0                    # monotonic time of the next database poll
+        bell: str | None = None
+        bell_failures = 0
+        if self.doorbell:
+            # The baseline is read *before* the first database poll, so a job
+            # enqueued between the two still changes the bell. Read after, it
+            # would become the baseline and wait for the safety-net poll.
+            try:
+                bell = self.doorbell.check()
+            except Exception:
+                pass
         while not self.stopping:
-            self.store.touch_worker(self.worker_id, hostname=self.hostname,
-                                    pid=os.getpid(), current_job=None)
-            claim = self.store.claim(self.worker_id, self.lease, reclaim_own=first, fake=self.fake)
+            if self.doorbell and time.monotonic() < next_db:
+                try:
+                    rung = self.doorbell.check()
+                    bell_failures = 0
+                    if rung != bell:
+                        if bell is not None:
+                            self.log(f"doorbell: {rung}")
+                        bell, next_db = rung, 0.0
+                except Exception as exc:
+                    bell_failures += 1
+                    if bell_failures in (1, 10) or bell_failures % 100 == 0:
+                        self.log(f"doorbell unreachable ({type(exc).__name__}: {exc}); "
+                                 f"polling the database every {DOORBELL_DOWN_DB_SECONDS:.0f}s")
+                    next_db = min(next_db, time.monotonic() + DOORBELL_DOWN_DB_SECONDS)
+                if time.monotonic() < next_db:
+                    self._sleep(self.doorbell_every)
+                    continue
+
+            try:
+                claim = self._poll(reclaim_own=first)
+            except psycopg.OperationalError as exc:
+                # Neon drops idle connections when it scales to zero. One
+                # reconnect is routine; failing again means it is really down.
+                self.log(f"database connection lost ({str(exc).strip()[:120]}); reconnecting")
+                try:
+                    self.store.reconnect()
+                    claim = self._poll(reclaim_own=first)
+                except psycopg.OperationalError as exc2:
+                    self.log(f"database unreachable: {str(exc2).strip()[:160]}")
+                    self._sleep(max(self.poll, 30.0))
+                    continue
             first = False
             if claim is None:
                 if once or exit_when_idle:
                     self.log("queue empty")
                     return 0
-                self._sleep(self.poll)
+                if self.doorbell:
+                    next_db = self._next_db_poll()
+                else:
+                    self._sleep(self.poll)
                 continue
             self.execute(claim)
+            next_db = 0.0                # finished a job: look for the next one now
             if once:
                 return 0
         self.log("stopped")
         return 0
+
+    def _poll(self, *, reclaim_own: bool) -> Claim | None:
+        self.store.touch_worker(self.worker_id, hostname=self.hostname, pid=os.getpid(),
+                                current_job=None, kinds=self.kinds)
+        return self.store.claim(self.worker_id, self.lease, reclaim_own=reclaim_own,
+                                fake=self.fake, kinds=self.kinds)
+
+    def _next_db_poll(self) -> float:
+        """The safety-net poll, brought forward to whenever the queue next
+        changes on its own (a retry's backoff, an expiring lease)."""
+        wait = self.idle_db
+        due = self.store.next_due(fake=self.fake, kinds=self.kinds)
+        if due is not None:
+            wait = min(wait, max(1.0, (due - datetime.now(timezone.utc)).total_seconds() + 1.0))
+        return time.monotonic() + wait
 
     def _sleep(self, seconds: float) -> None:
         end = time.monotonic() + seconds
@@ -275,10 +407,10 @@ class Worker:
                  + (f", resuming: {n_images} shot(s) checkpointed, the rest of the "
                     "work is checked against the cache" if resumed else ""))
         hb = Heartbeat(claim, url=self.url, lease=self.lease, every=self.heartbeat_every,
-                       hostname=self.hostname, log=self.log)
+                       hostname=self.hostname, log=self.log, kinds=self.kinds)
         hb.start()
         self.store.touch_worker(self.worker_id, hostname=self.hostname, pid=os.getpid(),
-                                current_job=claim.job_id)
+                                current_job=claim.job_id, kinds=self.kinds)
         self.store.event(claim, "claimed", {
             "attempt": claim.attempts, "pid": os.getpid(),
             "checkpoint_keys": resumed,
@@ -287,11 +419,35 @@ class Worker:
         hooks = JobHooks(self, claim, hb)
         t0 = time.time()
         try:
-            inputs = self.load_inputs(claim)
+            if claim.kind in LIGHT_KINDS:
+                row = self.write_document(claim, hooks)
+                self.store.event(claim, "done", {
+                    "artifact_id": row["id"], "version": row["version"],
+                    "doc_status": row["doc_status"], "seconds": round(time.time() - t0, 1),
+                })
+                self.log(f"<< job {claim.job_id} done in {time.time() - t0:.1f}s: "
+                         f"{claim.kind}.md v{row['version']} ({row['doc_status']})")
+                return
+            if claim.kind == "style":
+                row = self.paint_looks(claim, hooks)
+                self.store.event(claim, "done", {
+                    "style_run": row["id"], "candidates": len(row["candidates_json"]),
+                    "seconds": round(time.time() - t0, 1)})
+                self.log(f"<< job {claim.job_id} done in {time.time() - t0:.1f}s: "
+                         f"{len(row['candidates_json'])} candidate looks")
+                return
+            if claim.kind != "production":
+                raise production.Gate("kind", [f"no handler for {claim.kind!r} jobs in this worker yet"])
             free = shutil.disk_usage(self.work_root).free
             if free < MIN_FREE_BYTES:
                 raise Transient(f"only {free / 1024**3:.1f} GB free under {self.work_root}")
-            paths = config.Paths(root=self.work_root, project=claim.project_id)
+            mirror = media.Mirror(
+                self.work_root / "cache", self.remote,
+                MediaIndex(self.store, self.remote.name, project_id=claim.project_id,
+                           job_id=claim.job_id),
+                log=self.log)
+            paths = config.Paths(root=self.work_root, project=claim.project_id, mirror=mirror)
+            inputs = self.load_inputs(claim, mirror)
             result = production.run(inputs, paths, engines=self.engines, hooks=hooks,
                                     log=self.log)
             hooks.check()
@@ -301,6 +457,8 @@ class Worker:
                 "generated": result.stats.generated if result.stats else 0,
                 "cached": result.stats.cached if result.stats else 0,
                 "video": str(result.video) if result.video else None,
+                "film": result.timeline.media.get("film"),
+                "fetched": mirror.fetched, "published": mirror.published,
             })
             self.log(f"<< job {claim.job_id} done in {time.time() - t0:.1f}s, "
                      f"timeline v{version}")
@@ -311,6 +469,13 @@ class Worker:
             self._quietly(lambda: self.store.release(claim))
             self._quietly(lambda: self.store.event(claim, "released", {"stage": hooks.current}))
             self.log(f"<< job {claim.job_id} released at {hooks.current}")
+        except writer.WriterGate as gate:
+            # Claude declined (usage limit, sign-in): a retry would repeat it.
+            # The studio offers paste mode instead (failure mode 12).
+            self._quietly(lambda: self.store.fail(claim, str(gate)))
+            self._quietly(lambda: self.store.event(
+                claim, "failed", {"stage": "writing", "errors": [str(gate)], "retry": False}))
+            self.log(f"<< job {claim.job_id} failed (not retryable): {gate}")
         except production.Gate as gate:
             self._quietly(lambda: self.store.fail(claim, str(gate)))
             self._quietly(lambda: self.store.event(
@@ -332,7 +497,8 @@ class Worker:
         finally:
             hb.stop()
             self._quietly(lambda: self.store.touch_worker(
-                self.worker_id, hostname=self.hostname, pid=os.getpid(), current_job=None))
+                self.worker_id, hostname=self.hostname, pid=os.getpid(), current_job=None,
+                kinds=self.kinds))
 
     def _quietly(self, fn):
         try:
@@ -343,7 +509,94 @@ class Worker:
             self.log(f"  could not record outcome: {type(exc).__name__}: {exc}")
         return None
 
-    def load_inputs(self, claim: Claim) -> production.Inputs:
+    def paint_looks(self, claim: Claim, hooks: JobHooks) -> dict:
+        """A style job: the hero beat painted on several seeds, no reference.
+
+        The subject is held constant so the candidates differ only in look
+        (DESIGN.md, "Stage: style"). No reference image yet: the chosen frame
+        is what becomes the reference, after the user crops it to the
+        character.
+        """
+        p = claim.payload
+        mirror = media.Mirror(
+            self.work_root / "cache", self.remote,
+            MediaIndex(self.store, self.remote.name, project_id=claim.project_id, job_id=claim.job_id),
+            log=self.log)
+        paths = config.Paths(root=self.work_root, project=claim.project_id, mirror=mirror)
+        prompt = config.Style(
+            style_id="candidate", preset=p.get("preset", ""), prompt_prefix=p["prompt_prefix"], seed=0,
+            hero_full=Path(), hero_crop=Path(), crop_box=(0, 0, 1, 1),
+        ).prompt_for(p["visual"], p["mood"], period=p.get("period"),
+                     protagonist=(p.get("protagonist") or "", p.get("protagonist_look") or ""))
+        gen = self.engines.generator
+        candidates = []
+        hooks.stage("images")
+        for i, seed in enumerate(p["seeds"]):
+            from .timeline import image_hash
+
+            h = image_hash(prompt, int(seed), [], model=gen.model_name)
+            dest = paths.images / f"{h}.png"
+            source = "cached"
+            if not mirror.ensure(dest):
+                if not gen.loaded:
+                    gen.load(log=self.log)
+                elapsed = gen.generate(prompt, int(seed), [], dest)
+                source = f"{elapsed:.1f}s"
+            key = mirror.publish(dest, "image")
+            candidates.append({"seed": int(seed), "key": key, "hash": h})
+            self.store.progress(claim, {"stage": "images", "done": i + 1, "total": len(p["seeds"])})
+            self.store.event(claim, "candidate", {"seed": int(seed), "key": key, "source": source})
+            self.log(f"  look {i + 1}/{len(p['seeds'])} seed {seed}: {source}")
+            hooks.check()
+        return self.store.finish_style(claim, candidates=candidates, preset_id=p.get("preset_id"),
+                                       beat_id=p["beat_id"], prompt_prefix=p["prompt_prefix"])
+
+    def write_document(self, claim: Claim, hooks: JobHooks) -> dict:
+        """A research or script job: Claude writes, docs.check judges, and the
+        document, its prompt_log row and the job's completion commit together."""
+        kind, p = claim.kind, claim.payload
+        project = self.store.project(claim.project_id)
+        if project is None:
+            raise production.Gate("inputs", [f"no project {claim.project_id}"])
+        research_md = None
+        if kind == "research":
+            # DESIGN.md "Staleness": research.md <- hash(topic, angle).
+            upstream = text_sha(f"{project['topic']}\n{project.get('angle') or ''}")
+        else:
+            research = self.store.artifact(p["research_id"]) if p.get("research_id") else None
+            latest = self.store.latest_approved(claim.project_id, "research")
+            if research is None or research["doc_status"] != "approved":
+                raise writer.WriterGate("there is no approved research to write the script from")
+            if latest and latest["id"] != research["id"]:
+                raise production.Gate("inputs", [
+                    f"research.md v{research['version']} was superseded by v{latest['version']} "
+                    "after this script was requested; ask again"])
+            research_md, upstream = research["markdown_raw"], research["content_sha"]
+
+        hooks.stage("writing")
+        written = writer.write(kind, project, research_md=research_md, note=p.get("note"),
+                               narrative_id=p.get("narrative"), should_stop=hooks.check, log=self.log)
+        hooks.stage("checking")
+        verdict = docs.check(kind, written.markdown, research_markdown=research_md,
+                             verify_sources=bool(p.get("verify_sources", True)))
+        hooks.check()
+        return self.store.finish_document(
+            claim, kind=kind, markdown=written.markdown, verdict=verdict, upstream_hash=upstream,
+            prompt=f"[system]\n{written.system}\n\n[user]\n{written.prompt}",
+            response_raw=written.response_raw, meta=written.meta,
+        )
+
+    def materialize_crop(self, style_id: str, preset: dict, mirror: media.Mirror) -> str:
+        """First use of a project style: build its hero crop and record it."""
+        src = resolve_ref(preset["hero_full"], mirror)
+        if not src.exists():
+            raise production.Gate("inputs", [f"the chosen look's frame {preset['hero_full']} is missing"])
+        key = mirror.publish(crop_reference(src, preset["crop_box"], mirror.cache), "ref")
+        self.store.set_style_crop(style_id, key)
+        self.log(f"  hero crop {key} from {preset['hero_full']} at {preset['crop_box']}")
+        return key
+
+    def load_inputs(self, claim: Claim, mirror: media.Mirror) -> production.Inputs:
         """Rebuild the job's inputs from the exact artifact versions it was enqueued on."""
         p = claim.payload
         research_row = self.store.artifact(p["research_id"])
@@ -366,19 +619,55 @@ class Worker:
         if stale:
             raise production.Gate("inputs", stale + ["enqueue a new production job"])
 
+        preset = style_row["preset_json"]
+        if not preset.get("hero_crop"):
+            preset = {**preset, "hero_crop": self.materialize_crop(style_row["id"], preset, mirror)}
         size = p.get("render_size")
         return production.Inputs(
             project=claim.project_id,
             topic=project["topic"],
             research=docs.parse_research_text(research_row["markdown_raw"]),
             script=docs.parse_script_text(script_row["markdown_raw"]),
-            style=config.Style.from_record(style_row["id"], style_row["preset_json"]),
+            style=config.Style.from_record(style_row["id"], preset,
+                                           resolve=lambda ref: resolve_ref(ref, mirror)),
             target_shots=int(p.get("target_shots", config.TARGET_SHOTS)),
             allow_fixture_sources=bool(p.get("allow_fixture_sources", False)),
             force=bool(p.get("force", False)),
             max_wer=float(p.get("max_wer", config.MAX_WER)),
             render_size=tuple(size) if size else None,
         )
+
+
+def crop_reference(src: Path, box, cache: Path) -> Path:
+    """The hero frame cropped to the character: a pure function of the frame
+    and the box, so the crop the user previewed is the crop shots condition on.
+    Content-addressed under refs/."""
+    from PIL import Image
+
+    with Image.open(src) as im:
+        w, h = im.size
+        x0, y0, x1, y1 = (float(v) for v in box)
+        crop = im.convert("RGB").crop((round(x0 * w), round(y0 * h), round(x1 * w), round(y1 * h)))
+    tmp = cache / "refs" / ".crop.partial.png"
+    tmp.parent.mkdir(parents=True, exist_ok=True)
+    crop.save(tmp, "PNG")
+    from .timeline import file_sha
+
+    dest = cache / "refs" / f"{file_sha(tmp)}.png"
+    os.replace(tmp, dest)
+    return dest
+
+
+def resolve_ref(ref: str, mirror: media.Mirror) -> Path:
+    """A style reference as a local file: a repo path (the Phase 1 library
+    style), else a media key fetched through the mirror. A missing file is
+    left for `production.validate` to report as a gate."""
+    local = config.REPO / ref
+    if local.exists():
+        return local
+    path = mirror.path(ref)
+    mirror.ensure(path)
+    return path
 
 
 def machine_name() -> str:
@@ -410,7 +699,35 @@ def keep_awake() -> None:
         subprocess.Popen(["caffeinate", "-s", "-w", str(os.getpid())])
 
 
+#: Where the worker's secrets live: DATABASE_URL, BLOB_READ_WRITE_TOKEN,
+#: DOORBELL_URL, WORKER_TOKEN. Outside the repo, and not in the launchd plist,
+#: so neither a commit nor a copied plist can carry them.
+DEFAULT_ENV_FILE = Path.home() / ".config" / "youtube-majed" / "worker.env"
+
+
+def load_env_file(path: Path) -> list[str]:
+    """KEY=VALUE lines into os.environ, never overriding what is already set.
+    -> the keys it set. Quotes around a value are stripped; # starts a comment."""
+    loaded = []
+    if not path.is_file():
+        return loaded
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key, value = key.strip().removeprefix("export ").strip(), value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+            loaded.append(key)
+    return loaded
+
+
 def main(argv: list[str] | None = None) -> int:
+    env_file = Path(os.environ.get("WORKER_ENV_FILE", DEFAULT_ENV_FILE))
+    loaded = load_env_file(env_file)
+    if loaded:
+        print(f"loaded {', '.join(sorted(loaded))} from {env_file}", flush=True)
     ap = argparse.ArgumentParser(prog="python -m pipeline.worker", description=__doc__.split("\n")[0])
     ap.add_argument("--work-root", type=Path, default=None,
                     help="default $WORK_ROOT or ./work (./work/fake with --fake)")
@@ -420,7 +737,14 @@ def main(argv: list[str] | None = None) -> int:
                          "unique per work root, which the host lock is taken on")
     ap.add_argument("--lease", type=float, default=LEASE_SECONDS)
     ap.add_argument("--heartbeat", type=float, default=HEARTBEAT_SECONDS)
-    ap.add_argument("--poll", type=float, default=POLL_SECONDS)
+    ap.add_argument("--poll", type=float, default=POLL_SECONDS,
+                    help="database poll interval without a doorbell")
+    ap.add_argument("--doorbell-every", type=float, default=DOORBELL_SECONDS)
+    ap.add_argument("--idle-db", type=float, default=IDLE_DB_SECONDS,
+                    help="safety-net database poll while the doorbell is quiet")
+    ap.add_argument("--kinds", default=None,
+                    help=f"job kinds to claim, comma-separated (default {','.join(GPU_KINDS)}; "
+                         f"the light lane is {','.join(LIGHT_KINDS)})")
     ap.add_argument("--once", action="store_true", help="run at most one job, then exit")
     ap.add_argument("--exit-when-idle", action="store_true", help="exit when the queue is empty")
     ap.add_argument("--no-caffeinate", action="store_true")
@@ -444,13 +768,28 @@ def main(argv: list[str] | None = None) -> int:
     store.migrate()
     store.close()
 
+    kinds = tuple(k.strip() for k in (args.kinds or ",".join(GPU_KINDS)).split(",") if k.strip())
+    unknown = set(kinds) - set(GPU_KINDS) - set(LIGHT_KINDS)
+    if unknown:
+        ap.error(f"unknown job kinds: {', '.join(sorted(unknown))}")
+    light = set(kinds) <= set(LIGHT_KINDS)
+    # Each lane gets its own work root by default, because the host lock is
+    # taken per root and two lanes on one machine must both be able to start.
     root = (args.work_root or Path(os.environ.get("WORK_ROOT", "work"))
-            / ("fake" if args.fake and not args.work_root else "")).resolve()
+            / ("fake" if args.fake and not args.work_root else "")
+            / ("light" if light and not args.work_root else "")).resolve()
+    worker_id = args.worker_id or f"{machine_name()}:{root}"
+    doorbell = None
+    if os.environ.get("DOORBELL_URL"):
+        if not os.environ.get("WORKER_TOKEN"):
+            ap.error("DOORBELL_URL is set but WORKER_TOKEN is not")
+        doorbell = Doorbell(os.environ["DOORBELL_URL"], os.environ["WORKER_TOKEN"],
+                            worker_id=worker_id, kinds=kinds)
     worker = Worker(
-        url=database_url(), work_root=root,
-        worker_id=args.worker_id or f"{machine_name()}:{root}", engines=engines,
+        url=database_url(), work_root=root, worker_id=worker_id, engines=engines,
         lease=args.lease, heartbeat=args.heartbeat, poll=args.poll, fake=args.fake,
-        log=lambda *a: print(*a, flush=True),
+        log=lambda *a: print(*a, flush=True), kinds=kinds, remote=media.remote_from_env(),
+        doorbell=doorbell, doorbell_every=args.doorbell_every, idle_db=args.idle_db,
     )
     return worker.run(once=args.once, exit_when_idle=args.exit_when_idle)
 

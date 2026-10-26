@@ -15,6 +15,7 @@ video that plays perfectly and drifts a third of a second per cut.
 
 from __future__ import annotations
 
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -199,6 +200,158 @@ def main() -> int:
                         abs(got - naive) > 0.1,
                         f"got {got:.3f}s, which matches the un-compensated length",
                     )
+
+    print("\n-- docs.check: the one entry point both slot modes share --")
+    r_text = (FIXTURES / "barbarians-01.research.md").read_text()
+    s_text = (FIXTURES / "barbarians-01.script.md").read_text()
+    v = docs.check("script", s_text, research_markdown=r_text)
+    c.check("a clean script is `valid` with its beats parsed",
+            v["doc_status"] == "valid" and len(v["parsed"]["beats"]) == 6, str(v["errors"]))
+    c.check("fixture research is `invalid` unless fixture sources are allowed",
+            docs.check("research", r_text)["doc_status"] == "invalid"
+            and docs.check("research", r_text, allow_fixture_sources=True)["doc_status"] == "valid")
+    bad = docs.check("script", "### B01 - x\nnarration: [unclosed")
+    c.check("malformed YAML is `invalid` with the parse error, not an exception",
+            bad["doc_status"] == "invalid" and "not valid YAML" in bad["errors"][0]
+            and bad["parsed"] is None)
+    c.check("a script checked without research says it could not check cites",
+            any("cites" in w for w in docs.check("script", s_text)["warnings"]))
+
+    print("\n-- media: local, then the store, then generate --")
+    from . import media
+
+    class Idx:
+        def __init__(self):
+            self.sizes = {}
+
+        def size(self, key):
+            return self.sizes.get(key)
+
+        def known(self, key):
+            return key in self.sizes
+
+        def record(self, key, *, size, kind):
+            self.sizes[key] = size
+
+    class Counting(media.DirRemote):
+        gets = 0
+
+        def get(self, key, dest):
+            Counting.gets += 1
+            return super().get(key, dest)
+
+    with tempfile.TemporaryDirectory() as td:
+        td = Path(td)
+        remote, idx = Counting(td / "store"), Idx()
+        a = media.Mirror(td / "a", remote, idx)
+        img = td / "a" / "images" / "abc.png"
+        img.parent.mkdir(parents=True)
+        img.write_bytes(b"\x89PNG fake bytes")
+        c.check("publish uploads and indexes", a.publish(img, "image") == "images/abc.png"
+                and (td / "store" / "images" / "abc.png").is_file() and idx.known("images/abc.png"))
+        b = media.Mirror(td / "b", remote, idx)
+        c.check("another disk fetches it", b.ensure(td / "b" / "images" / "abc.png")
+                and (td / "b" / "images" / "abc.png").read_bytes() == img.read_bytes())
+        before = Counting.gets
+        c.check("a key the index does not know is never asked for",
+                not b.ensure(td / "b" / "images" / "new.png") and Counting.gets == before)
+        (td / "store" / "images" / "abc.png").write_bytes(b"\x89PNG fa")   # truncated in the store
+        c2 = media.Mirror(td / "c", remote, idx)
+        try:
+            c2.ensure(td / "c" / "images" / "abc.png")
+            c.check("a short download is refused, not cached", False)
+        except RuntimeError as exc:
+            c.check("a short download is refused, not cached",
+                    "recorded" in str(exc) and not (td / "c" / "images" / "abc.png").exists())
+        c.check("no store means local only", not media.Mirror(td / "d").ensure(td / "d" / "x.png"))
+
+    c.check("a tone beat's sentence-initial capitals are not mistaken for proper nouns",
+            docs.fact_markers("Rain on stone. Wind off the moor. Behind the rampart, a fire.") == [])
+    c.check("...while real names and numbers inside a sentence still are",
+            docs.fact_markers("Rain falls on Vindolanda in 1915.") == ["Vindolanda", "1915"])
+
+    st = config.Style("s", "p", "oil,", 1, Path(), Path(), (0, 0, 1, 1))
+    pr = st.prompt_for("a room, Victor kneels, Victor rests", "dim", period="Roman Britain",
+                       protagonist=("Victor", "a Roman auxiliary in a mail shirt"))
+    c.check("the protagonist's period look is spliced in after their first mention, once",
+            pr == "oil, Roman Britain, a room, Victor, a Roman auxiliary in a mail shirt, kneels, Victor rests, "
+                  "dim, all of it as oil", pr)
+    poss = st.prompt_for("the farmer's hands", "dim", protagonist=("the farmer", "a lean man,"))
+    c.check("a possessive mention gets the description after the visual, not a broken splice",
+            poss == "oil, the farmer's hands, the farmer: a lean man, dim, all of it as oil", poss)
+    c.check("the style is restated last, so a long prompt cannot outvote it",
+            st.prompt_for("a room", "dim").endswith("all of it as oil"))
+    c.check("an instruction becomes a description (the model takes no orders)",
+            config.style_text("make it stick figure doodles,") == "stick figure doodles")
+
+    s_period = docs.parse_script_text("---\ntarget_duration: 10\nperiod: Roman Britain, the fort at Vindolanda\n"
+                                      "protagonist: V\nprotagonist_look: a man\n---\n### B01 - x\nnarration: |\n"
+                                      "  one two three four five six seven eight nine ten eleven twelve thirteen\n"
+                                      "visual: V stands\nmood: m\ntone: true\n")
+    c.check("a period line naming a fort is warned about (the castle effect)",
+            any("castle" in w for w in docs.validate_script(s_period).warnings))
+
+    from .align import deletions
+    c.check("an ASR word merge is not a dropped word (SOUTH SHIELDS heard as SOUTHSHIELDS)",
+            deletions("ROSE AT SOUTH SHIELDS", "ROS AT SOUTHSHIELDS") == ([], ["SOUTH+SHIELDS"]))
+    c.check("...while a word with no trace anywhere still is",
+            deletions("THE CATTLE BYRED BEHIND", "THE CATTLE BEHIND") == (["BYRED"], []))
+
+    from .align import effective_wer
+    c.check("names the recogniser spells by ear do not fail the WER backstop (Aztec B21)",
+            effective_wer("TENOCHTITLAN JOINED TEXCOCO AND TLACOPAN IN A TRIPLE ALLIANCE",
+                          "TENACHTET LAN JOIND TEXCOCO AND TE LACAPAN IN A TRIPLE ALLIANCE")[0] == 0.0)
+    c.check("...a merge by sound is not a dropped word (CAN SEAL heard as CONCEAL)",
+            deletions("THE HILL CAN SEAL AN ALLIANCE", "THE HILL CONCEAL AND ALLIANCE")[0] == [])
+    c.check("...and a long word heard as a scrap counts as dropped (EVENINGS heard as ETN)",
+            deletions("A WINTER OF EVENINGS", "A WINTER OF ETN")[0] == ["EVENINGS (heard only 'ETN')"])
+    c.check("...but a split is not a scrap (MODII heard as MODI I)",
+            deletions("NINE MODII OF WHEAT", "NINE MODI I OF WHEAT")[0] == [])
+    c.check("...while dropped words still count in full",
+            effective_wer("THE CATTLE BYRED BEHIND A PARTITION", "THE CATTLE BEHIND")[0] >= 0.5)
+
+    from .timeline import Timeline as _TL
+    rt = _timeline(_fake_shots([2.0, 3.0], [Path("a.png")]), 5.0)
+    c.check("a timeline survives a round trip through JSON (Postgres) unchanged",
+            _TL.from_json(rt.to_json()).to_json() == rt.to_json())
+
+    print("\n-- writer: what Claude is asked, and what is kept of its reply --")
+    from . import writer
+
+    doc = "---\nproject: x\n---\n\n## Claims\n\n### c1\nclaim: a\nsource: https://e.org\n"
+    reply = f"Here is the research.\n\n```markdown\n{doc}```\n\nSources: [e](https://e.org)"
+    c.check("the document is taken from its fence, without the chatter around it",
+            writer.extract_document(reply) == doc)
+    c.check("an unfenced reply is kept from its front matter on",
+            writer.extract_document("Sure.\n---\nproject: x\n---\nbody") .startswith("---\nproject: x"))
+    project = {"id": "p", "topic": "Rations on Hadrian's Wall", "angle": "not battles", "target_duration": 180}
+    system, prompt = writer.script_prompt(project, doc)
+    c.check("the script prompt budgets words at the validator's own rate (150 wpm)",
+            "450 words" in prompt and "Period-accurate" in system)
+    system, prompt = writer.research_prompt(project, note="more on bread")
+    c.check("the research prompt carries the topic, angle and reviewer's note",
+            "Rations on Hadrian's Wall" in prompt and "not battles" in prompt and "more on bread" in prompt
+            and "Never cite a URL you did not open" in system)
+    _, prompt = writer.script_prompt(project | {"narrative": "mystery"}, doc)
+    c.check("the film's chosen narrative is carried into the script prompt and its front matter",
+            writer.NARRATIVES["mystery"].script in prompt and "narrative: mystery" in prompt)
+    _, prompt = writer.research_prompt(project | {"narrative": "mystery"})
+    c.check("...and into the research prompt", writer.NARRATIVES["mystery"].research in prompt)
+    c.check("a film from before narratives is written as the default",
+            writer.NARRATIVES[writer.DEFAULT_NARRATIVE].script in writer.script_prompt(project, doc)[1])
+    try:
+        writer.script_prompt(project | {"narrative": "sonnet"}, doc)
+        c.check("an unknown narrative is refused", False)
+    except ValueError:
+        c.check("an unknown narrative is refused", True)
+    ts = (Path(__file__).resolve().parent.parent / "web" / "lib" / "narratives.ts").read_text()
+    c.check("the studio's narrative picker offers exactly writer.NARRATIVES",
+            re.findall(r'id: "(\w+)"', ts) == list(writer.NARRATIVES), str(re.findall(r'id: "(\w+)"', ts)))
+    told = docs.check("script", "---\nproject: x\nperiod: Roman Britain\nprotagonist: Victor\n"
+                      "protagonist_look: a man\n---\n### B01 - x\nnarration: |\n  The wind finds Victor.\n"
+                      "visual: Victor on a turf rampart\nmood: cold\ntone: true\n")
+    c.check("a tone beat may name the protagonist without being flagged as asserting a fact",
+            not any("asserts" in w for w in told["warnings"]), str(told["warnings"]))
 
     print(f"\n{c.run - len(c.failures)}/{c.run} checks passed")
     if c.failures:

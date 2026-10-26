@@ -38,6 +38,34 @@ HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
 #: dangerous case, because `tone: true` is how a beat opts out of citing.
 ASSERTS_FACT = re.compile(r"\b(?:\d{3,}|\d+(?:st|nd|rd|th)|[A-Z][a-z]{3,})\b")
 
+#: Where a sentence starts: a capital there is grammar, not a proper noun.
+SENTENCE_START = re.compile(r"(?:^|[.!?]\s+|[\u201c\"']\s*)$")
+
+
+#: Architecture in the period line. Measured: "the fort at Vindolanda behind
+#: Hadrian's Wall" put a crenellated stone castle behind the protagonist in all
+#: three candidate looks; "Roman Britain, about AD 100, the northern frontier"
+#: on the same seed did not.
+PERIOD_ARCHITECTURE = r"\b(forts?|fortress|castle|walls?|towers?|abbey|cathedral|palace|city walls)\b"
+
+
+def fact_markers(text: str) -> list[str]:
+    """Numbers, ordinals and capitalised words that are not sentence-initial.
+
+    Measured on the first real Claude script: a purely atmospheric opening
+    ("Rain on stone. Wind off the moor...") was flagged for "Rain", "Wind" and
+    "Behind", every one the first word of its sentence. A warning that fires
+    on correct beats teaches people to skip warnings.
+    """
+    hits = []
+    for m in ASSERTS_FACT.finditer(text):
+        word = m.group(0)
+        if word[0].isupper() and SENTENCE_START.search(text[: m.start()]):
+            continue
+        hits.append(word)
+    return hits
+
+
 #: Sentinel used by the Phase 1 fixtures. Never valid without an explicit flag,
 #: so a hand-written fixture cannot be mistaken for researched output.
 FIXTURE_SOURCE = "FIXTURE"
@@ -201,6 +229,13 @@ def parse_script_text(text: str) -> Script:
     return Script(meta=meta, beats=beats, raw=text)
 
 
+def protagonist(script: "Script") -> tuple[str, str] | None:
+    """(name as the visuals use it, period-accurate description) from front matter."""
+    name = str(script.meta.get("protagonist") or "").strip()
+    look = str(script.meta.get("protagonist_look") or "").strip()
+    return (name, look) if name and look else None
+
+
 # ----------------------------------------------------------------- validators
 
 
@@ -235,6 +270,7 @@ def validate_script(script: Script, research: Research | None = None) -> Report:
         r.errors.append("script.md declares no beats")
         return r
 
+    who = protagonist(script)
     seen: set[str] = set()
     for i, b in enumerate(script.beats):
         if not BEAT_ID.match(b.beat_id):
@@ -256,7 +292,9 @@ def validate_script(script: Script, research: Research | None = None) -> Report:
             r.warnings.append(f"{b.beat_id}: has both `cites` and `tone: true`")
 
         if b.tone:
-            hits = sorted(set(ASSERTS_FACT.findall(b.narration)) - {"The", "This", "That", "And", "But", "Beyond"})
+            # The protagonist's name is the storyteller's device, not a fact:
+            # a story-told script names them in its atmosphere beats.
+            hits = sorted(set(fact_markers(b.narration)) - ({who[0]} if who else set()))
             if hits:
                 r.warnings.append(
                     f"{b.beat_id}: `tone: true` but narration asserts {hits[:4]} — "
@@ -272,6 +310,26 @@ def validate_script(script: Script, research: Research | None = None) -> Report:
     if ids != sorted(ids):
         r.errors.append(f"beat ids are out of order: {ids}")
 
+    if who is None:
+        r.warnings.append(
+            "front matter has no `protagonist` and `protagonist_look`: every shot is painted with one "
+            "reference character, and without a written description of their period clothing the model "
+            "dresses them from the wrong century")
+    elif not any(re.search(rf"\b{re.escape(who[0])}\b", b.visual) for b in script.beats):
+        r.warnings.append(f"no beat's `visual` names the protagonist {who[0]!r}")
+
+    period = str(script.meta.get("period") or "")
+    built = sorted(set(re.findall(PERIOD_ARCHITECTURE, period, re.I)))
+    if built:
+        r.warnings.append(
+            f"`period` names {', '.join(built)}: it is added to every image prompt, and the painter turns "
+            "forts and walls into medieval stone castles in every shot. Keep it to era and region.")
+
+    if not str(script.meta.get("period") or "").strip():
+        r.warnings.append(
+            "front matter has no `period`: images get no place-and-time anchor, and the model "
+            "fills in its own (a brimmed hat and 19th-century work clothes for 'a soldier')")
+
     target = script.target_duration
     if target <= 0:
         r.errors.append("frontmatter has no positive `target_duration`")
@@ -285,3 +343,121 @@ def validate_script(script: Script, research: Research | None = None) -> Report:
                 f"{low:.0f}-{high:.0f}s for target_duration {target:.0f}s"
             )
     return r
+
+
+# ------------------------------------------------------------ one entry point
+
+
+#: A source that answers with one of these does not exist: most likely a URL
+#: that was constructed rather than read. An error, overridable like any other.
+GONE = {404, 410}
+
+#: Sites that block robots (401/403/429) or are briefly down cannot be
+#: confirmed either way; that is a warning, not an error.
+SOURCE_TIMEOUT = 8.0
+SOURCE_AGENT = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 "
+                "(KHTML, like Gecko) Version/17.0 Safari/605.1.15")
+
+
+def probe_source(url: str, timeout: float = SOURCE_TIMEOUT) -> tuple[int | None, str]:
+    """-> (HTTP status or None, problem). HEAD first, GET if HEAD is refused."""
+    import urllib.error
+    import urllib.request
+
+    last = ""
+    for method in ("HEAD", "GET"):
+        req = urllib.request.Request(url, method=method, headers={
+            "User-Agent": SOURCE_AGENT, "Accept": "text/html,*/*;q=0.8", "Range": "bytes=0-2047"})
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return r.status, ""
+        except urllib.error.HTTPError as exc:
+            if exc.code in GONE or method == "GET":
+                return exc.code, f"HTTP {exc.code}"
+            last = f"HTTP {exc.code}"          # HEAD refused: try GET
+        except urllib.error.URLError as exc:
+            reason = str(getattr(exc, "reason", exc))
+            if "nodename" in reason or "Name or service" in reason or "getaddrinfo" in reason:
+                return None, "no such host"
+            last = reason
+        except Exception as exc:               # timeouts, TLS, resets
+            last = f"{type(exc).__name__}: {exc}"
+    return None, last
+
+
+def check_sources(res: Research, report: Report, *, workers: int = 8) -> int:
+    """Ask every cited page whether it exists. Adds to `report` in place.
+    -> how many distinct pages were asked."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    by_url: dict[str, list[str]] = {}
+    for cid, claim in res.claims.items():
+        if claim.source.startswith(("http://", "https://")):
+            by_url.setdefault(claim.source, []).append(cid)
+    if not by_url:
+        return 0
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        results = dict(zip(by_url, pool.map(probe_source, by_url)))
+    for url, (status, problem) in results.items():
+        cids = ", ".join(by_url[url])
+        if status in GONE or problem == "no such host":
+            report.errors.append(f"{cids}: source does not exist ({problem}): {url}")
+        elif status is None or status >= 400:
+            report.warnings.append(f"{cids}: could not confirm the source ({problem}): {url}")
+    return len(by_url)
+
+
+def check(kind: str, markdown: str, *, research_markdown: str | None = None,
+          allow_fixture_sources: bool = False, verify_sources: bool = False) -> dict:
+    """Parse and validate one document, never raising. -> the slot's verdict.
+
+    This is the only way a document enters a slot. A human paste goes through
+    the web app's validator function and a `claude -p` generation goes through
+    the worker, and both call this, so nothing downstream can tell which mode
+    filled the slot (DESIGN.md "Slot filling is mode-agnostic").
+
+    `verify_sources` asks every cited page whether it exists (network; off in
+    tests). A page that is gone is an error, one that blocks robots a warning.
+
+    A document that does not parse is `invalid` with the parse error as its
+    only error, rather than an exception: the UI renders it inline next to the
+    text the way it renders any other validator failure.
+    """
+    if kind not in ("research", "script"):
+        raise ValueError(f"unknown document kind {kind!r}")
+    checked: int | None = None
+    try:
+        if kind == "research":
+            doc = parse_research_text(markdown)
+            report = validate_research(doc, allow_fixture_sources=allow_fixture_sources)
+            if verify_sources:
+                checked = check_sources(doc, report)
+            parsed = {"meta": doc.meta, "claims": [
+                {"id": c.claim_id, "claim": c.claim, "source": c.source}
+                for c in doc.claims.values()]}
+        else:
+            research = parse_research_text(research_markdown) if research_markdown else None
+            doc = parse_script_text(markdown)
+            report = validate_script(doc, research)
+            if research is None:
+                report.warnings.append("no approved research.md to check `cites` against")
+            parsed = {"meta": doc.meta, "beats": [
+                {"id": b.beat_id, "title": b.title, "narration": b.narration, "visual": b.visual,
+                 "mood": b.mood, "cites": b.cites, "tone": b.tone}
+                for b in doc.beats]}
+    except Exception as exc:  # malformed front matter, YAML, a non-mapping body
+        return {"doc_status": "invalid", "errors": [f"could not parse {kind}.md: {exc}"],
+                "warnings": [], "parsed": None}
+    return {"doc_status": "valid" if report.ok else "invalid", "errors": report.errors,
+            "warnings": report.warnings, "parsed": _plain(parsed), "sources_checked": checked}
+
+
+def _plain(o):
+    """YAML front matter can hold dates; the verdict must be JSON."""
+    if isinstance(o, dict):
+        return {str(k): _plain(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [_plain(v) for v in o]
+    if isinstance(o, (str, int, float, bool)) or o is None:
+        return o
+    return str(o)

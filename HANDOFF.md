@@ -38,11 +38,15 @@ the dirty shots.
 
 ## 2. Status
 
-**Phases 0, 1 and 2 are complete.** Phase 3 (web app) is next. Its scope in
-PLAN.md section 3 now includes three items carried in from Phase 2: Blob
-storage, the HTTP control plane, and `prompt_log` writes. Blob is the one with
-teeth: until it lands, a worker on a different machine cannot reuse another
-worker's finished shots.
+**Phases 0, 1 and 2 are complete; Phase 3 (web app) is nearly done.** Every
+stage, idea through research, script, look and render, is built in `web/` and
+was driven through the browser on real output: Claude research and scripts on
+the worker's light lane, real klein looks, and a first real film (6:00, 50
+shots, drift +8 ms) published to Blob and played in the browser. What remains
+is the exit run by the non-technical user on the deployed app: deploy to
+production, create accounts, install the two launchd agents. Findings, and
+what the artifacts taught (the image model does not know history), in
+PLAN.md section 11.
 
 Phase 1's exit criterion is met: `python slice.py` produces a 61.7s narrated,
 illustrated video on this Mac from a hardcoded topic and style, plus a timeline

@@ -6,12 +6,18 @@
     python -m pipeline.jobs status [JOB]
     python -m pipeline.jobs cancel JOB | retry JOB
     python -m pipeline.jobs workers
+    python -m pipeline.jobs adduser NAME --display "Full Name"
+    python -m pipeline.jobs passwd NAME | signout-all NAME
 """
 
 from __future__ import annotations
 
 import argparse
+import base64
+import getpass
+import hashlib
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -177,6 +183,68 @@ def cmd_workers(store: Store, args) -> int:
     return 0
 
 
+#: scrypt parameters for new passwords. They are stored in each hash, so they
+#: can be raised later without invalidating existing accounts. N=2^15, r=8
+#: costs ~32 MB and ~60 ms per check: fine for a login, slow for a guesser.
+SCRYPT_N, SCRYPT_R, SCRYPT_P = 2**15, 8, 1
+
+
+def hash_password(password: str) -> str:
+    """The format web/lib/session.ts verifies: scrypt$N$r$p$salt$hash."""
+    salt = os.urandom(16)
+    digest = hashlib.scrypt(password.encode(), salt=salt, n=SCRYPT_N, r=SCRYPT_R, p=SCRYPT_P,
+                            maxmem=256 * SCRYPT_N * SCRYPT_R, dklen=32)
+    b64 = lambda b: base64.b64encode(b).decode()
+    return f"scrypt${SCRYPT_N}${SCRYPT_R}${SCRYPT_P}${b64(salt)}${b64(digest)}"
+
+
+def _read_password() -> str:
+    if not sys.stdin.isatty():           # piped, for scripts and tests
+        return sys.stdin.readline().rstrip("\n")
+    first = getpass.getpass("password: ")
+    if first != getpass.getpass("again: "):
+        raise SystemExit("passwords do not match")
+    return first
+
+
+def cmd_adduser(store: Store, args) -> int:
+    store.migrate()
+    password = _read_password()
+    if len(password) < 10:
+        print("use at least 10 characters", file=sys.stderr)
+        return 1
+    row = store.conn.execute(
+        "INSERT INTO users (username, display_name, password_hash) VALUES (%s, %s, %s) "
+        "ON CONFLICT (username) DO NOTHING RETURNING id",
+        (args.username, args.display or args.username, hash_password(password)),
+    ).fetchone()
+    if row is None:
+        print(f"{args.username} already exists; use passwd to change the password", file=sys.stderr)
+        return 1
+    print(f"user {args.username} (id {row['id']})")
+    return 0
+
+
+def cmd_passwd(store: Store, args) -> int:
+    password = _read_password()
+    if len(password) < 10:
+        print("use at least 10 characters", file=sys.stderr)
+        return 1
+    # A new password also signs out every existing session.
+    cur = store.conn.execute(
+        "UPDATE users SET password_hash = %s, session_epoch = session_epoch + 1 WHERE username = %s",
+        (hash_password(password), args.username))
+    print("password changed; existing sessions signed out" if cur.rowcount else "no such user")
+    return 0 if cur.rowcount else 1
+
+
+def cmd_signout_all(store: Store, args) -> int:
+    cur = store.conn.execute(
+        "UPDATE users SET session_epoch = session_epoch + 1 WHERE username = %s", (args.username,))
+    print("signed out everywhere" if cur.rowcount else "no such user")
+    return 0 if cur.rowcount else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m pipeline.jobs")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -208,12 +276,19 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("workers")
 
+    u = sub.add_parser("adduser", help="create a web app account (password read from the terminal)")
+    u.add_argument("username")
+    u.add_argument("--display", default=None, help="name shown in the app and the audit trail")
+    for name in ("passwd", "signout-all"):
+        sub.add_parser(name).add_argument("username")
+
     args = ap.parse_args(argv)
     with Store() as store:
         return {
             "migrate": cmd_migrate, "seed": cmd_seed, "enqueue": cmd_enqueue,
             "status": cmd_status, "cancel": cmd_cancel, "retry": cmd_retry,
-            "workers": cmd_workers,
+            "workers": cmd_workers, "adduser": cmd_adduser, "passwd": cmd_passwd,
+            "signout-all": cmd_signout_all,
         }[args.cmd](store, args)
 
 

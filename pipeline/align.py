@@ -171,6 +171,32 @@ def normalize(text: str) -> str:
     return _WS.sub(" ", out).strip()
 
 
+def _edit_ops(ref: list[str], hyp: list[str]) -> list[tuple[str, int, str, str]]:
+    """Levenshtein backtrace as (op, ref index, ref word, hyp word), in order."""
+    n, m = len(ref), len(hyp)
+    d = np.zeros((n + 1, m + 1), dtype=np.int32)
+    d[:, 0] = np.arange(n + 1)
+    d[0, :] = np.arange(m + 1)
+    for i in range(1, n + 1):
+        for j in range(1, m + 1):
+            cost = 0 if ref[i - 1] == hyp[j - 1] else 1
+            d[i, j] = min(d[i - 1, j] + 1, d[i, j - 1] + 1, d[i - 1, j - 1] + cost)
+    ops: list[tuple[str, int, str, str]] = []
+    i, j = n, m
+    while i > 0 or j > 0:
+        if i > 0 and j > 0 and d[i, j] == d[i - 1, j - 1] + (ref[i - 1] != hyp[j - 1]):
+            if ref[i - 1] != hyp[j - 1]:
+                ops.append(("sub", i - 1, ref[i - 1], hyp[j - 1]))
+            i, j = i - 1, j - 1
+        elif i > 0 and d[i, j] == d[i - 1, j] + 1:
+            ops.append(("del", i - 1, ref[i - 1], ""))
+            i -= 1
+        else:
+            ops.append(("ins", i, "", hyp[j - 1]))
+            j -= 1
+    return list(reversed(ops))
+
+
 def wer(reference: str, hypothesis: str) -> tuple[float, list[str]]:
     """Levenshtein word error rate, plus a human-readable edit list.
 
@@ -179,32 +205,124 @@ def wer(reference: str, hypothesis: str) -> tuple[float, list[str]]:
     or the acoustic model simply cannot spell `quern`.
     """
     ref, hyp = reference.split(), hypothesis.split()
-    n, m = len(ref), len(hyp)
-    if n == 0:
-        return (0.0 if m == 0 else 1.0), []
+    if not ref:
+        return (0.0 if not hyp else 1.0), []
+    ops = _edit_ops(ref, hyp)
+    edits = [f"sub {r}->{h}" if op == "sub" else f"del {r}" if op == "del" else f"ins {h}"
+             for op, _, r, h in ops]
+    cost = sum(1 for _ in ops)
+    return cost / len(ref), edits
 
-    d = np.zeros((n + 1, m + 1), dtype=np.int32)
-    d[:, 0] = np.arange(n + 1)
-    d[0, :] = np.arange(m + 1)
-    for i in range(1, n + 1):
-        for j in range(1, m + 1):
-            cost = 0 if ref[i - 1] == hyp[j - 1] else 1
-            d[i, j] = min(d[i - 1, j] + 1, d[i, j - 1] + 1, d[i - 1, j - 1] + cost)
 
-    edits: list[str] = []
-    i, j = n, m
-    while i > 0 or j > 0:
-        if i > 0 and j > 0 and d[i, j] == d[i - 1, j - 1] + (ref[i - 1] != hyp[j - 1]):
-            if ref[i - 1] != hyp[j - 1]:
-                edits.append(f"sub {ref[i-1]}->{hyp[j-1]}")
-            i, j = i - 1, j - 1
-        elif i > 0 and d[i, j] == d[i - 1, j] + 1:
-            edits.append(f"del {ref[i-1]}")
-            i -= 1
+def _similarity(a: str, b: str) -> float:
+    from difflib import SequenceMatcher
+
+    return SequenceMatcher(None, a, b).ratio()
+
+
+def _looks_like(a: str, b: str, at_least: float = 0.6) -> bool:
+    return _similarity(a, b) >= at_least
+
+
+#: A substitution spelled this much like the script's word is the recogniser
+#: spelling a word it heard, not the narration missing it: NAHUA -> NAPHEWA,
+#: COYOTE -> COYODE, JOINED -> JOIND. wav2vec2-base-960h is trained on English
+#: audiobooks and spells any name it has not seen by ear.
+NEAR_MISS = 0.6
+#: Two heard words that join into the script's word: EVERYONE -> EVERY ONE,
+#: TENOCHTITLAN -> TENACHTET LAN. Stricter than a near miss, because joining
+#: is a second liberty taken on top of the spelling.
+SPLIT_JOIN = 0.75
+
+
+#: Words at least this long can leave a recognisable scrap when dropped.
+FRAGMENT_MIN_LEN = 5
+
+
+def _join_splits(ref: list[str], hyp: list[str]) -> list[str]:
+    """Rejoin heard words the recogniser split from one script word."""
+    vocab = set(ref)
+    out: list[str] = []
+    i = 0
+    while i < len(hyp):
+        if i + 1 < len(hyp):
+            joined = hyp[i] + hyp[i + 1]
+            # Only pieces that are not script words themselves get joined
+            # (unless the join is exactly a script word), so two real words
+            # heard correctly are never fused.
+            pieces_unknown = hyp[i] not in vocab and hyp[i + 1] not in vocab
+            if joined in vocab or (pieces_unknown and any(
+                    _looks_like(joined, w, SPLIT_JOIN) for w in vocab if len(w) >= 5)):
+                out.append(joined)
+                i += 2
+                continue
+        out.append(hyp[i])
+        i += 1
+    return out
+
+
+def effective_wer(reference: str, hypothesis: str) -> tuple[float, list[str]]:
+    """The WER backstop with the recogniser's own spelling taken out.
+
+    Measured on the second real script (the Aztecs): three beats failed an 18%
+    WER ceiling on correct audio, every error a Nahuatl name spelled by ear or
+    a compound split in two (a split counts twice: one substitution, one
+    insertion). WER exists to catch mangled spans; a word spelled like the one
+    in the script was spoken. Splits are rejoined, near-miss substitutions are
+    not counted, and what remains is the rate. -> (rate, the edits that count).
+    """
+    ref, hyp = reference.split(), hypothesis.split()
+    if not ref:
+        return (0.0 if not hyp else 1.0), []
+    ops = _edit_ops(ref, _join_splits(ref, hyp))
+    counted = [
+        f"sub {r}->{h}" if op == "sub" else f"del {r}" if op == "del" else f"ins {h}"
+        for op, _, r, h in ops
+        if not (op == "sub" and _similarity(r, h) >= NEAR_MISS)
+    ]
+    return len(counted) / len(ref), counted
+
+
+def deletions(reference: str, hypothesis: str) -> tuple[list[str], list[str]]:
+    """-> (words genuinely absent, words the ASR merged into a neighbour).
+
+    Greedy CTC decoding without a language model sometimes misses the gap
+    between two words and hears one: "SOUTH SHIELDS" -> SOUTHSHIELDS. The
+    alignment then reads as a deleted SOUTH plus a substituted SHIELDS, the
+    exact shape of a dropped word. Measured on the first real Phase 3 script:
+    three beats failed the gate this way (SOUTH SHIELDS, NICK HODGSON, EXTRA
+    MODIUS), every word present in the audio. A deletion is a merge when the
+    word at the next or previous script position was heard as this word
+    joined to it; anything else is still a deletion and still fails the gate.
+    """
+    ref, hyp = reference.split(), hypothesis.split()
+    ops = _edit_ops(ref, hyp)
+    heard_as = {i: h for op, i, _, h in ops if op == "sub"}
+    absent, merged = [], []
+    for op, i, word, _ in ops:
+        if op != "del":
+            continue
+        after, before = heard_as.get(i + 1), heard_as.get(i - 1)
+        # Joined by spelling (SOUTH SHIELDS -> SOUTHSHIELDS) or by sound
+        # (CAN SEAL -> CONCEAL, from the Aztec script): the pair, run
+        # together, is spelled like what was heard.
+        if after and _looks_like(word + ref[i + 1], after, 0.7):
+            merged.append(f"{word}+{ref[i + 1]}")
+        elif before and _looks_like(ref[i - 1] + word, before, 0.7):
+            merged.append(f"{ref[i - 1]}+{word}")
         else:
-            edits.append(f"ins {hyp[j-1]}")
-            j -= 1
-    return d[n, m] / n, list(reversed(edits))
+            absent.append(word)
+    # A word cut out of the audio often leaves a fragment, not silence: the
+    # gate's negative control splices EVENINGS out and the recogniser hears
+    # "ETN". A long word heard as a short scrap that is not spelled like it is
+    # the shape a dropped word leaves; a misspelling keeps most of the word.
+    # Checked on the joined hypothesis, so a split (MODII -> MODI I) is not a
+    # scrap.
+    for op, _, word, heard in _edit_ops(ref, _join_splits(ref, hyp)):
+        if (op == "sub" and len(word) >= FRAGMENT_MIN_LEN and len(heard) * 2 <= len(word)
+                and _similarity(word, heard) < NEAR_MISS):
+            absent.append(f"{word} (heard only {heard!r})")
+    return absent, merged
 
 
 # ---------------------------------------------------------------- the trellis
@@ -485,7 +603,8 @@ def align_narration(
             ba.samples, narration.sample_rate, ba.text, offset=ba.start
         )
         ref = normalize(ba.text)
-        rate, edits = wer(ref, asr)
+        raw_rate, edits = wer(ref, asr)
+        rate, counted = effective_wer(ref, asr)
         ref_all.append(ref)
         hyp_all.append(asr)
 
@@ -497,9 +616,12 @@ def align_narration(
         # `WODE`, `TREELINE` -> `TREE LINE` — which inflate WER while meaning
         # nothing. A word the ASR cannot find at all is the shape a dropped
         # word makes. Measured baseline: zero deletions across all six beats.
-        deletions = [e for e in edits if e.startswith("del ")]
-        if deletions:
-            report.append(f"{ba.beat_id}: ASR heard no trace of {[d[4:] for d in deletions][:5]}")
+        absent, merged = deletions(ref, asr)
+        deletions_ = [f"del {w}" for w in absent]
+        if absent:
+            report.append(f"{ba.beat_id}: ASR heard no trace of {absent[:5]}")
+        if merged:
+            report.append(f"{ba.beat_id}: ASR ran words together (heard, not dropped): {merged[:5]}")
         if edits:
             report.append(f"{ba.beat_id}: ASR edits {edits[:6]}")
         errors.extend(fatal)
@@ -520,20 +642,20 @@ def align_narration(
                 asr_text=asr, wer=rate, report=report,
             )
         )
-        flag = "FAIL" if (rate > max_wer or fatal or len(deletions) > max_deletions) else "ok  "
-        log(f"  {ba.beat_id}  WER {rate:5.1%} {flag}  {len(timings):3d} words  "
+        flag = "FAIL" if (rate > max_wer or fatal or len(deletions_) > max_deletions) else "ok  "
+        log(f"  {ba.beat_id}  WER {rate:5.1%} (raw {raw_rate:5.1%}) {flag}  {len(timings):3d} words  "
             f"{ba.start:6.2f}-{ba.end:6.2f}s")
         for line in report:
             log(f"         {line}")
         if rate > max_wer:
             errors.append(
-                f"{ba.beat_id}: WER {rate:.1%} exceeds {max_wer:.0%}. "
-                f"script={ref!r} heard={asr!r}"
+                f"{ba.beat_id}: WER {rate:.1%} exceeds {max_wer:.0%} after spelling "
+                f"near-misses and splits, counting {counted[:6]}. script={ref!r} heard={asr!r}"
             )
-        if len(deletions) > max_deletions:
+        if len(deletions_) > max_deletions:
             errors.append(
-                f"{ba.beat_id}: {len(deletions)} word(s) absent from the narration "
-                f"{[d[4:] for d in deletions][:5]} (limit {max_deletions})"
+                f"{ba.beat_id}: {len(deletions_)} word(s) absent from the narration "
+                f"{absent[:5]} (limit {max_deletions})"
             )
         elif edits:
             warnings.append(f"{ba.beat_id}: {len(edits)} ASR edit(s) under threshold")

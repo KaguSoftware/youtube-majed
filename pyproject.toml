@@ -44,6 +44,12 @@ slice = [
 # needs no Postgres client install to reach Neon or the compose.yaml database.
 worker = [
     "psycopg[binary]==3.3.6",
+    # docs.py parses beat bodies as YAML; the web app's validator function
+    # pins the same version in web/requirements.txt.
+    "pyyaml==6.0.3",
+    # Phase 3: the media store behind work/cache (pipeline/media.py). Vercel's
+    # own SDK; >= 0.5.0 is required for private stores.
+    "vercel-blob==0.5.0",
 ]
 
 [tool.uv]

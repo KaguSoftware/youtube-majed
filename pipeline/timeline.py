@@ -123,6 +123,11 @@ class Timeline:
     models: dict
     upstream: dict
     shots: list[Shot]
+    #: Media keys (media.py) for what the web app shows. `film` is the render;
+    #: `sheet` is a contact sheet of every shot's still with its grid layout
+    #: (production.contact_sheet). A shot's full still is always
+    #: `images/<image.hash>.png`, so it needs no entry.
+    media: dict = field(default_factory=dict)
     schema: int = SCHEMA_VERSION
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     validation: dict = field(default_factory=lambda: {"errors": [], "warnings": []})
@@ -144,6 +149,24 @@ class Timeline:
             {**clean(asdict(s)), "duration": round(s.duration, 4)} for s in self.shots
         ]
         return clean(d)
+
+    @classmethod
+    def from_json(cls, d: dict) -> "Timeline":
+        """The inverse of to_json, for a timeline read back from Postgres: the
+        re-encode of a stored film, and Phase 4's edits, which mutate the
+        timeline rather than re-plan it. Derived keys (a shot's `duration`)
+        are dropped; they are recomputed."""
+        from dataclasses import fields
+
+        shot_keys = {f.name for f in fields(Shot)}
+        shots = []
+        for sd in d["shots"]:
+            kw = {k: v for k, v in sd.items() if k in shot_keys}
+            kw["motion"] = Motion(**sd["motion"])
+            kw["image"] = ImageRecord(**sd["image"]) if sd.get("image") else None
+            shots.append(Shot(**kw))
+        tl_keys = {f.name for f in fields(cls)}
+        return cls(**{**{k: v for k, v in d.items() if k in tl_keys and k != "shots"}, "shots": shots})
 
     def write(self, path: Path) -> None:
         """Serialize, re-validating first.

@@ -1,0 +1,10 @@
+# Vercel deploys from the repo root (project Root Directory = web) so the
+# Python validator function can import pipeline/docs.py. Upload only what the
+# web app and that function need; Hobby caps CLI source uploads at 100 MB.
+/*
+!/web
+!/pipeline
+/web/node_modules
+/web/.next
+/pipeline/__pycache__
+/pipeline/fixtures

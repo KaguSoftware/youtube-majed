@@ -69,10 +69,34 @@ class Claim:
     worker: str
 
 
+#: Every job kind, and the lane each runs on. The GPU lane holds the warm image
+#: model; the light lane runs `claude -p`, which needs no GPU and should not
+#: wait twenty minutes behind someone else's render.
+GPU_KINDS = ("production", "style")
+LIGHT_KINDS = ("research", "script")
+
+
 class Store:
     def __init__(self, url: str | None = None) -> None:
         self.url = url or database_url()
-        self.conn = psycopg.connect(self.url, autocommit=True, row_factory=dict_row)
+        self.conn = self._connect()
+
+    def _connect(self) -> psycopg.Connection:
+        return psycopg.connect(self.url, autocommit=True, row_factory=dict_row)
+
+    def reconnect(self) -> None:
+        """Replace a connection the server dropped.
+
+        Neon closes connections when an idle compute scales to zero, which on
+        the free tier is the normal state of an idle worker's database. The
+        worker calls this when a poll fails with an OperationalError and
+        tries again, rather than treating the database as down.
+        """
+        try:
+            self.conn.close()
+        except Exception:
+            pass
+        self.conn = self._connect()
 
     def close(self) -> None:
         self.conn.close()
@@ -175,6 +199,11 @@ class Store:
 
     # ------------------------------------------------------------------ jobs
 
+    #: The project state a job of each kind belongs to. Enqueueing moves the
+    #: project there, so the studio shows the stage the work is happening in.
+    STATE_FOR_KIND = {"production": "production", "style": "style",
+                      "research": "staging", "script": "scripting"}
+
     def enqueue(self, project_id: str, kind: str, payload: dict, *, max_attempts: int = 3) -> int:
         with self.conn.transaction():
             row = self._one(
@@ -182,11 +211,12 @@ class Store:
                 "VALUES (%s, %s, %s, %s) RETURNING id",
                 (project_id, kind, Jsonb(payload), max_attempts),
             )
-            self.conn.execute("UPDATE projects SET state = 'production' WHERE id = %s", (project_id,))
+            self.conn.execute("UPDATE projects SET state = %s, updated_at = now() WHERE id = %s",
+                              (self.STATE_FOR_KIND[kind], project_id))
         return row["id"]
 
     def claim(self, worker: str, lease_seconds: float, *, reclaim_own: bool = False,
-              fake: bool = False) -> Claim | None:
+              fake: bool = False, kinds: tuple[str, ...] | None = None) -> Claim | None:
         """Take the oldest runnable job, or reclaim one whose lease ran out.
 
         `reclaim_own` is for a worker's first poll after starting. The worker
@@ -197,6 +227,8 @@ class Store:
         `fake` partitions the queue: a weights-free worker only takes jobs
         enqueued for it, and a real worker never does. Otherwise a smoke test
         left running could pick up a real job and publish a timeline of noise.
+
+        `kinds` restricts the claim to one lane's job kinds; None takes any.
         """
         with self.conn.transaction():
             # A job that has already used its attempts is failed rather than
@@ -218,6 +250,7 @@ class Store:
                                lease_expires_at < now()
                             OR (%(own)s AND claimed_by = %(worker)s))))
                       AND coalesce((payload->>'fake')::boolean, false) = %(fake)s
+                      AND (%(kinds)s::text[] IS NULL OR kind = ANY(%(kinds)s::text[]))
                     ORDER BY created_at, id
                     LIMIT 1
                     FOR UPDATE SKIP LOCKED
@@ -233,7 +266,8 @@ class Store:
                 FROM next WHERE j.id = next.id
                 RETURNING j.*
                 """,
-                {"own": reclaim_own, "worker": worker, "lease": lease_seconds, "fake": fake},
+                {"own": reclaim_own, "worker": worker, "lease": lease_seconds, "fake": fake,
+                 "kinds": list(kinds) if kinds else None},
             )
         if row is None:
             return None
@@ -242,6 +276,24 @@ class Store:
             payload=row["payload"], checkpoint=row["checkpoint"], attempts=row["attempts"],
             max_attempts=row["max_attempts"], token=str(row["lease_token"]), worker=worker,
         )
+
+    def next_due(self, *, fake: bool = False, kinds: tuple[str, ...] | None = None):
+        """When the queue next has something for this lane without anyone
+        enqueuing: a retry's backoff ending, or a dead worker's lease running
+        out. None if nothing is pending.
+
+        A worker on the doorbell only reads the database when the bell rings,
+        and the bell rings on enqueue. These two cases change state with no
+        enqueue, so the worker schedules its next poll for this moment.
+        """
+        row = self._one(
+            "SELECT min(CASE WHEN state = 'queued' THEN run_after ELSE lease_expires_at END) AS at "
+            "FROM jobs WHERE state IN ('queued', 'running') "
+            "AND coalesce((payload->>'fake')::boolean, false) = %(fake)s "
+            "AND (%(kinds)s::text[] IS NULL OR kind = ANY(%(kinds)s::text[]))",
+            {"fake": fake, "kinds": list(kinds) if kinds else None},
+        )
+        return row["at"] if row else None
 
     def _fenced(self, claim: Claim, assignments: str, params: dict | None = None) -> None:
         """UPDATE the job only if this claim still owns it, else raise LeaseLost."""
@@ -309,6 +361,69 @@ class Store:
             self.conn.execute("UPDATE projects SET state = 'editing' WHERE id = %s", (claim.project_id,))
         return version
 
+    def finish_document(self, claim: Claim, *, kind: str, markdown: str, verdict: dict,
+                        upstream_hash: str | None, prompt: str, response_raw: str,
+                        meta: dict) -> dict:
+        """Store what Claude wrote and close the job, all or nothing.
+
+        The artifact, its prompt_log row and the job's completion commit in one
+        transaction, fenced on the lease. A worker that lost its lease cannot
+        add a version, and a crash between the three cannot leave a document
+        without its prompt or a finished job without its document.
+        """
+        with self.conn.transaction():
+            self._fenced(
+                claim,
+                "state = 'done', finished_at = now(), lease_token = NULL, error = NULL, "
+                "progress = progress || '{\"stage\": \"done\"}'::jsonb",
+            )
+            self.conn.execute("SELECT 1 FROM projects WHERE id = %s FOR UPDATE", (claim.project_id,))
+            version = self._one(
+                "SELECT coalesce(max(version), 0) + 1 AS v FROM artifacts "
+                "WHERE project_id = %s AND kind = %s", (claim.project_id, kind))["v"]
+            row = self._one(
+                "INSERT INTO artifacts (project_id, kind, version, markdown_raw, content_sha, "
+                " parsed_json, doc_status, upstream_hash, validator_report, source, job_id) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'claude', %s) RETURNING *",
+                (claim.project_id, kind, version, markdown, text_sha(markdown),
+                 Jsonb(verdict.get("parsed")), verdict["doc_status"], upstream_hash,
+                 Jsonb({"errors": verdict["errors"], "warnings": verdict["warnings"],
+                        "sources_checked": verdict.get("sources_checked")}), claim.job_id),
+            )
+            self.conn.execute(
+                "INSERT INTO prompt_log (project_id, kind, prompt_text, response_raw, hash, "
+                " job_id, artifact_id, meta) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                (claim.project_id, kind, prompt, response_raw, text_sha(prompt), claim.job_id,
+                 row["id"], Jsonb(meta)),
+            )
+            self.conn.execute("UPDATE projects SET updated_at = now() WHERE id = %s", (claim.project_id,))
+        return row
+
+    def finish_style(self, claim: Claim, *, candidates: list[dict], preset_id: str | None,
+                     beat_id: str, prompt_prefix: str) -> dict:
+        """Record a set of candidate looks and close the job, all or nothing.
+        The images are already in the media store (upload first, pointer second)."""
+        with self.conn.transaction():
+            self._fenced(
+                claim,
+                "state = 'done', finished_at = now(), lease_token = NULL, error = NULL, "
+                "progress = progress || '{\"stage\": \"done\"}'::jsonb",
+            )
+            row = self._one(
+                "INSERT INTO style_runs (project_id, candidates_json, job_id, preset_id, beat_id, prompt_prefix) "
+                "VALUES (%s, %s, %s, %s, %s, %s) RETURNING *",
+                (claim.project_id, Jsonb(candidates), claim.job_id, preset_id, beat_id, prompt_prefix),
+            )
+            self.conn.execute("UPDATE projects SET updated_at = now() WHERE id = %s", (claim.project_id,))
+        return row
+
+    def set_style_crop(self, style_id: str, crop_key: str) -> None:
+        """The worker fills in a project style's hero crop the first time it is
+        needed. Idempotent: the crop is a pure function of the frame and box."""
+        self.conn.execute(
+            "UPDATE styles SET preset_json = preset_json || jsonb_build_object('hero_crop', %s::text) "
+            "WHERE id = %s", (crop_key, style_id))
+
     def fail(self, claim: Claim, error: str) -> None:
         """Terminal. For deterministic failures a retry would only repeat."""
         self._fenced(
@@ -372,13 +487,14 @@ class Store:
 
     # -------------------------------------------------------------- workers
 
-    def touch_worker(self, worker: str, *, hostname: str, pid: int, current_job: int | None) -> None:
+    def touch_worker(self, worker: str, *, hostname: str, pid: int, current_job: int | None,
+                     kinds: tuple[str, ...] = GPU_KINDS) -> None:
         self.conn.execute(
-            "INSERT INTO workers (id, hostname, pid, current_job) VALUES (%s, %s, %s, %s) "
+            "INSERT INTO workers (id, hostname, pid, current_job, kinds) VALUES (%s, %s, %s, %s, %s) "
             "ON CONFLICT (id) DO UPDATE SET hostname = EXCLUDED.hostname, pid = EXCLUDED.pid, "
-            "current_job = EXCLUDED.current_job, last_seen_at = now(), "
+            "current_job = EXCLUDED.current_job, kinds = EXCLUDED.kinds, last_seen_at = now(), "
             "started_at = CASE WHEN workers.pid = EXCLUDED.pid THEN workers.started_at ELSE now() END",
-            (worker, hostname, pid, current_job),
+            (worker, hostname, pid, current_job, list(kinds)),
         )
 
     def workers(self) -> list[dict]:
@@ -386,3 +502,38 @@ class Store:
             "SELECT *, extract(epoch FROM now() - last_seen_at) AS age_seconds "
             "FROM workers ORDER BY last_seen_at DESC"
         )
+
+    # ---------------------------------------------------------------- media
+
+    def media_size(self, store: str, key: str) -> int | None:
+        row = self._one("SELECT size FROM media WHERE store = %s AND key = %s", (store, key))
+        return row["size"] if row else None
+
+    def media_record(self, store: str, key: str, *, size: int, kind: str,
+                     project_id: str | None = None, job_id: int | None = None) -> None:
+        """Called after the upload succeeded, never before (failure mode 9)."""
+        self.conn.execute(
+            "INSERT INTO media (store, key, size, kind, project_id, job_id) "
+            "VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT (store, key) DO NOTHING",
+            (store, key, size, kind, project_id, job_id),
+        )
+
+
+class MediaIndex:
+    """`media.Index` over the `media` table for one remote store, attributing
+    uploads to one job."""
+
+    def __init__(self, store: Store, remote: str, *, project_id: str | None = None,
+                 job_id: int | None = None):
+        self.store, self.remote = store, remote
+        self.project_id, self.job_id = project_id, job_id
+
+    def size(self, key: str) -> int | None:
+        return self.store.media_size(self.remote, key)
+
+    def known(self, key: str) -> bool:
+        return self.size(key) is not None
+
+    def record(self, key: str, *, size: int, kind: str) -> None:
+        self.store.media_record(self.remote, key, size=size, kind=kind,
+                                project_id=self.project_id, job_id=self.job_id)

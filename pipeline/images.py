@@ -73,6 +73,7 @@ class KleinGenerator:
     def __init__(self, *, model: str = config.IMAGE_MODEL) -> None:
         self.model_name = model
         self._model = None
+        self._text_only = None
 
     def preflight(self) -> tuple[bool, str]:
         try:
@@ -113,19 +114,41 @@ class KleinGenerator:
         )
         log(f"  loaded {self.model_name} in {time.time() - t:.1f}s")
 
+    def _text_to_image(self):
+        """`Flux2Klein` over the already-loaded weights, for prompts with no
+        reference (the style stage's candidate looks).
+
+        `Flux2KleinEdit` cannot run without one: its predict step concatenates
+        the reference latents unconditionally, and an empty list fails inside
+        mlx (found on the first real style job). Loading `Flux2Klein` as well
+        would hold a second 4.3 GB copy of identical weights, which is the
+        memory pressure PLAN.md 8.8 measured as fatal. Both classes are plain
+        modules over the same VAE, transformer and text encoder, so the
+        text-only class borrows them. Same checkpoint, same licence.
+        """
+        if self._text_only is None:
+            import mlx.nn as nn
+            from mflux.models.flux2.variants import Flux2Klein
+
+            t2i = Flux2Klein.__new__(Flux2Klein)
+            nn.Module.__init__(t2i)
+            for attr in ("compute_precision", "model_config", "callbacks", "tiling_config", "tokenizers",
+                         "vae", "transformer", "text_encoder", "bits", "lora_paths", "lora_scales"):
+                setattr(t2i, attr, getattr(self._model, attr))
+            t2i.prompt_cache = {}       # its own: the two variants may encode prompts differently
+            self._text_only = t2i
+        return self._text_only
+
     def generate(self, prompt: str, seed: int, refs: list[Path], dest: Path) -> float:
         if self._model is None:
             raise RuntimeError("generate() before load()")
         t = time.time()
-        image = self._model.generate_image(
-            seed=seed,
-            prompt=prompt,
-            num_inference_steps=config.GEN_STEPS,
-            height=config.GEN_HEIGHT,
-            width=config.GEN_WIDTH,
-            guidance=config.GEN_GUIDANCE,
-            image_paths=[str(r) for r in refs],
-        )
+        common = dict(seed=seed, prompt=prompt, num_inference_steps=config.GEN_STEPS,
+                      height=config.GEN_HEIGHT, width=config.GEN_WIDTH, guidance=config.GEN_GUIDANCE)
+        if refs:
+            image = self._model.generate_image(**common, image_paths=[str(r) for r in refs])
+        else:
+            image = self._text_to_image().generate_image(**common)
         dest.parent.mkdir(parents=True, exist_ok=True)
         tmp = config.partial(dest)
         image.save(path=tmp, overwrite=True)  # overwrite defaults to False
@@ -136,6 +159,7 @@ class KleinGenerator:
 
     def unload(self) -> None:
         self._model = None
+        self._text_only = None
         try:
             import mlx.core as mx
 
@@ -190,7 +214,7 @@ def generate_shots(
             h = image_hash(shot.prompt, seed, refs, model=generator.model_name)
             dest = paths.images / f"{h}.png"
 
-            if dest.exists() and dest.stat().st_size > 0:
+            if paths.mirror.ensure(dest):
                 elapsed, source = 0.0, "cached"
                 stats.cached += 1
             else:
@@ -203,6 +227,13 @@ def generate_shots(
                 stats.generated += 1
                 stats.times.append(elapsed)
                 source = f"{elapsed:5.2f}s"
+
+            # Every attempt is published, rejected rerolls included: QA is
+            # recomputed on resume, so a takeover on another machine needs
+            # attempt 1's bytes to reach the same reroll decision. Cache hits
+            # too, so a file whose upload failed last attempt is healed now
+            # (media.py, "Publishing heals"); an indexed key costs one query.
+            paths.mirror.publish(dest, "image")
 
             # The preceding shot is judged on the stricter threshold and so is
             # excluded from the general pool, or it would be checked twice and

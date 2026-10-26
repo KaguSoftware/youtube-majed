@@ -175,6 +175,21 @@ def render_segments(timeline: Timeline, paths, *, log=print) -> list[Path]:
     return out
 
 
+#: The delivered film: what is uploaded, played in the browser and posted.
+#: CRF 18 at preset medium cost 37-47 MB a minute, and the free Blob store is
+#: 1 GB. Measured on a minute of the Aztec film and 20 dark seconds of the
+#: Roman one, against the CRF 18 film: CRF 24 with preset slow and tune film is
+#: 17.2 MB/min at VMAF 95.6 (bright) and 16.3 MB/min at VMAF 93.9 (dark, where
+#: CRF 18 was 47), with no banding visible even with the shadows brightened
+#: 2.2x. Encode time is the same as before. Tune stillimage was larger at equal
+#: quality; 24 fps saved only 6%; aq-mode 3 gained nothing. The Ken Burns
+#: segments that feed this stay at CRF 17: they are local intermediates.
+FILM_VIDEO = ["-c:v", "libx264", "-preset", "slow", "-crf", "24", "-tune", "film"]
+#: Narration is one voice synthesized at 24 kHz mono; 192 kbps stereo carried
+#: nothing more than 96 kbps mono.
+FILM_AUDIO = ["-c:a", "aac", "-b:a", "96k", "-ac", "1"]
+
+
 def stitch(timeline: Timeline, segments: list[Path], audio: Path, dest: Path, *, log=print) -> Path:
     """Cross-dissolve the segments, mux the narration, verify the length."""
     t = timeline.render["xfade"]
@@ -224,8 +239,7 @@ def stitch(timeline: Timeline, segments: list[Path], audio: Path, dest: Path, *,
         ["ffmpeg", "-y", *inputs,
          "-filter_complex", ";".join(filters),
          "-map", "[vout]", "-map", "[aout]",
-         "-c:v", "libx264", "-preset", "medium", "-crf", "18",
-         "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k",
+         *FILM_VIDEO, "-pix_fmt", "yuv420p", *FILM_AUDIO,
          "-movflags", "+faststart", str(config.partial(dest))],
         "stitch",
     )

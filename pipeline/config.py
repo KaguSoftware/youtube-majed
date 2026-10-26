@@ -12,8 +12,10 @@ payload; until then a module of constants is the honest representation of
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -141,9 +143,9 @@ class Style:
     crop_box: tuple[float, float, float, float]
 
     def to_record(self) -> dict:
-        """The `styles.preset_json` form. Reference paths are repo-relative so
-        a record means the same thing on any checkout of this repo; Phase 3
-        replaces them with Blob URLs."""
+        """The `styles.preset_json` form. A reference is either a repo-relative
+        path (the Phase 1 library style) or a media key such as
+        `refs/<sha>.png`, which the worker fetches through its mirror."""
         def rel(p: Path) -> str:
             return str(p.relative_to(REPO)) if p.is_relative_to(REPO) else str(p)
 
@@ -154,19 +156,64 @@ class Style:
         }
 
     @classmethod
-    def from_record(cls, style_id: str, d: dict) -> "Style":
+    def from_record(cls, style_id: str, d: dict,
+                    resolve: Callable[[str], Path] | None = None) -> "Style":
+        """`resolve` turns a stored reference into a local file; the default
+        reads it as repo-relative, which is all the CLI slice needs."""
+        resolve = resolve or (lambda ref: REPO / ref)
         return cls(
             style_id=style_id, preset=d["preset"], prompt_prefix=d["prompt_prefix"],
-            seed=int(d["seed"]), hero_full=REPO / d["hero_full"], hero_crop=REPO / d["hero_crop"],
-            crop_box=tuple(d["crop_box"]),
+            seed=int(d["seed"]), hero_full=resolve(d["hero_full"]),
+            hero_crop=resolve(d["hero_crop"]), crop_box=tuple(d["crop_box"]),
         )
 
-    def prompt_for(self, visual: str, mood: str, framing: str | None = None) -> str:
-        parts = [self.prompt_prefix.rstrip(", "), visual.strip()]
+    def prompt_for(self, visual: str, mood: str, framing: str | None = None,
+                   period: str | None = None, protagonist: tuple[str, str] | None = None) -> str:
+        """prefix, period, visual, framing, mood.
+
+        The period (script front matter) anchors every image in place and time:
+        without it "a soldier" came back in a brimmed hat and 19th-century work
+        clothes. It is not enough on its own: with it, "the auxiliary Victor"
+        still came back in First World War helmets under an electric bulb.
+        Naming the equipment fixed it ("a mail shirt, a bronze Roman helmet with
+        cheek guards", "a clay oil lamp"). So the script declares its
+        protagonist's look once, and every visual that names the protagonist
+        has that description spliced in after the name (Phase 3, measured on the
+        first real look candidates; PLAN.md 11).
+        """
+        if protagonist and protagonist[0] and protagonist[1]:
+            name, look = protagonist
+            look = look.strip().rstrip(",")
+            # Spliced after the first plain mention; a possessive ("the
+            # farmer's hands") cannot take an apposition, so the description
+            # goes at the end of the visual instead.
+            plain = re.compile(rf"\b{re.escape(name)}\b(?!['\u2019]s)")
+            if plain.search(visual):
+                visual = plain.sub(f"{name}, {look},", visual, count=1)
+            elif re.search(rf"\b{re.escape(name)}\b", visual):
+                visual = f"{visual.rstrip(', ')}, {name}: {look}"
+        style = style_text(self.prompt_prefix)
+        parts = [style, (period or "").strip(), visual.strip()]
         if framing:
             parts.append(framing)
         parts.append(mood.strip())
-        return ", ".join(p for p in parts if p)
+        # The style again, last. One phrase at the front of a 500-character
+        # prompt is outvoted by everything after it: on the Aztec film the
+        # shots with no character in them came back as photographs.
+        if style:
+            parts.append(f"all of it as {style}")
+        prompt = ", ".join(p.strip(", ") for p in parts if p and p.strip(", "))
+        return re.sub(r"\s*,(\s*,)+", ",", prompt)
+
+
+def style_text(prefix: str) -> str:
+    """A look description as the image model can use it: a description of the
+    medium, not an instruction. The model does not take orders, so a user's
+    "make it stick figure doodles" is kept as "stick figure doodles"."""
+    text = prefix.strip().rstrip(",. ")
+    text = re.sub(r"^(please\s+)?(make|turn|render|draw|paint|do)\s+(it|this|them|everything|the\s+film)?\s*(look\s+)?(like|as|into|in)?\s*",
+                  "", text, flags=re.I)
+    return text.strip(" ,.")
 
 
 #: The hardcoded Phase 1 style. The hero crop is the one validated in Phase 0 —
@@ -206,21 +253,25 @@ class Paths:
     """Where a run puts things.
 
     Split into `cache` (content-addressed, survives runs, safe to reuse) and
-    `work` (per-run scratch). Phase 2 replaces `cache` with Blob plus the
-    artifacts table; the addressing scheme is the same either way, which is the
-    point of choosing it now.
+    `work` (per-run scratch). `mirror` puts a remote store behind the cache
+    (media.py); without one it is the local cache alone, as in Phase 2.
     """
 
     root: Path
     project: str
+    mirror: "object | None" = None
 
     def __post_init__(self) -> None:
+        from .media import Mirror
+
         self.run = self.root / self.project
         self.cache = self.root / "cache"
         self.images = self.cache / "images"
         self.segments = self.cache / "segments"
         for d in (self.run, self.images, self.segments):
             d.mkdir(parents=True, exist_ok=True)
+        if self.mirror is None:
+            self.mirror = Mirror(self.cache)
 
     @property
     def audio(self) -> Path:

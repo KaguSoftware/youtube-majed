@@ -1,0 +1,128 @@
+@import "tailwindcss" source(none);
+/* Sources are named, not auto-detected. Detection found nothing on Vercel's
+   build machine (the deploy is assembled from the repo root with web/ as the
+   project root), and production shipped with no utility classes at all,
+   while `next dev` and a local build were fine. */
+@source "../app";
+@source "../components";
+@source "../lib";
+
+/*
+ * The studio's tokens. See web/PRODUCT.md for why it looks like this:
+ * a dark screening room, because stills only read true against a dark
+ * neutral surround, with documents set on paper when they arrive, and one
+ * accent (film-stock yellow) reserved for the primary action and for "live".
+ *
+ * Neutrals carry a barely-there warm tint (chroma <= 0.01) so the room never
+ * colours the frames shown in it. Depth comes from lighter surfaces, not
+ * shadow. Contrast was checked against WCAG 2.2 AA: text 16.7:1, muted 8.4:1,
+ * faint 4.9:1, ink-on-accent 12.2:1, field edges >= 3:1.
+ */
+@theme {
+  --color-room: oklch(0.165 0.006 85);
+  --color-raised: oklch(0.205 0.007 85);
+  --color-lifted: oklch(0.25 0.008 85);
+  --color-hairline: oklch(0.32 0.008 85);
+  --color-edge: oklch(0.52 0.01 85);
+
+  --color-text: oklch(0.95 0.008 90);
+  --color-muted: oklch(0.74 0.01 85);
+  --color-faint: oklch(0.6 0.01 85);
+
+  --color-accent: oklch(0.87 0.165 92);
+  --color-accent-hover: oklch(0.91 0.15 94);
+  --color-accent-ink: oklch(0.2 0.03 90);
+
+  --color-danger: oklch(0.7 0.17 25);
+  --color-danger-wash: oklch(0.26 0.06 25);
+  --color-ok: oklch(0.76 0.13 155);
+  --color-caution: oklch(0.8 0.12 75);
+
+  --color-paper: oklch(0.965 0.012 90);
+  --color-ink: oklch(0.23 0.01 85);
+
+  --font-sans: var(--font-mona), ui-sans-serif, system-ui, sans-serif;
+
+  /* A tight product scale (1.2) for UI; titles step out of it on purpose. */
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1rem;
+  --text-sm: 0.875rem;
+  --text-sm--line-height: 1.25rem;
+  --text-base: 1rem;
+  --text-base--line-height: 1.6rem;
+  --text-lg: 1.2rem;
+  --text-lg--line-height: 1.7rem;
+  --text-title: 2rem;
+  --text-title--line-height: 2.1rem;
+  --text-marquee: 3.5rem;
+  --text-marquee--line-height: 3.4rem;
+
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@layer base {
+  html {
+    background: var(--color-room);
+    color: var(--color-text);
+    color-scheme: dark;
+    font-kerning: normal;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    min-height: 100dvh;
+    font-family: var(--font-sans);
+    /* Light text on dark reads thinner: a hair more tracking and leading. */
+    letter-spacing: 0.005em;
+  }
+
+  h1, h2, h3 { text-wrap: balance; }
+  p { text-wrap: pretty; }
+
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 3px;
+    border-radius: 2px;
+  }
+
+  ::selection {
+    background: var(--color-accent);
+    color: var(--color-accent-ink);
+  }
+}
+
+@layer components {
+  /* Film-title type: Mona Sans at its narrowest width, heavy. Titles only;
+     never labels, buttons or data. */
+  .title-card {
+    font-variation-settings: "wdth" 75;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+  }
+
+  /* Short tracked capitals for stage names and section labels. */
+  .eyebrow {
+    font-size: var(--text-xs);
+    line-height: var(--text-xs--line-height);
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    font-variation-settings: "wdth" 110;
+  }
+
+  .tabular { font-variant-numeric: tabular-nums; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@keyframes fadein {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}

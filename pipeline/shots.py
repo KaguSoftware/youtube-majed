@@ -44,16 +44,21 @@ from .timeline import Motion
 #: both came back as effectively the same image. Rerolling on a new seed can
 #: rescue that, but it is a lottery against a prompt that is asking for the
 #: same picture twice; changing what is asked for is the actual fix.
+#:
+#: They describe composition, never the lens. "Shallow depth of field" and
+#: "background dissolved" are camera language, and on a film whose look was
+#: "stick figure doodles" they turned shots photographic (Phase 3, the Aztec
+#: film: the same lake, one framing a drawing, the other a photograph).
 FRAMINGS: dict[int, list[str | None]] = {
     1: [None],
     2: [
-        "wide establishing shot, high vantage, figures small in a large space, deep background visible",
-        "tight close-up, subject filling the frame, shallow depth of field, background dissolved",
+        "wide view from a high vantage, figures small in a large space, the whole setting visible",
+        "close view, the subject filling the frame, little of the surroundings",
     ],
     3: [
-        "wide establishing shot, high vantage, figures small in a large space, deep background visible",
-        "medium shot at eye level, waist up, background legible but soft",
-        "extreme close-up on texture and hands, filling the frame, shallow depth of field",
+        "wide view from a high vantage, figures small in a large space, the whole setting visible",
+        "medium view at eye level, waist up, the setting behind",
+        "very close view of hands, objects and texture, filling the frame",
     ],
 }
 
@@ -217,6 +222,8 @@ def plan(
     *,
     target_shots: int = config.TARGET_SHOTS,
     audio_duration: float | None = None,
+    period: str | None = None,
+    protagonist: tuple[str, str] | None = None,
     log=print,
 ):
     """-> list[Shot] tiling the audio contiguously from 0 to the audio end."""
@@ -254,7 +261,8 @@ def plan(
                     mood=beat.mood,
                     framing=framing,
                     cites=list(beat.cites),
-                    prompt=style.prompt_for(beat.visual, beat.mood, framing),
+                    prompt=style.prompt_for(beat.visual, beat.mood, framing, period=period,
+                                            protagonist=protagonist),
                     seed=style.seed,
                     motion=_motion(index),
                     words=[

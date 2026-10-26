@@ -181,7 +181,11 @@ def narrate(inputs: Inputs, paths: config.Paths, engines: Engines, *, log=print)
     wav = paths.cache / "audio" / f"{key}.wav"
     index_path = wav.with_suffix(".json")
 
-    if wav.exists() and index_path.exists():
+    # Both or neither: the index is what says the wav is complete. On another
+    # machine these must be the original bytes, not a re-synthesis — Kokoro is
+    # seeded, but not promised bit-identical across torch builds, and a
+    # different wav aligns to different shot boundaries.
+    if paths.mirror.ensure(wav) and paths.mirror.ensure(index_path):
         log(f"  cached {wav.name}")
     else:
         made = tts.synthesize(inputs.script.beats, wav, engine=engine, voice_id=voice_id, log=log)
@@ -195,6 +199,9 @@ def narrate(inputs: Inputs, paths: config.Paths, engines: Engines, *, log=print)
                 for b in made.beats
             ],
         })
+    # Cache hits too: see media.py, "Publishing heals". Index last.
+    paths.mirror.publish(wav, "audio")
+    paths.mirror.publish(index_path, "audio")
 
     # Read back from disk on every path — see the module docstring.
     samples, sr = align.read_wav(wav)
@@ -220,16 +227,22 @@ def align_and_gate(inputs: Inputs, narration: tts.Narration, paths: config.Paths
                    engines: Engines, *, log=print) -> align.Alignment:
     aligner = engines.aligner
     key = sha(
-        "align-v1", file_sha(narration.path), aligner.model_name, inputs.max_wer,
+        # v3: the WER backstop discounts the recogniser's own spelling and
+        #     splits (align.effective_wer); merges are recognised by sound.
+        # v2: the gate tells ASR word merges from dropped words (align.deletions).
+        # The cached alignment carries the gate's verdict, so a change to the
+        # gate must change the key or a re-run reloads the old verdict.
+        "align-v3", file_sha(narration.path), aligner.model_name, inputs.max_wer,
         config.MAX_DELETIONS_PER_BEAT, align.MIN_MS_PER_CHAR, align.MIN_CHARS_FOR_DURATION_CHECK,
     )
     cached = paths.cache / "align" / f"{key}.json"
-    if cached.exists():
+    if paths.mirror.ensure(cached):
         alignment = align.Alignment.from_json(json.loads(cached.read_text()))
         log(f"  cached {cached.name}")
     else:
         alignment = align.align_narration(narration, aligner=aligner, max_wer=inputs.max_wer, log=log)
         _write_json(cached, alignment.to_json())
+    paths.mirror.publish(cached, "alignment")
     _copy(cached, paths.alignment)
 
     log(f"  overall WER {alignment.overall_wer:.1%} (gate {inputs.max_wer:.0%}), "
@@ -251,7 +264,8 @@ def plan(inputs: Inputs, narration: tts.Narration, alignment: align.Alignment,
     style = inputs.style
     shot_list = shots_mod.plan(
         inputs.script.beats, alignment, style,
-        target_shots=inputs.target_shots, audio_duration=narration.duration, log=log,
+        target_shots=inputs.target_shots, audio_duration=narration.duration,
+        period=inputs.script.meta.get("period"), protagonist=docs.protagonist(inputs.script), log=log,
     )
     width, height = inputs.render_size or (config.OUT_WIDTH, config.OUT_HEIGHT)
     timeline = Timeline(
@@ -323,8 +337,48 @@ def generate(inputs: Inputs, timeline: Timeline, paths: config.Paths, engines: E
     return stats
 
 
+#: Contact-sheet frame size: the generation aspect (832x480) at a width that
+#: stays sharp in the web app's filmstrips on a 2x display.
+SHEET_THUMB = (320, 184)
+SHEET_COLS = 10
+
+
+def contact_sheet(timeline: Timeline, paths: config.Paths) -> tuple[Path, dict]:
+    """Every shot's still, in order, in one small WebP.
+
+    The web app's filmstrips and thumbnails read frames out of this with CSS
+    rather than fetching each 700 KB PNG: one upload per film instead of one
+    per shot, and a few hundred KB per page instead of megabytes. Both matter
+    on the free tier (2,000 uploads and 10 GB of transfer a month).
+    """
+    from PIL import Image
+
+    w, h = SHEET_THUMB
+    shots = [s for s in timeline.shots if s.image is not None]
+    cols = min(SHEET_COLS, max(1, len(shots)))
+    rows = max(1, -(-len(shots) // cols))
+    sheet = Image.new("RGB", (cols * w, rows * h), (20, 19, 18))
+    for i, shot in enumerate(shots):
+        with Image.open(paths.root / shot.image.path) as im:
+            frame = im.convert("RGB").resize((w, h), Image.LANCZOS)
+        sheet.paste(frame, ((i % cols) * w, (i // cols) * h))
+    tmp = paths.run / ".sheet.partial.webp"
+    sheet.save(tmp, "WEBP", quality=72, method=6)
+    dest = paths.cache / "sheets" / f"{file_sha(tmp)}.webp"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    os.replace(tmp, dest)
+    return dest, {"cols": cols, "rows": rows, "thumb": [w, h],
+                  "shots": [s.shot_id for s in shots]}
+
+
 def render(timeline: Timeline, paths: config.Paths, *, log=print) -> Path:
     video = assemble.build(timeline, paths, log=log)
+    sheet, layout = contact_sheet(timeline, paths)
+    if paths.mirror.enabled:
+        # Before the timeline that points at them is written anywhere durable.
+        timeline.media["film"] = paths.mirror.publish_film(video)
+        timeline.media["sheet"] = {"key": paths.mirror.publish(sheet, "sheet"), **layout}
+        log(f"  published {timeline.media['film']} and contact sheet")
     timeline.write(paths.timeline)
     return video
 
