@@ -1608,14 +1608,17 @@ machine is refusing work, and a banner says why in plain words, with the
 machine's own words folded away for whoever maintains it. Drift alone gets
 a quiet one-line notice ("Test film changed"); films still render.
 
-### 13.6 Not yet done
+### 13.6 Shipped, and what is left
 
-- Production runs Phase 4 code. Shipping Phase 5 is, in this order:
-  1. `deploy/install-worker.sh`. It checks the pins and runs the strict
-     smoke test before touching the install (~2 min). The new worker applies
-     migration 006 to Neon when it starts;
-  2. `vercel deploy --prod`. Its pages read `workers.health`, so not before
-     step 1.
-- `python -m pipeline.pins archive <second disk>`: a copy of the 5.5 GB of
-  weights somewhere other than this Mac's hub cache.
-- Carried over: `prune-films --apply` (12.11) and the Phase 3 exit run.
+Shipped on 26 Oct 2026, in this order: `deploy/install-worker.sh` (pins and
+the strict smoke test first; the new worker applied migration 006 to Neon on
+start), then `vercel deploy --prod`. Checked on Neon afterwards: migration
+006 applied, both workers report no pin problems, and the production
+worker's first smoke test passed with no drift in 177 s.
+
+The weights are archived at `~/Desktop/youtube-majed-model-archive` (5.0 GB,
+21 files). `pins check --deep` passes with `HF_HUB_CACHE` pointed at it. It is
+on this Mac's own disk: it covers a model pulled upstream or a cleared cache,
+not a lost drive. A second copy off this machine would cover that.
+
+Carried over from 12.11: `prune-films --apply` and the Phase 3 exit run.

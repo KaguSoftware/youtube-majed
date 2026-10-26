@@ -60,13 +60,13 @@ accepted-risk note, mapped row by row in PLAN.md 13.1. Three things are new:
   so they are not flagged (13.4). The header and a banner say when the
   machine has refused work and why (`workers.health`, migration 006).
 
-**Not yet shipped**, in this order (PLAN.md 13.6): `deploy/install-worker.sh`
-(its new worker applies migration 006 to Neon on start), then
-`vercel deploy --prod`. Also outstanding: `pins archive` to a second disk,
-`prune-films --apply`, and the Phase 3 exit run. On 26 Oct the installed GPU
-worker was already claiming `edit,export`, so step 3 of 12.11 had been done
-since this file last said "Phase 3 code"; the Neon migration and the web
-deploy were not checked.
+**Shipped on 26 Oct 2026** (PLAN.md 13.6): the worker install and the web app
+are on Phase 5, Neon is at migration 006, and the production worker's first
+smoke test passed with no drift (177 s) and no pin problems. The weights are
+archived at `~/Desktop/youtube-majed-model-archive`, verified by hash. That
+copy is on the same disk, and the workers cannot read the Desktop (TCC), so a
+restore means copying it into the hub cache. Still outstanding, from earlier
+phases: `prune-films --apply` and the Phase 3 exit run.
 
 **Phase 4 (the editing page and edit agent) is built, and its exit criterion
 was met on this machine:** "the mood at 1:24 doesn't match", typed into the
