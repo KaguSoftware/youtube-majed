@@ -69,6 +69,11 @@ export function nextStep(p: ProjectRow): NextStep {
       case "style": return { text: "Painting three looks", tone: "machine" };
       case "edit": return { text: "Making a change", tone: "machine" };
       case "export": return { text: "Preparing a download", tone: "machine" };
+      case "publish": {
+        const { stage, done, total } = job.progress ?? {};
+        if (stage === "uploading" && total) return { text: `Uploading to YouTube, ${Math.floor((100 * (done ?? 0)) / total)}%`, tone: "machine" };
+        return { text: "Publishing to YouTube", tone: "machine" };
+      }
       default: {
         const { stage, done, total } = job.progress ?? {};
         if (stage === "images" && total) return { text: `Rendering, frame ${done ?? 0} of ${total}`, tone: "machine" };
@@ -81,8 +86,11 @@ export function nextStep(p: ProjectRow): NextStep {
     (job.kind === "production" && p.state === "production") ||
     (job.kind === "style" && p.state === "style") ||
     (job.kind === "research" && p.state === "staging") ||
-    (job.kind === "script" && p.state === "scripting"));
-  if (failedHere) return { text: "Stopped with a problem. See what happened", tone: "problem" };
+    (job.kind === "script" && p.state === "scripting") ||
+    (job.kind === "publish" && p.state === "finalized"));
+  if (failedHere) {
+    return { text: job.kind === "publish" ? "Not published. See what happened" : "Stopped with a problem. See what happened", tone: "problem" };
+  }
 
   const doc = (d: Doc | null, noun: string): NextStep => {
     if (!d) return { text: `Add the ${noun}`, tone: "you" };
@@ -95,6 +103,7 @@ export function nextStep(p: ProjectRow): NextStep {
     case "scripting": return doc(p.script, "script");
     case "style": return { text: "Choose the look", tone: "you" };
     case "production": return { text: "Ready to render", tone: "you" };
+    case "posted": return { text: "On YouTube", tone: "done" };
     default: return { text: "Film ready to watch", tone: "done" };
   }
 }

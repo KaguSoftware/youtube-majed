@@ -36,9 +36,9 @@ slowest single step.
 ### Lanes
 
 `--kinds` picks which job kinds this process claims. The default GPU lane runs
-`production` and `style` and keeps klein warm; a second process with
-`--kinds research,script` runs `claude -p`, which needs no GPU and should not
-wait behind a twenty-minute render. One process per lane, each on its own work
+`production`, `style`, `edit` and `export` and keeps klein warm; a second
+process with `--kinds research,script,publish` runs `claude -p` and uploads to
+YouTube, which need no GPU and should not wait behind a twenty-minute render. One process per lane, each on its own work
 root, so the host lock still guarantees one image generation at a time.
 
 ### The doorbell: idle without waking the database
@@ -87,10 +87,11 @@ from datetime import datetime, timezone
 
 import psycopg
 
-from . import assemble, config, docs, editor, images, media, pins, production, smoke, writer
+from . import (assemble, config, docs, editor, images, media, pins, production, publish, smoke, writer,
+               youtube)
 from .timeline import Timeline, text_sha
-from .store import (GPU_KINDS, LIGHT_KINDS, Claim, FilmMoved, LeaseLost, MediaIndex, Store,
-                    database_url)
+from .store import (GPU_KINDS, LIGHT_KINDS, WRITING_KINDS, Claim, FilmMoved, LeaseLost, MediaIndex,
+                    Store, database_url)
 
 #: How long a claim survives without a heartbeat. Long enough to ride out a
 #: model load and a slow image; short enough that a dead worker's job is picked
@@ -114,6 +115,12 @@ SWAPOUT_WARN = 50_000
 
 #: Backoff before an unexpected failure is retried: attempt n waits n times this.
 RETRY_DELAY_SECONDS = 30.0
+
+#: After an upload, how long a publish job watches YouTube process the video
+#: (and how often it looks: 1 unit each). Long enough for a short film to
+#: finish; a longer one is reported as still processing, which is not a fault.
+PROCESSING_WAIT_SECONDS = float(os.environ.get("YOUTUBE_PROCESSING_WAIT", 180))
+PROCESSING_POLL_SECONDS = float(os.environ.get("YOUTUBE_PROCESSING_POLL", 15))
 
 #: Doorbell cadence. 15s keeps two lanes at ~350k function invocations a month,
 #: about a third of Vercel Hobby's allowance, for at most 15s of pickup delay.
@@ -280,7 +287,8 @@ class Worker:
         self.stopping = False
         self._lock_fd: int | None = None
         #: What this worker last found wrong with itself (migration 006). The
-        #: studio shows it; `unfit` decides from it what not to claim.
+        #: studio shows it; `unfit` decides from it what not to claim. A
+        #: publishing worker adds the channel it uploads to (`check_youtube`).
         self.health: dict = {"pins": None, "smoke": None}
         #: Seconds between smoke tests while idle; None runs none (the light
         #: lane, fake workers unless asked, `--once`).
@@ -334,6 +342,24 @@ class Worker:
         if report.problems:
             self.log("  this worker will claim nothing until its install matches the pins "
                      "(deploy/install-worker.sh, or `python -m pipeline.pins fetch`)")
+
+    def check_youtube(self) -> None:
+        """Which channel this worker publishes to, for the studio's publish
+        form. One unit of quota, once per start; each publish refreshes it."""
+        if "publish" not in self.kinds:
+            return
+        try:
+            channel = youtube.Client.from_env(log=self.log).channel()
+            self.health["youtube"] = {"channel": channel, "problem": None}
+            self.log(f"  youtube: publishing to {channel['title']} ({channel['id']})")
+        except youtube.Refused as exc:
+            self.health["youtube"] = {"channel": None, "problem": str(exc), "connected": False}
+            self.log(f"  youtube: {exc}")
+        except Exception as exc:
+            # Unreachable is not disconnected: keep the channel, say why.
+            prev = (self.health.get("youtube") or {}).get("channel")
+            self.health["youtube"] = {"channel": prev, "problem": f"could not reach YouTube ({exc})"}
+            self.log(f"  youtube: could not check the channel ({type(exc).__name__}: {exc})")
 
     @property
     def unfit(self) -> tuple[str, ...]:
@@ -406,6 +432,7 @@ class Worker:
         self.install_signals()
         self.sweep_partials()
         self.check_pins()
+        self.check_youtube()
         self.log(f"worker {self.worker_id} (pid {os.getpid()}) on {self.work_root}, "
                  f"kinds {','.join(self.kinds)}, media {self.remote.name}, "
                  f"lease {self.lease:.0f}s, heartbeat {self.heartbeat_every:.0f}s, "
@@ -518,12 +545,18 @@ class Worker:
         t0 = time.time()
         swap0 = swapouts()
         try:
-            if claim.kind not in LIGHT_KINDS:
+            if claim.kind not in WRITING_KINDS:
                 free = shutil.disk_usage(self.work_root).free
                 if free < MIN_FREE_BYTES:
                     raise Transient(f"only {free / 1024**3:.1f} GB free under {self.work_root} "
                                     f"(needs {MIN_FREE_BYTES / 1024**3:.0f} GB)")
-            if claim.kind in LIGHT_KINDS:
+            if claim.kind == "publish":
+                out = self.publish_film(claim, hooks)
+                self._done(claim, swap0, {**out, "seconds": round(time.time() - t0, 1)})
+                self.log(f"<< job {claim.job_id} done in {time.time() - t0:.1f}s: "
+                         f"https://youtu.be/{out['video_id']}")
+                return
+            if claim.kind in WRITING_KINDS:
                 row = self.write_document(claim, hooks)
                 self._done(claim, swap0, {
                     "artifact_id": row["id"], "version": row["version"],
@@ -588,6 +621,15 @@ class Worker:
             self._quietly(lambda: self.store.fail(claim, message))
             self._quietly(lambda: self.store.event(
                 claim, "failed", {"stage": "commit", "errors": [message], "retry": False}))
+            self.log(f"<< job {claim.job_id} failed (not retryable): {exc}")
+        except youtube.Refused as exc:
+            # A quota, a lost connection, metadata YouTube will not take: a
+            # retry would repeat it (failure mode 14: never retry on quota).
+            self._quietly(lambda: self.store.fail(claim, f"publish: {exc}"))
+            self._quietly(lambda: self.store.event(
+                claim, "failed", {"stage": hooks.current, "errors": [str(exc)], "retry": False}))
+            if isinstance(exc, youtube.NotConnected):
+                self.health["youtube"] = {"channel": None, "problem": str(exc), "connected": False}
             self.log(f"<< job {claim.job_id} failed (not retryable): {exc}")
         except writer.WriterGate as gate:
             # Claude declined (usage limit, sign-in): a retry would repeat it.
@@ -832,8 +874,15 @@ class Worker:
         """An mp4 of one version, for download: the chunks by stream copy,
         so seconds of work and one upload."""
         version = int(claim.payload["version"])
-        timeline, mirror, paths, wav = self._film(claim, version)
         hooks.stage("exporting")
+        dest, mirror = self._mp4(claim, version)
+        key = mirror.publish_film(dest)
+        self.store.finish_export(claim, film_key=key, size=dest.stat().st_size)
+        return {"film": key, "version": version, "bytes": dest.stat().st_size}
+
+    def _mp4(self, claim: Claim, version: int) -> tuple[Path, media.Mirror]:
+        """One version as an mp4 on this machine, from its chunks."""
+        timeline, mirror, paths, wav = self._film(claim, version)
         hls = timeline.media.get("hls")
         if hls:
             chunks = [mirror.path(c["key"]) for c in hls["chunks"]]
@@ -846,9 +895,147 @@ class Worker:
             chunks = [path for _, path in rendered.chunks]
         dest = paths.run / f"v{version}.mp4"
         assemble.film(timeline, chunks, wav, dest, log=self.log)
-        key = mirror.publish_film(dest)
-        self.store.finish_export(claim, film_key=key, size=dest.stat().st_size)
-        return {"film": key, "version": version, "bytes": dest.stat().st_size}
+        return dest, mirror
+
+    # ------------------------------------------------------------ publishing
+
+    def publish_film(self, claim: Claim, hooks: JobHooks) -> dict:
+        """A publish job: the cut as an mp4, uploaded to YouTube by resumable
+        upload, its thumbnail set, and what YouTube made of it read back.
+
+        Safe to re-run at every step (pipeline/youtube.py, "An upload never
+        happens twice"): the session is checkpointed before any bytes move,
+        and a publication with a video id is never uploaded again. The mp4
+        is built here and never put in the media store: it is YouTube's copy
+        now, and the store's 1 GB is for what the studio plays."""
+        pub = self.store.publication(int(claim.payload["publication_id"]))
+        if pub is None:
+            raise production.Gate("inputs", [f"no publication {claim.payload['publication_id']}"])
+        errors = publish.check(pub)
+        if errors:
+            raise youtube.Refused(" ".join(errors))
+        yt = youtube.Client.from_env(log=self.log)
+        video_id = pub["video_id"] or claim.checkpoint.get("video_id")
+        info: dict = {}
+
+        if not video_id:
+            yt_row = pub["youtube"] or {}
+            upload = claim.checkpoint.get("upload") or (
+                {"session": yt_row["session"], "size": yt_row.get("size")} if yt_row.get("session") else {})
+            if not upload and self.store.uploads_today() >= youtube.DAILY_UPLOADS:
+                raise youtube.QuotaExceeded(
+                    f"{youtube.DAILY_UPLOADS} uploads have been started today, YouTube's daily allowance. "
+                    "Nothing was sent; publish again after midnight Pacific time.")
+            hooks.stage("preparing")
+            mp4, _ = self._mp4(claim, int(pub["version"]))
+            size = mp4.stat().st_size
+            session = upload.get("session") if upload.get("size") == size else None
+            hooks.stage("uploading")
+            self.store.progress(claim, {"stage": "uploading", "done": 0, "total": size})
+            last = [0.0]
+
+            def on_progress(done: int, total: int) -> None:
+                if time.monotonic() - last[0] > 2 or done == total:
+                    last[0] = time.monotonic()
+                    self.store.progress(claim, {"stage": "uploading", "done": done, "total": total})
+
+            video = yt.upload(
+                mp4, youtube.metadata(pub), session=session,
+                on_session=lambda uri: self.store.publish_session(claim, pub["id"], session=uri, size=size),
+                on_progress=on_progress, should_stop=hooks.check)
+            video_id = video["id"]
+            status = video.get("status") or {}
+            info = {"privacy": status.get("privacyStatus"), "upload_status": status.get("uploadStatus"),
+                    "bytes": size}
+            channel_id = (video.get("snippet") or {}).get("channelId")
+            try:
+                self.store.set_published(claim, pub["id"], video_id=video_id, channel_id=channel_id,
+                                         youtube=info)
+            except LeaseLost:
+                self.store.record_video(claim.project_id, pub["id"], video_id=video_id,
+                                        channel_id=channel_id, youtube=info)
+                self.log(f"  stopped as the upload finished: {video_id} is on YouTube all the same")
+                raise
+            self.store.event(claim, "uploaded", {"video_id": video_id, "bytes": size})
+            self.log(f"  uploaded {size / 1e6:.1f} MB as {video_id}")
+            mp4.unlink(missing_ok=True)
+
+        notes: list[str] = []
+        thumbnail = claim.checkpoint.get("thumbnail") or (pub["youtube"] or {}).get("thumbnail")
+        if pub["thumbnail_shot"] and not thumbnail:
+            hooks.stage("thumbnail")
+            refused = self._set_thumbnail(claim, yt, pub, video_id)
+            notes += refused
+            thumbnail = None if refused else pub["thumbnail_shot"]
+
+        hooks.stage("processing")
+        final = self._watch_processing(yt, video_id, hooks)
+        status = (final or {}).get("status") or {}
+        applied = status.get("privacyStatus") or info.get("privacy")
+        if applied and applied != pub["privacy"]:
+            notes.append(f"YouTube made the video {applied}, not {pub['privacy']}. "
+                         "Videos from an app Google has not audited can be locked to private.")
+        if status.get("uploadStatus") == "rejected":
+            notes.append(f"YouTube rejected the video ({status.get('rejectionReason')}).")
+        if status.get("uploadStatus") == "failed":
+            notes.append(f"YouTube could not process the video ({status.get('failureReason')}).")
+        try:
+            channel = yt.channel()
+            self.health["youtube"] = {"channel": channel, "problem": None}
+        except Exception:
+            channel = None
+        out = {"privacy": applied, "upload_status": status.get("uploadStatus"), "thumbnail": thumbnail,
+               "processing": ((final or {}).get("processingDetails") or {}).get("processingStatus"),
+               "notes": notes, "units": yt.spent["units"], "uploads": yt.spent["uploads"],
+               **({"channel_title": channel["title"]} if channel else {})}
+        self.store.finish_publish(claim, pub["id"], out)
+        for n in notes:
+            self.log(f"  note   {n}")
+        return {"video_id": video_id, **out}
+
+    def _set_thumbnail(self, claim: Claim, yt: youtube.Client, pub: dict, video_id: str) -> list[str]:
+        """The chosen shot's still as the thumbnail. A refusal (an unverified
+        channel cannot set custom thumbnails) is a note, not a failure: the
+        video is already up, with a frame YouTube picked."""
+        timeline, mirror, paths, _ = self._film(claim, int(pub["version"]))
+        shot = next((s for s in timeline.shots if s.shot_id == pub["thumbnail_shot"]), None)
+        if shot is None or shot.image is None:
+            return [f"There is no shot {pub['thumbnail_shot']} in the cut, so YouTube chose the thumbnail."]
+        still = mirror.path(f"images/{shot.image.hash}.png")
+        if not mirror.ensure(still):
+            return [f"The still for {shot.shot_id} is not in the store, so YouTube chose the thumbnail."]
+        thumb = youtube.make_thumbnail(still, paths.run / f"thumb-{shot.shot_id}.jpg")
+        try:
+            yt.set_thumbnail(video_id, thumb)
+        except youtube.QuotaExceeded as exc:
+            return [f"The thumbnail was not set: {exc}"]
+        except youtube.YouTubeError as exc:
+            if exc.status == 403:
+                return ["YouTube only accepts custom thumbnails from verified channels "
+                        "(youtube.com/verify), so it chose one itself."]
+            return [f"The thumbnail was not set ({exc.reason or exc.status}): {exc.message}"]
+        self.store.checkpoint(claim, "thumbnail", shot.shot_id)
+        return []
+
+    def _watch_processing(self, yt: youtube.Client, video_id: str, hooks: JobHooks) -> dict | None:
+        """Read the video back until YouTube has processed it, or the wait is
+        up. A read that fails is not a failed publish: the video is up."""
+        end = time.monotonic() + PROCESSING_WAIT_SECONDS
+        video = None
+        while True:
+            try:
+                video = yt.video(video_id) or video
+            except youtube.Refused:
+                return video
+            except Exception as exc:
+                self.log(f"  could not read the video's status ({type(exc).__name__}: {exc})")
+            if ((video or {}).get("status") or {}).get("uploadStatus") != "uploaded":
+                return video
+            if time.monotonic() + PROCESSING_POLL_SECONDS > end:
+                return video
+            for _ in range(int(PROCESSING_POLL_SECONDS * 4)):
+                hooks.check()
+                time.sleep(0.25)
 
     def materialize_crop(self, style_id: str, preset: dict, mirror: media.Mirror) -> str:
         """First use of a project style: build its hero crop and record it."""

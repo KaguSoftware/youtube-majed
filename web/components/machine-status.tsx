@@ -70,11 +70,14 @@ export async function OfflineBanner() {
     lines.push(`${what} ${waiting.gpu === 1 ? "is" : "are"} waiting for it and will start on ${waiting.gpu === 1 ? "its" : "their"} own when the machine is back.`);
     lines.push("You can keep working on research and scripts in the meantime.");
   }
-  if (status.light.state === "offline" && waiting.light > 0) {
+  if (status.light.state === "offline" && waiting.light > waiting.publishes) {
     lines.push(
       "Research and scripts that Claude is writing are waiting for the studio machine. " +
       "You can paste your own instead and carry on.",
     );
+  }
+  if (status.light.state === "offline" && waiting.publishes > 0) {
+    lines.push(`${waiting.publishes === 1 ? "A film is" : `${waiting.publishes} films are`} waiting to be published to YouTube, and will upload when the machine is back.`);
   }
   if (!lines.length) return null;
   // "Last seen" for the lane whose waiting work the banner is about.

@@ -38,6 +38,30 @@ the dirty shots.
 
 ## 2. Status
 
+**Phase 6 (publishing to YouTube) is built and tested against a stand-in for
+YouTube; it is not shipped, and no real channel is connected yet.** The film
+page has a YouTube section: the studio drafts the title and a description that
+lists every source the research cites, the user picks the thumbnail from the
+film's frames, who can see it (private by default) and two declarations, and
+the studio machine's light lane uploads by resumable upload (PLAN.md 14).
+Three things worth knowing before touching it:
+
+- **Google credentials live only in the worker's env file**, written by
+  `python -m pipeline.youtube connect`. The studio never sees them; it learns
+  the channel from `workers.health.youtube`.
+- **An upload never happens twice.** The session is recorded before any bytes
+  move and resumed after a kill, a stop or a retry; a lost final reply is
+  recovered by asking the session (14.3).
+- **The quota facts in older notes are stale.** Uploads have had their own
+  bucket since June 2026: 100 a day, 1 unit each (14.1). Quota refusals are
+  never retried (failure row 14).
+
+To ship, in order (14.6): connect the channel (Google Cloud setup, then
+`connect`; the OAuth app must be **In production**, or the token dies in 7
+days), `deploy/install-worker.sh` (applies migration 007 to Neon), then
+`vercel deploy --prod`. Then the exit run: a private first upload from the
+studio.
+
 **Phase 5 (hardening) is done, and its exit criterion is met:** every row of
 the failure table in PLAN.md section 5 has a test or an explicit
 accepted-risk note, mapped row by row in PLAN.md 13.1. Three things are new:
@@ -65,8 +89,10 @@ are on Phase 5, Neon is at migration 006, and the production worker's first
 smoke test passed with no drift (177 s) and no pin problems. The weights are
 archived at `~/Desktop/youtube-majed-model-archive`, verified by hash. That
 copy is on the same disk, and the workers cannot read the Desktop (TCC), so a
-restore means copying it into the hub cache. Still outstanding, from earlier
-phases: `prune-films --apply` and the Phase 3 exit run.
+restore means copying it into the hub cache. The store holds no whole-film mp4s any
+more (393 MB, checked 26 Oct; the 519 MB of 12.9 is gone), so `prune-films`
+has nothing to do. Still outstanding, from Phase 3: the exit run (Neon has
+no projects yet: production has never made a film).
 
 **Phase 4 (the editing page and edit agent) is built, and its exit criterion
 was met on this machine:** "the mood at 1:24 doesn't match", typed into the
@@ -135,6 +161,9 @@ pipeline/
   pins.py       pinned packages, tools and weights; the licence register by hash; archive
   pins.lock.json  SHA-256 of every weight file, plus the Python and ffmpeg versions
   smoke.py      the smoke test: real models, a 20 s film, goldens in fixtures/
+  publish.py    what YouTube is told: the draft (sources listed) and its limits; vendored for the studio
+  youtube.py    OAuth connect, resumable upload that never uploads twice, thumbnails, error classes
+  fake_youtube.py  a stand-in for Google's token endpoint and the YouTube API, for queuetest
   writer.py     Claude writes research and scripts (`claude -p`, light lane)
   store.py      Postgres: claim / lease / heartbeat / fenced writes, artifacts
   worker.py     the polling worker: host lock, heartbeat thread, signals
@@ -149,9 +178,10 @@ compose.yaml    local Postgres 17 on 127.0.0.1:54329
 deploy/         launchd agent for the worker (KeepAlive, graceful exit)
 ```
 
-Run `python -m pipeline.selftest` first — 148 checks, no weights, about a
-minute (it renders real chunks through ffmpeg). `pipeline.queuetest` is 127
-checks including a full edit round trip with a scripted stand-in for Claude.
+Run `python -m pipeline.selftest` first — 168 checks, no weights, about a
+minute (it renders real chunks through ffmpeg). `pipeline.queuetest` is 155
+checks including a full edit round trip with a scripted stand-in for Claude and
+publishing against a stand-in for YouTube.
 `python -m pipeline.smoke` is the one that loads the models (~2 min).
 `python -m pipeline.gatecheck` is the negative control for the narration gate
 and needs the aligner weights plus one completed run.
@@ -382,6 +412,11 @@ docker compose up -d --wait                       # Postgres
 .venv/bin/python -m pipeline.pins archive DEST    # weights as a hub cache; restore with HF_HUB_CACHE=DEST
 .venv/bin/python -m pipeline.smoke [--strict]     # real models, 20 s film, vs fixtures/smoke.golden.json
 .venv/bin/python -m pipeline.smoke --record       # after a deliberate change, having looked at work/smoke/
+
+# Phase 6: publishing (the film page does the same)
+.venv/bin/python -m pipeline.youtube connect      # once: OAuth in the browser, token into worker.env
+.venv/bin/python -m pipeline.youtube status       # the connected channel, checked against YouTube
+.venv/bin/python -m pipeline.jobs publish PROJECT --privacy private [--thumbnail S03]
 
 # Phase 4: edits and downloads (the editing page does the same)
 .venv/bin/python -m pipeline.jobs edit PROJECT "the mood at 1:24 doesn't match"

@@ -222,9 +222,20 @@ and at every deploy (`pipeline/smoke.py`).
 
 ### Phase 6 — Publish
 
-YouTube Data API v3. `videos.insert` costs ~1600 units against a default 10,000/day
-quota — roughly 6 uploads/day, and raising it requires an audit. Title, description
-and thumbnail live on the timeline, so publishing is a form submit.
+YouTube Data API v3. Publishing is a form submit: the studio writes what YouTube
+is told, and the studio machine uploads.
+
+The quota is no longer the constraint this section first assumed (~1,600 units an
+upload, ~6 a day). Since December 2025 an upload costs about 100 units, and since
+June 2026 `videos.insert` has its own bucket: **100 uploads a day per project**,
+beside 10,000 units for everything else (a thumbnail 50, a status read 1). The
+title, description and thumbnail do not live on the timeline after all: a cut is
+the film and is immutable, while a title is said *about* it (section 14.2).
+
+**Exit:** a non-technical user publishes a finished film to the real channel from
+the studio, and the studio shows where it is and what YouTube made of it, without
+a terminal. **Built and tested against a stand-in for YouTube (14.4); the real
+run waits on the channel being connected (14.6).**
 
 ---
 
@@ -1524,7 +1535,7 @@ number below was measured on the real models on this Mac. `selftest` is now
 | 11 | ffmpeg edge case | Sync and chunk-timestamp checks (Phases 1 and 4). New: "an odd frame size is refused before ffmpeg sees it", and narration ±0.6 s off the timeline still gives a film exactly the timeline's length. The smoke test re-checks every chunk's frames and timestamps with the installed ffmpeg each night. | — |
 | 12 | Claude rate limit | queuetest "a usage limit fails the job at once, without retrying". Paste mode is the degrade path. | The switch to paste mode is the person's choice, offered on the page, not automatic: someone has to write the pasted document anyway. |
 | 13 | Model pulled, relicensed | The **licence register is keyed by checkpoint hash** (`pins.MODELS` plus `pins.lock.json`), and all three models are licence-checked at load (the TTS and aligner were not before). `pins archive DEST` copies the weights as a hub cache and verifies the copy: "with the cache gone, the archive alone verifies". Each timeline records repository, commit and a weights digest. | The archive has not been run to a second disk yet (operator step, HANDOFF 2). |
-| 14 | YouTube quota | Not built: Phase 6. | No exposure until something uploads. Phase 6 inherits the row's rules: queue publishes, respect quota, never auto-retry on a quota error. |
+| 14 | YouTube quota | Built in Phase 6 (section 14.3): publishes are queued jobs; the worker counts the day's uploads and sends nothing past the allowance; a quota refusal fails the job once and is never retried. queuetest "a quotaExceeded upload fails at once, without retrying", "past the day's upload allowance, nothing is sent to YouTube at all". | The count is per database, not per Google project: two databases on one project would each think they had the full 100. |
 | 15 | MacBook is a single point of failure | The worker is stateless: "worker B, on an empty disk, completes the job" through the store. | Relocating it is a config change **only to another Apple Silicon Mac**. The image runtime is MLX, so a rented Linux GPU needs the ComfyUI path (Phase 0's `comfyui` backend) built out first. Section 2's "config change" claim holds for the queue and the store, not the image runtime. |
 
 ### 13.2 Pins: what was actually loading
@@ -1621,4 +1632,123 @@ The weights are archived at `~/Desktop/youtube-majed-model-archive` (5.0 GB,
 on this Mac's own disk: it covers a model pulled upstream or a cleared cache,
 not a lost drive. A second copy off this machine would cover that.
 
-Carried over from 12.11: `prune-films --apply` and the Phase 3 exit run.
+`prune-films` (12.11) is done: listed on 26 Oct, the store held 308 objects,
+393 MB, with no mp4 left, and neither database indexes a film. Note that it
+judges by the cuts of the database `DATABASE_URL` names, while deleting from
+the store in the worker's env file, which local and production share; a
+dry run (no `--apply`) against each database first is the safe habit.
+
+Carried over: the Phase 3 exit run. Neon has no projects yet, so production
+has never made a film.
+
+---
+
+## 14. Phase 6 findings — publishing to YouTube
+
+Built and tested on this machine against `pipeline/fake_youtube.py`, a stand-in
+that speaks the parts of Google's protocol the worker uses. No real channel was
+connected in this phase (14.6). The API facts below were read from Google's
+documentation on 26 Oct 2026, not remembered.
+
+### 14.1 What the documentation says now
+
+| | |
+|---|---|
+| `videos.insert` | 1 unit in its own **Video Uploads** bucket, 100 a day per project (June 2026); before that ~100 units (Dec 2025), before that ~1,600 |
+| other calls | 10,000 units a day shared: `thumbnails.set` ~50, `videos.list` / `channels.list` 1 |
+| the day | ends at midnight Pacific |
+| unverified projects | the `videos.insert` page now says uploads from them are **not** restricted to private viewing. Several 2026 third-party guides still say they are. The worker reads back the privacy YouTube applied and says so if it differs (14.5) |
+| OAuth, Testing status | refresh tokens **expire in 7 days**. The app must be set to "In production" (an unverified app is allowed for its owner, behind a warning screen) |
+| OAuth, desktop apps | loopback redirect plus PKCE; the copy-paste flow is gone |
+| custom thumbnails | refused (403) unless the channel is verified |
+| metadata | title ≤ 100 characters, description ≤ 5,000 **bytes**, tags ≤ 500 characters counting commas and quotes, no `<` or `>` |
+| `status.containsSyntheticMedia` | the disclosure of realistic altered or synthetic content; `selfDeclaredMadeForKids` is the COPPA declaration |
+
+### 14.2 Shape
+
+- **A `publish` job on the light lane**, beside research and script, so an upload
+  never waits behind a twenty-minute render. It builds the mp4 from the cut's
+  chunks (stream copy, seconds) and uploads it. The mp4 never enters the media
+  store, whose 1 GB is for what the studio plays, and is deleted once YouTube
+  has it.
+- **Google credentials live only in the worker's env file.** `python -m
+  pipeline.youtube connect` runs the desktop OAuth flow and writes the refresh
+  token there. Neon and Vercel never see a Google credential; the studio learns
+  which channel it publishes to from `workers.health.youtube`, which the worker
+  writes on polls it makes anyway (one unit a start).
+- **`publications` (migration 007)**, not the timeline, holds what YouTube is told:
+  one row per "publish this cut", pinned to the cut at the click. The two
+  declarations are recorded with who made them. `project.state` goes to
+  `finalized` on the click and `posted` when YouTube has the video; posted stays
+  posted if a later re-upload fails.
+- **One check, two callers.** `pipeline/publish.py` drafts and judges the
+  metadata in stdlib Python, vendored into the Vercel function like `docs.py`;
+  the worker judges again before it uploads.
+- **The draft carries the sources.** The description lists every distinct URL the
+  approved research cites, so a viewer can check any line, and says in one line
+  that the voice and paintings are AI-generated. The thumbnail starts on the hero
+  beat's first shot. Privacy starts at private; the AI label starts on; "made for
+  children" has no default, because it is a legal declaration.
+
+### 14.3 An upload never happens twice
+
+The resumable session is opened, and its URI written to the job checkpoint *and*
+the publication, before any bytes move. A resumed attempt asks the session where
+it stands: 308 means "send from here", 200 means "it finished, here is the video"
+(a reply lost after the last byte), 404 means YouTube forgot it, so no video
+exists and a new session is safe. A publication with a video id is never
+uploaded again. Two traps found writing it:
+
+- **Stop could not unmake a video.** A stop that lands while the last bytes go
+  leaves a real video and a job that can no longer write. `record_video` writes
+  the video id unfenced (it is a fact about the world, not job progress), so the
+  studio never says "nothing was posted" about a video that is up. And the
+  upload must not call the fenced progress write on the final chunk, or the
+  stop would abort the recording itself.
+- **"Try again" is a new job**, which does not see the old job's checkpoint. Hence
+  the session on the publication too. queuetest "a stopped upload, tried again,
+  never opens a second upload".
+
+Failure classes (`pipeline/youtube.py`): quota and upload limits
+(`QuotaExceeded`), a revoked or expired token (`NotConnected`) and any other 4xx
+(`YouTubeError`) are `Refused`: the job fails at once and is never retried. A 5xx
+or a dropped connection is retried within the job from where the session
+stands, five times with backoff, then by the job's own retry.
+
+### 14.4 Tested
+
+queuetest gained 28 checks, against real worker processes and the stand-in:
+the light lane publishes and the GPU lane does not; one session, every byte
+once; the metadata sent exactly; the thumbnail is the chosen still at 1280x720;
+SIGKILL mid-upload resumes the same session sending only the missing bytes;
+a 503 mid-upload; quota, our own daily count, a revoked token, metadata with
+`<`, all failing once with nothing sent; a refused thumbnail and a privacy lock
+still publishing, saying so. selftest gained 20 (limits, the draft, error
+classes, PKCE, the env-file rewrite, the thumbnail).
+
+The studio surface was built through `/impeccable` and looked at in the browser
+at 1280 and 390 px, in each state, against the local database.
+
+### 14.5 What YouTube reports back
+
+After the upload the worker sets the thumbnail, then reads the video back every
+15 s for up to three minutes (`YOUTUBE_PROCESSING_WAIT`) and records the privacy
+YouTube applied, its upload status, and notes in plain words: a refused
+thumbnail (then the studio does not show our still as the thumbnail), a
+different privacy than asked, a rejection. A longer film is reported as still
+processing, which is not a fault.
+
+### 14.6 Not yet done
+
+- **Connect the channel** (operator, once): Google Cloud project, YouTube Data
+  API v3 enabled, consent screen "External" and **In production** with the
+  `youtube.upload` and `youtube.readonly` scopes, an OAuth client of type
+  **Desktop app**; then on the Mac `python -m pipeline.youtube connect`, choosing
+  the channel at Google's account picker.
+- **Ship:** `deploy/install-worker.sh` (the light lane gains `publish`; the
+  worker applies migration 007 to Neon on start), then `vercel deploy --prod`.
+  The new worker is harmless to the old app, which never enqueues a publish.
+- **The exit run**, on production, by the non-technical user, private first.
+  It also settles 14.1's open question: whether an unaudited app's upload stays
+  as public as it was asked to be.
+

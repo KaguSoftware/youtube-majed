@@ -13,7 +13,7 @@ with a human gate at every point where a mistake would be expensive.
 style into a 61.7s narrated, illustrated video with a timeline JSON that fully
 describes it — 279s cold, 17s warm. The same stages run as queued jobs under a
 Postgres-backed worker that can be killed mid-job and resumes without
-regenerating a finished shot (PLAN.md section 10). Phases 3–5 (the web app, the editing page, hardening) are built too; [HANDOFF.md](HANDOFF.md) has the current state.
+regenerating a finished shot (PLAN.md section 10). Phases 3–6 (the web app, the editing page, hardening, publishing to YouTube) are built too; [HANDOFF.md](HANDOFF.md) has the current state.
 
 ## Running the worker
 

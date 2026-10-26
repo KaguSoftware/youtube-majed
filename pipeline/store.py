@@ -74,10 +74,12 @@ class Claim:
 
 
 #: Every job kind, and the lane each runs on. The GPU lane holds the warm image
-#: model; the light lane runs `claude -p`, which needs no GPU and should not
-#: wait twenty minutes behind someone else's render.
+#: model; the light lane runs `claude -p` and uploads to YouTube, which need no
+#: GPU and should not wait twenty minutes behind someone else's render.
 GPU_KINDS = ("production", "style", "edit", "export")
-LIGHT_KINDS = ("research", "script")
+LIGHT_KINDS = ("research", "script", "publish")
+#: The light-lane kinds that run `claude -p`.
+WRITING_KINDS = ("research", "script")
 
 
 class Store:
@@ -207,7 +209,7 @@ class Store:
     #: project there, so the studio shows the stage the work is happening in.
     STATE_FOR_KIND = {"production": "production", "style": "style",
                       "research": "staging", "script": "scripting",
-                      "edit": "editing", "export": "editing"}
+                      "edit": "editing", "export": "editing", "publish": "finalized"}
 
     def enqueue(self, project_id: str, kind: str, payload: dict, *, max_attempts: int = 3) -> int:
         with self.conn.transaction():
@@ -216,8 +218,10 @@ class Store:
                 "VALUES (%s, %s, %s, %s) RETURNING id",
                 (project_id, kind, Jsonb(payload), max_attempts),
             )
-            self.conn.execute("UPDATE projects SET state = %s, updated_at = now() WHERE id = %s",
-                              (self.STATE_FOR_KIND[kind], project_id))
+            # Posted stays posted: publishing again does not undo the first video.
+            self.conn.execute("UPDATE projects SET state = CASE WHEN state = 'posted' AND %s = 'publish' "
+                              "THEN state ELSE %s END, updated_at = now() WHERE id = %s",
+                              (kind, self.STATE_FOR_KIND[kind], project_id))
         return row["id"]
 
     def claim(self, worker: str, lease_seconds: float, *, reclaim_own: bool = False,
@@ -416,6 +420,84 @@ class Store:
             "progress = progress || '{\"stage\": \"done\"}'::jsonb",
             {"k": film_key, "n": size},
         )
+
+    # ------------------------------------------------------------ publishing
+
+    def add_publication(self, project_id: str, version: int, *, title: str, description: str,
+                        tags: list[str], privacy: str, thumbnail_shot: str | None, synthetic: bool,
+                        made_for_kids: bool = False, requested_by: int | None = None,
+                        fake: bool = False) -> tuple[int, int]:
+        """A publication and the job that uploads it, together. The studio
+        writes the same two rows (web/app/(studio)/films/[id]/publish-actions.ts).
+        -> (publication id, job id)"""
+        with self.conn.transaction():
+            pub = self._one(
+                "INSERT INTO publications (project_id, version, title, description, tags, privacy, "
+                " thumbnail_shot, synthetic, made_for_kids, requested_by) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+                (project_id, version, title, description, tags, privacy, thumbnail_shot, synthetic,
+                 made_for_kids, requested_by))["id"]
+            job = self.enqueue(project_id, "publish", {"publication_id": pub, **({"fake": True} if fake else {})},
+                               max_attempts=3)
+            self.conn.execute("UPDATE publications SET job_id = %s WHERE id = %s", (job, pub))
+        return pub, job
+
+    def publication(self, pub_id: int) -> dict | None:
+        return self._one("SELECT * FROM publications WHERE id = %s", (pub_id,))
+
+    def uploads_today(self) -> int:
+        """Upload sessions opened since midnight Pacific, when YouTube's day
+        starts: what the Video Uploads bucket has been charged."""
+        return self._one(
+            "SELECT count(*) AS n FROM publications WHERE (youtube->>'session_at')::timestamptz >= "
+            "(date_trunc('day', now() AT TIME ZONE 'America/Los_Angeles') AT TIME ZONE 'America/Los_Angeles')"
+        )["n"]
+
+    def publish_session(self, claim: Claim, pub_id: int, *, session: str, size: int) -> None:
+        """An upload session is open. Recorded before any bytes are sent, so a
+        resumed job continues it instead of uploading the film a second time."""
+        with self.conn.transaction():
+            self._fenced(claim, "checkpoint = checkpoint || jsonb_build_object('upload', %(u)s::jsonb)",
+                         {"u": Jsonb({"session": session, "size": size})})
+            # On the publication too: "try again" in the studio is a new job,
+            # and it must resume this session, not open a second upload.
+            self.conn.execute(
+                "UPDATE publications SET youtube = youtube || jsonb_build_object("
+                "'session_at', now(), 'session', %s::text, 'size', %s::bigint) WHERE id = %s",
+                (session, size, pub_id))
+
+    def set_published(self, claim: Claim, pub_id: int, *, video_id: str, channel_id: str | None,
+                      youtube: dict) -> None:
+        """YouTube has the video. From here the publication is never uploaded
+        again, and the film is posted."""
+        with self.conn.transaction():
+            self._fenced(claim, "checkpoint = checkpoint || jsonb_build_object('video_id', %(v)s::text)",
+                         {"v": video_id})
+            self.record_video(claim.project_id, pub_id, video_id=video_id, channel_id=channel_id,
+                              youtube=youtube)
+
+    def record_video(self, project_id: str, pub_id: int, *, video_id: str, channel_id: str | None,
+                     youtube: dict) -> None:
+        """The video exists on YouTube. Unfenced on its own: when a publish is
+        stopped just as its last bytes go, the job is no longer ours, but the
+        video is real, and the studio must not say nothing was posted."""
+        self.conn.execute(
+            "UPDATE publications SET video_id = %s, channel_id = %s, uploaded_at = now(), "
+            "youtube = youtube || %s WHERE id = %s AND video_id IS NULL",
+            (video_id, channel_id, Jsonb(youtube), pub_id))
+        self.conn.execute("UPDATE projects SET state = 'posted', updated_at = now() WHERE id = %s",
+                          (project_id,))
+
+    def finish_publish(self, claim: Claim, pub_id: int, youtube: dict) -> None:
+        """Close the job with what YouTube reported after the upload."""
+        with self.conn.transaction():
+            self._fenced(
+                claim,
+                "state = 'done', finished_at = now(), lease_token = NULL, error = NULL, "
+                "progress = progress || '{\"stage\": \"done\"}'::jsonb",
+            )
+            self.conn.execute("UPDATE publications SET youtube = youtube || %s WHERE id = %s",
+                              (Jsonb(youtube), pub_id))
 
     def timeline(self, project_id: str, version: int) -> dict | None:
         return self._one("SELECT * FROM timelines WHERE project_id = %s AND version = %s",

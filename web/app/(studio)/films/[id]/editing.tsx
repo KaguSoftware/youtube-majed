@@ -11,6 +11,7 @@ import type { ProjectRow } from "@/lib/projects";
 
 import { chooseCut, prepareDownload } from "./edit-actions";
 import { EditingRoom, type CutView, type LiveEdit } from "./editing-room";
+import { Publish } from "./publish";
 
 /**
  * The film stage (state `editing` and after): the current cut playing, the
@@ -83,6 +84,8 @@ export async function Editing({ p, cutParam }: { p: ProjectRow; cutParam: string
 
       <Download projectId={p.id} version={cut.version} state={download?.state ?? null} url={downloadUrl}
         size={download?.size ?? null} />
+
+      {isCurrent && <Publish p={p} cut={cut} />}
 
       <Cuts projectId={p.id} cuts={cuts} current={current} viewing={cut.version} />
     </div>

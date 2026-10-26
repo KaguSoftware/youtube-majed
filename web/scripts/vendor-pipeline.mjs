@@ -16,8 +16,9 @@ const dest = join(web, "pyshared", "pipeline");
 rmSync(join(web, "pyshared"), { recursive: true, force: true });
 mkdirSync(dest, { recursive: true });
 // webapi.py and what it imports: docs (validators), writer (prompts),
-// timeline and config (hashing). All stdlib + PyYAML.
-for (const f of ["__init__.py", "webapi.py", "docs.py", "writer.py", "timeline.py", "config.py"]) {
+// publish (what YouTube is told, and its limits), timeline and config
+// (hashing). All stdlib + PyYAML.
+for (const f of ["__init__.py", "webapi.py", "docs.py", "writer.py", "publish.py", "timeline.py", "config.py"]) {
   cpSync(join(src, f), join(dest, f));
 }
 console.log(`vendored the pipeline's web API from ${src} -> pyshared/pipeline`);

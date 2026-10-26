@@ -22,7 +22,9 @@ export type Verdict = {
 
 type Request =
   | { action: "check"; kind: "research" | "script"; markdown: string; research_markdown?: string; verify_sources?: boolean }
-  | { action: "prompt"; kind: "research" | "script"; project: Record<string, unknown>; research_markdown?: string; note?: string };
+  | { action: "prompt"; kind: "research" | "script"; project: Record<string, unknown>; research_markdown?: string; note?: string }
+  | { action: "publish_draft"; project: { topic: string; angle: string | null }; research_markdown?: string }
+  | { action: "publish_check"; meta: { title: string; description: string; tags: string[]; privacy: string } };
 
 async function viaFunction(req: Request): Promise<unknown> {
   // Same deployment: production uses its stable domain; a preview its own URL,
@@ -92,4 +94,16 @@ export async function buildPrompt(
   return (await call({
     action: "prompt", kind, project, research_markdown: opts.researchMarkdown, note: opts.note,
   })) as { system: string; prompt: string };
+}
+
+export type PublishDraft = { title: string; description: string; tags: string[]; sources: number };
+
+/** A first title and description for the publish form (pipeline/publish.py draft). */
+export async function publishDraft(project: { topic: string; angle: string | null }, researchMarkdown?: string): Promise<PublishDraft> {
+  return (await call({ action: "publish_draft", project, research_markdown: researchMarkdown })) as PublishDraft;
+}
+
+/** Everything YouTube would refuse, judged by the code the worker runs before it uploads. */
+export async function checkPublication(meta: { title: string; description: string; tags: string[]; privacy: string }): Promise<string[]> {
+  return ((await call({ action: "publish_check", meta })) as { errors: string[] }).errors;
 }

@@ -5,6 +5,7 @@
     python -m pipeline.jobs enqueue barbarians-01
     python -m pipeline.jobs edit barbarians-01 "the mood at 0:24 doesn't match"
     python -m pipeline.jobs export barbarians-01 [--version N]
+    python -m pipeline.jobs publish barbarians-01 --privacy private [--title T] [--thumbnail S03]
     python -m pipeline.jobs heal-cuts [--project P]   # every cut playable from the store
     python -m pipeline.jobs prune-films [--apply]     # delete mp4s nothing needs
     python -m pipeline.jobs status [JOB]
@@ -146,6 +147,45 @@ def cmd_export(store: Store, args) -> int:
     return 0
 
 
+def cmd_publish(store: Store, args) -> int:
+    """What the studio's publish form does: a publication of the current cut
+    (or --version), with the draft title and description unless given."""
+    from . import publish
+
+    project = store.project(args.project)
+    row = store.timeline(args.project, args.version) if args.version else store.current_timeline(args.project)
+    if project is None or row is None:
+        print(f"{args.project} has no such film", file=sys.stderr)
+        return 1
+    research = store.latest_approved(args.project, "research")
+    draft = publish.draft(project, research["markdown_raw"] if research else None)
+    meta = {"title": args.title or draft["title"],
+            "description": args.description if args.description is not None else draft["description"],
+            "tags": publish.clean_tags(args.tags or ""), "privacy": args.privacy}
+    errors = publish.check(meta)
+    if errors:
+        print("\n".join(errors), file=sys.stderr)
+        return 1
+    done = store._one("SELECT video_id FROM publications WHERE project_id = %s AND version = %s "
+                      "AND video_id IS NOT NULL LIMIT 1", (args.project, row["version"]))
+    if done and not args.again:
+        print(f"v{row['version']} is already on YouTube (https://youtu.be/{done['video_id']}); "
+              "pass --again to upload it a second time", file=sys.stderr)
+        return 1
+    try:
+        pub, job = store.add_publication(
+            args.project, row["version"], **meta, thumbnail_shot=args.thumbnail,
+            synthetic=not args.no_synthetic_disclosure, made_for_kids=args.made_for_kids, fake=args.fake)
+    except Exception as exc:
+        if "jobs_one_live_per_project" in str(exc):
+            print(f"{args.project} is already being published", file=sys.stderr)
+            return 1
+        raise
+    print(f"job {job}: publish v{row['version']} of {args.project} as {args.privacy} "
+          f"(publication {pub}): {meta['title']}")
+    return 0
+
+
 def _media_env():
     """The store and work root the installed worker uses."""
     from . import media, worker
@@ -196,6 +236,8 @@ def cmd_status(store: Store, args) -> int:
             where = p.get("stage", "-")
             if where == "images" and "total" in p:
                 where = f"images {p['done']}/{p['total']}"
+            elif where == "uploading" and p.get("total"):
+                where = f"upload {100 * p['done'] // p['total']}%"
             lease = ""
             if j["state"] == "running":
                 left = (j["lease_expires_at"] - now).total_seconds()
@@ -344,6 +386,20 @@ def main(argv: list[str] | None = None) -> int:
     ex.add_argument("--version", type=int, default=None)
     ex.add_argument("--fake", action="store_true", help="for a `worker --fake` only")
 
+    pb = sub.add_parser("publish", help="upload a cut to the connected YouTube channel")
+    pb.add_argument("project")
+    pb.add_argument("--privacy", required=True, choices=("private", "unlisted", "public"))
+    pb.add_argument("--version", type=int, default=None, help="default: the cut the film is")
+    pb.add_argument("--title", default=None, help="default: drafted from the topic")
+    pb.add_argument("--description", default=None, help="default: drafted from the angle and sources")
+    pb.add_argument("--tags", default=None, help="comma-separated")
+    pb.add_argument("--thumbnail", default=None, help="a shot id, e.g. S03; default: YouTube picks")
+    pb.add_argument("--made-for-kids", action="store_true")
+    pb.add_argument("--no-synthetic-disclosure", action="store_true",
+                    help="do not declare realistic altered or synthetic content")
+    pb.add_argument("--again", action="store_true", help="upload a cut that is already on YouTube")
+    pb.add_argument("--fake", action="store_true", help="for a `worker --fake` only")
+
     hc = sub.add_parser("heal-cuts", help="make every cut playable from the media store")
     hc.add_argument("--project", default=None)
     pf = sub.add_parser("prune-films", help="delete whole-film mp4s no cut needs")
@@ -369,7 +425,7 @@ def main(argv: list[str] | None = None) -> int:
     with Store() as store:
         return {
             "migrate": cmd_migrate, "seed": cmd_seed, "enqueue": cmd_enqueue,
-            "edit": cmd_edit, "export": cmd_export, "heal-cuts": cmd_heal_cuts,
+            "edit": cmd_edit, "export": cmd_export, "publish": cmd_publish, "heal-cuts": cmd_heal_cuts,
             "prune-films": cmd_prune_films,
             "status": cmd_status, "cancel": cmd_cancel, "retry": cmd_retry,
             "workers": cmd_workers, "adduser": cmd_adduser, "passwd": cmd_passwd,

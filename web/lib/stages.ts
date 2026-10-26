@@ -8,13 +8,15 @@ export const STAGES = [
   { key: "style", label: "Look" },
   { key: "production", label: "Render" },
   { key: "editing", label: "Film" },
+  { key: "posted", label: "YouTube" },
 ] as const;
 
 export type StageKey = (typeof STAGES)[number]["key"];
 
-/** Index into STAGES; finalized and posted count as the last stage. */
+/** Index into STAGES. Finalized (asked to publish, not yet up) is still
+ *  the film stage; posted is the last. */
 export function stageIndex(state: string): number {
-  const i = STAGES.findIndex((s) => s.key === state);
+  const i = STAGES.findIndex((s) => s.key === (state === "finalized" ? "editing" : state));
   return i === -1 ? STAGES.length - 1 : i;
 }
 

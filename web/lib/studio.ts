@@ -20,7 +20,7 @@ type WorkerRow = {
 const DOING: Record<string, string> = {
   production: "Rendering", style: "Painting looks for", research: "Claude is researching",
   script: "Claude is writing the script for",
-  edit: "Changing", export: "Preparing a download of",
+  edit: "Changing", export: "Preparing a download of", publish: "Publishing",
 };
 
 /**
@@ -96,12 +96,13 @@ export async function machineHealth(): Promise<MachineHealth | null> {
 }
 
 /** Work that is waiting for a lane: the offline banner only matters then. */
-export async function waitingWork(): Promise<{ gpu: number; light: number; renders: number; looks: number }> {
-  const [row] = await query<{ renders: string; looks: string; light: string }>(`
+export async function waitingWork(): Promise<{ gpu: number; light: number; renders: number; looks: number; publishes: number }> {
+  const [row] = await query<{ renders: string; looks: string; light: string; publishes: string }>(`
     SELECT count(*) FILTER (WHERE kind = 'production') AS renders,
            count(*) FILTER (WHERE kind IN ('style', 'edit', 'export')) AS looks,
-           count(*) FILTER (WHERE kind IN ('research', 'script')) AS light
+           count(*) FILTER (WHERE kind IN ('research', 'script', 'publish')) AS light,
+           count(*) FILTER (WHERE kind = 'publish') AS publishes
     FROM jobs WHERE state = 'queued' AND coalesce((payload->>'fake')::boolean, false) = false`);
   const renders = Number(row?.renders ?? 0), looks = Number(row?.looks ?? 0);
-  return { gpu: renders + looks, light: Number(row?.light ?? 0), renders, looks };
+  return { gpu: renders + looks, light: Number(row?.light ?? 0), renders, looks, publishes: Number(row?.publishes ?? 0) };
 }

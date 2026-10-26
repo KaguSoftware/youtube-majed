@@ -449,6 +449,7 @@ def main() -> int:
             not any("asserts" in w for w in told["warnings"]), str(told["warnings"]))
 
     hardening(c)
+    publishing(c)
 
     print(f"\n{c.run - len(c.failures)}/{c.run} checks passed")
     if c.failures:
@@ -717,6 +718,86 @@ def hardening(c: Checks) -> None:
             rendered = assemble.build(tl, paths, audio=wav, log=quiet)
             c.near(f"narration {audio_seconds - 6.0:+.1f}s off the timeline: the film is still the timeline's length",
                    assemble.probe_duration(rendered.video), 6.0, 1.5 / config.FPS)
+
+
+
+def publishing(c: Checks) -> None:
+    """Phase 6: what YouTube is told and what its answers mean, no network."""
+    import json
+
+    from . import publish, webapi, youtube
+
+    print("\n-- publish: YouTube's limits, judged once for the studio and the worker --")
+    ok = {"title": "How did barbarians live", "description": "x", "tags": ["history"], "privacy": "private"}
+    c.check("a well-formed publication passes", publish.check(ok) == [])
+    c.check("a 100-character title passes and a 101-character one does not",
+            publish.check({**ok, "title": "t" * 100}) == [] and publish.check({**ok, "title": "t" * 101}))
+    c.check("the description limit is 5,000 bytes, not characters",
+            publish.check({**ok, "description": "é" * 2500}) == []
+            and publish.check({**ok, "description": "é" * 2501}))
+    c.check("< and > are refused in a title, a description or a tag",
+            all(publish.check({**ok, k: v}) for k, v in (("title", "a<b"), ("description", "a>b"), ("tags", ["<x>"]))))
+    c.check("tags count their commas, and quotes around a tag with a space",
+            publish.tags_length(["ab", "c d"]) == 2 + 1 + 3 + 2 and publish.clean_tags(" a , A,, b c ") == ["a", "b c"])
+    c.check("tags past 500 characters are refused", bool(publish.check({**ok, "tags": ["x" * 499, "y"]})))
+    c.check("an unknown privacy is refused", bool(publish.check({**ok, "privacy": "friends"})))
+    research = (FIXTURES / "barbarians-01.research.md").read_text().replace(
+        "source: FIXTURE", "source: https://example.org/a")
+    d = publish.draft({"topic": "how did barbarians live", "angle": "one ordinary day"}, research)
+    c.check("the draft titles the film by its topic and lists each source once",
+            d["title"] == "How did barbarians live" and d["description"].count("https://example.org/a") == 1
+            and "Sources" in d["description"] and publish.check({**d, "privacy": "private"}) == [], d["description"])
+    long = "\n".join(f"### c{i}\nclaim: x\nsource: https://example.org/{'p' * 200}/{i}\n" for i in range(40))
+    d = publish.draft({"topic": "t" * 140}, "---\ntopic: t\n---\n## Claims\n" + long)
+    c.check("a draft from long research still fits YouTube, saying how many sources it left out",
+            publish.check({**d, "privacy": "private"}) == [] and "more in the research" in d["description"],
+            str(publish.check({**d, "privacy": "private"})))
+    c.check("the studio asks the same code (webapi publish_check)",
+            webapi.handle({"action": "publish_check", "meta": {**ok, "title": ""}})["errors"]
+            == publish.check({**ok, "title": ""}))
+
+    print("\n-- youtube: what each answer means (failure mode 14) --")
+    err = lambda code, reason: youtube._error(code, json.dumps(  # noqa: E731
+        {"error": {"code": code, "message": "m", "errors": [{"reason": reason}]}}).encode())
+    c.check("quotaExceeded and uploadLimitExceeded are QuotaExceeded: never retried",
+            all(isinstance(err(code, r), youtube.QuotaExceeded)
+                for code, r in ((403, "quotaExceeded"), (400, "uploadLimitExceeded"), (429, "uploadRateLimitExceeded"))))
+    c.check("a revoked token is NotConnected, which says how to reconnect",
+            isinstance(youtube._error(400, b'{"error": "invalid_grant"}'), youtube.NotConnected)
+            and "connect" in str(youtube._error(400, b'{"error": "invalid_grant"}')))
+    c.check("a 5xx is transient; a refused title is neither",
+            isinstance(err(503, "backendError"), youtube.Transient)
+            and type(err(400, "invalidTitle")) is youtube.YouTubeError)
+    c.check("refusals stop the job (quota, connection, a 4xx); only Transient is retried",
+            all(issubclass(e, youtube.Refused) for e in (youtube.QuotaExceeded, youtube.NotConnected, youtube.YouTubeError))
+            and not issubclass(youtube.Transient, youtube.Refused))
+    c.check("a 308's Range names the next byte to send",
+            youtube._next_byte({"range": "bytes=0-524287"}) == 524288 and youtube._next_byte({}) == 0)
+    c.check("the chunk size is a multiple of 256 KiB, as the protocol requires", youtube.CHUNK % (256 * 1024) == 0)
+    m = youtube.metadata({"title": "T", "description": "D", "tags": ["a"], "privacy": "unlisted",
+                          "made_for_kids": False, "synthetic": True})
+    c.check("the upload declares made-for-kids and synthetic content explicitly, never by default",
+            m["status"]["selfDeclaredMadeForKids"] is False and m["status"]["containsSyntheticMedia"] is True
+            and m["snippet"]["categoryId"] == publish.CATEGORY_EDUCATION)
+    with tempfile.TemporaryDirectory() as td:
+        still = Path(td) / "s.png"
+        Image.fromarray(np.random.default_rng(0).integers(0, 255, (480, 832, 3), dtype=np.uint8)).save(still)
+        thumb = youtube.make_thumbnail(still, Path(td) / "t.jpg")
+        with Image.open(thumb) as im:
+            c.check("a 832x480 still becomes a 1280x720 JPEG thumbnail, under YouTube's limit",
+                    im.size == (1280, 720) and im.format == "JPEG" and thumb.stat().st_size < 50 * 1024 * 1024)
+        env = Path(td) / "worker.env"
+        env.write_text("DATABASE_URL=postgres://x\n# kept\nYOUTUBE_REFRESH_TOKEN=old\n")
+        youtube.write_env(env, {"YOUTUBE_REFRESH_TOKEN": "new", "YOUTUBE_CLIENT_ID": "id"})
+        c.check("connecting rewrites only its own keys in the worker's env file, readable by its owner only",
+                env.read_text() == "DATABASE_URL=postgres://x\n# kept\nYOUTUBE_REFRESH_TOKEN=new\nYOUTUBE_CLIENT_ID=id\n"
+                and (env.stat().st_mode & 0o777) == 0o600, env.read_text())
+    verifier, challenge = youtube._pkce()
+    import base64
+    import hashlib
+    c.check("PKCE: the challenge is the verifier's S256",
+            challenge == base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+            and 43 <= len(verifier) <= 128)
 
 
 if __name__ == "__main__":

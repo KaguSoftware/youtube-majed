@@ -76,7 +76,8 @@ def queue_semantics(c: Checks, url: str) -> None:
     store = Store(url)
     print("\n-- schema --")
     c.check("migrations apply", store.migrate() == ["001_init.sql", "002_web.sql", "003_library_style.sql",
-                                                  "004_narrative.sql", "005_editing.sql", "006_health.sql"])
+                                                  "004_narrative.sql", "005_editing.sql", "006_health.sql",
+                                                  "007_publish.sql"])
     c.check("migrations are idempotent", store.migrate() == [])
     payload = seed(store)
     again = seed(store)
@@ -924,6 +925,225 @@ def hardening(c: Checks, url: str) -> None:
     store.close()
 
 
+def publishing(c: Checks, url: str) -> None:
+    """Phase 6: a cut reaches YouTube exactly once, however its upload is
+    interrupted, and a quota refusal is never retried (failure mode 14)."""
+    import json
+
+    from PIL import Image
+
+    from . import youtube
+    from .fake_youtube import FakeYouTube
+
+    store = Store(url)
+    drain(store)
+    payload = {**seed(store), "fake": True, "render_size": [320, 180]}
+    project = "barbarians-01"
+    yt = FakeYouTube()
+    print("\n-- publishing: one cut, one upload, on the light lane --")
+    with tempfile.TemporaryDirectory() as td:
+        media_dir, root, light = Path(td) / "blob", Path(td) / "work", Path(td) / "light"
+
+        def gpu() -> str:
+            return _worker(url, root, "--exit-when-idle",
+                           env={"MEDIA_DIR": str(media_dir)}).communicate(timeout=180)[0]
+
+        def publisher(wait: bool = True, **env):
+            proc = _worker(url, light, "--kinds", "publish", "--exit-when-idle", "--worker-id", "publisher",
+                           env={"MEDIA_DIR": str(media_dir), **yt.env(), **env})
+            return proc.communicate(timeout=120)[0] if wait else proc
+
+        job = store.enqueue(project, "production", payload)
+        out = gpu()
+        film = store.current_timeline(project)
+        c.check("a film to publish", store.job(job)["state"] == "done" and film is not None, out[-400:])
+        version, shots = film["version"], film["timeline_json"]["shots"]
+
+        def publish(**kw) -> tuple[int, int]:
+            fields = {"title": "How did barbarians live", "tags": ["history", "early medieval"],
+                      "description": "One ordinary day.\n\nSources\nhttps://example.org/1",
+                      "privacy": "unlisted", "thumbnail_shot": shots[1]["shot_id"], "synthetic": True}
+            return store.add_publication(project, version, **{**fields, **kw}, fake=True)
+
+        pub, job = publish()
+        c.check("asking to publish finalizes the film", store.project(project)["state"] == "finalized")
+        gpu()
+        c.check("the GPU lane does not take a publish", store.job(job)["state"] == "queued")
+        out = publisher()
+        j, row = store.job(job), store.publication(pub)
+        c.check("the light lane publishes it", j["state"] == "done", f"{j['error']}\n{out[-800:]}")
+        session = yt.sessions.get("s1", {})
+        video = yt.videos.get(row["video_id"] or "", {})
+        c.check("...in one upload, every byte once",
+                len(yt.sessions) == 1 and len(yt.videos) == 1 and session.get("received") == session.get("size")
+                and sum(n for _, n in session.get("chunks", [])) == session.get("size"), json.dumps(
+                    {k: {**v, "meta": None} for k, v in yt.sessions.items()}))
+        meta = session.get("meta") or {}
+        c.check("...told exactly what the publication says",
+                meta.get("snippet", {}).get("title") == "How did barbarians live"
+                and meta["snippet"].get("tags") == ["history", "early medieval"]
+                and meta["snippet"].get("categoryId") == "27"
+                and meta.get("status") == {"privacyStatus": "unlisted", "selfDeclaredMadeForKids": False,
+                                           "containsSyntheticMedia": True, "embeddable": True}, json.dumps(meta))
+        c.check("the publication records the video, and the film is posted",
+                row["video_id"] == video.get("id") and row["uploaded_at"] is not None
+                and row["channel_id"] == FakeYouTube.CHANNEL["id"] and store.project(project)["state"] == "posted")
+        thumbs = list(light.rglob("thumb-*.jpg"))
+        size = Image.open(thumbs[0]).size if thumbs else None
+        c.check("the thumbnail is the chosen shot's still, at 1280x720",
+                yt.thumbnails.get(row["video_id"], 0) > 0 and size == (1280, 720)
+                and thumbs[0].name == f"thumb-{shots[1]['shot_id']}.jpg", f"{thumbs} {size}")
+        yt_info = row["youtube"]
+        c.check("what YouTube made of it is read back",
+                yt_info.get("upload_status") == "processed" and yt_info.get("privacy") == "unlisted"
+                and yt_info.get("thumbnail") == shots[1]["shot_id"]
+                and yt_info.get("notes") == [] and yt_info.get("channel_title") == "Fake History", json.dumps(yt_info))
+        c.check("the mp4 never went to the media store, and is deleted once YouTube has it",
+                not (media_dir / "films").exists() and not list(light.rglob("*.mp4")))
+        health = next((w["health"] for w in store.workers() if w["id"] == "publisher"), None) or {}
+        c.check("the worker tells the studio which channel it publishes to",
+                (health.get("youtube") or {}).get("channel", {}).get("title") == "Fake History", json.dumps(health))
+
+        before = (len(yt.sessions), len(yt.videos))
+        again = store.enqueue(project, "publish", {"publication_id": pub, "fake": True})
+        out = publisher()
+        c.check("a publication that has its video is never uploaded again",
+                store.job(again)["state"] == "done" and (len(yt.sessions), len(yt.videos)) == before, out[-400:])
+
+        print("\n-- publishing: an interrupted upload resumes its own session --")
+        yt.chunk_delay = 0.3
+        pub2, job2 = publish(title="Killed mid-upload")
+        n_sessions = len(yt.sessions)
+        proc = publisher(wait=False)
+        end = time.time() + 60
+        while time.time() < end and not any(len(v["chunks"]) >= 2 for k, v in list(yt.sessions.items())[n_sessions:]):
+            time.sleep(0.05)
+        proc.kill()
+        proc.wait()
+        yt.chunk_delay = 0.0
+        sid = list(yt.sessions)[-1]
+        sent_before = yt.sessions[sid]["received"]
+        c.check("the worker is killed with the upload part-way",
+                0 < sent_before < yt.sessions[sid]["size"] and store.job(job2)["state"] == "running",
+                f"{sent_before}/{yt.sessions[sid]['size']}")
+        out = publisher()
+        s2 = yt.sessions[sid]
+        starts = [a for a, _ in s2["chunks"]]
+        c.check("the restarted worker finishes it", store.job(job2)["state"] == "done", out[-600:])
+        c.check("...in the same session: no second upload was started",
+                len(yt.sessions) == n_sessions + 1 and len(yt.videos) == before[1] + 1)
+        c.check("...sending only the bytes that had not arrived",
+                starts == sorted(set(starts)) and starts[0] == 0 and s2["received"] == s2["size"]
+                and "resuming the upload at" in out, f"{starts} {out[-400:]}")
+
+        saved = {k: os.environ.get(k) for k in yt.env()}
+        os.environ.update(yt.env())
+        try:
+            client = youtube.Client("fake-client", "fake-secret", "refresh-ok", log=lambda *a: None)
+            blob = Path(td) / "small.mp4"
+            blob.write_bytes(os.urandom(300_000))
+            opened: list[str] = []
+            first = client.upload(blob, {"snippet": {"title": "t"}, "status": {}}, on_session=opened.append)
+            counts = (len(yt.sessions), len(yt.videos))
+            second = client.upload(blob, {"snippet": {"title": "t"}, "status": {}}, session=opened[0])
+            c.check("a reply lost after the last byte: asking the session returns the video it made",
+                    second["id"] == first["id"] and (len(yt.sessions), len(yt.videos)) == counts)
+            yt.forgotten.add(opened[0].rsplit("/", 1)[-1])
+            third = client.upload(blob, {"snippet": {"title": "t"}, "status": {}}, session=opened[0])
+            c.check("...and a session YouTube forgot (so no video) starts a new one",
+                    third["id"] != first["id"] and len(yt.sessions) == counts[0] + 1)
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+        yt.chunk_delay = 0.3
+        pub9, job9 = publish(title="Stopped, then tried again")
+        n_sessions = len(yt.sessions)
+        proc = publisher(wait=False)
+        end = time.time() + 60
+        while time.time() < end and not any(len(v["chunks"]) >= 2 for k, v in list(yt.sessions.items())[n_sessions:]):
+            time.sleep(0.05)
+        store.cancel(job9)
+        proc.wait(timeout=60)
+        yt.chunk_delay = 0.0
+        videos = len(yt.videos)
+        retry = store.enqueue(project, "publish", {"publication_id": pub9, "fake": True})
+        out = publisher()
+        # Stopping is noticed at the next progress write (~2 s). A stop that
+        # lands as the last bytes go cannot unmake the video: the stopped
+        # worker records it anyway, and the retry uploads nothing.
+        sid = list(yt.sessions)[-1]
+        made = yt.sessions[sid]["video"]
+        c.check("a stopped upload, tried again, never opens a second upload",
+                store.job(retry)["state"] == "done" and len(yt.sessions) == n_sessions + 1
+                and len(yt.videos) == videos + (0 if made else 1)
+                and store.publication(pub9)["video_id"] == yt.sessions[sid]["video"],
+                f"{len(yt.sessions) - n_sessions} sessions\n{out[-400:]}")
+        c.check("...and the video is recorded, whichever side of the stop it finished on",
+                (made and store.publication(pub9)["uploaded_at"] is not None) or "resuming the upload at" in out)
+
+        yt.fail_puts = {yt.puts + 2}
+        pub3, job3 = publish(title="Flaky network")
+        out = publisher()
+        j = store.job(job3)
+        c.check("a 503 mid-upload is retried within the job, from where it stood",
+                j["state"] == "done" and j["attempts"] == 1 and "asking where it stands" in out, out[-600:])
+
+        print("\n-- publishing: quota and refusals are not retried (failure mode 14) --")
+        n = len(yt.sessions)
+        yt.quota = True
+        pub4, job4 = publish(title="Over quota")
+        out = publisher()
+        yt.quota = False
+        j = store.job(job4)
+        c.check("a quotaExceeded upload fails at once, without retrying",
+                j["state"] == "failed" and j["attempts"] == 1 and "midnight Pacific" in (j["error"] or ""),
+                f"{j['state']} {j['attempts']} {j['error']}")
+        c.check("...with no video, and the film still posted from before (a failed second upload takes nothing down)",
+                store.publication(pub4)["video_id"] is None and len(yt.sessions) == n
+                and store.project(project)["state"] == "posted")
+        pub5, job5 = publish(title="Over our own count")
+        out = publisher(YOUTUBE_DAILY_UPLOADS=str(store.uploads_today()))
+        j = store.job(job5)
+        c.check("past the day's upload allowance, nothing is sent to YouTube at all",
+                j["state"] == "failed" and "started today" in (j["error"] or "") and len(yt.sessions) == n,
+                f"{j['error']}")
+
+        yt.revoked = True
+        pub6, job6 = publish(title="Revoked")
+        out = publisher()
+        yt.revoked = False
+        j = store.job(job6)
+        health = next((w["health"] for w in store.workers() if w["id"] == "publisher"), None) or {}
+        c.check("a revoked connection fails the job once, saying how to reconnect",
+                j["state"] == "failed" and j["attempts"] == 1 and "connect" in (j["error"] or ""), j["error"])
+        c.check("...and the studio is told the channel is not connected",
+                (health.get("youtube") or {}).get("connected") is False, json.dumps(health))
+
+        pub7, job7 = publish(title="Bad <title>")
+        out = publisher()
+        j = store.job(job7)
+        c.check("metadata YouTube would refuse is refused before any upload",
+                j["state"] == "failed" and "< or >" in (j["error"] or "") and len(yt.sessions) == n)
+
+        yt.thumb_forbidden, yt.lock_private = True, True
+        pub8, job8 = publish(title="Unverified channel, unaudited app", privacy="public")
+        out = publisher()
+        yt.thumb_forbidden, yt.lock_private = False, False
+        j, row = store.job(job8), store.publication(pub8)
+        notes = " ".join(row["youtube"].get("notes", []))
+        c.check("a refused thumbnail and a privacy lock still publish, and say so",
+                j["state"] == "done" and row["video_id"] and "verified channels" in notes
+                and row["youtube"].get("thumbnail") is None
+                and "made the video private, not public" in notes, f"{j['error']} {notes}")
+    yt.close()
+    drain(store)
+    store.close()
+
+
 def main() -> int:
     try:
         psycopg.connect(database_url(), connect_timeout=3).close()
@@ -942,6 +1162,7 @@ def main() -> int:
         looks(c, url)
         editing(c, url)
         hardening(c, url)
+        publishing(c, url)
 
     print(f"\n{c.run - len(c.failures)}/{c.run} checks passed")
     if c.failures:

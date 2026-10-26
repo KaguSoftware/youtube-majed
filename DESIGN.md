@@ -29,8 +29,8 @@ Fewer states, same expressiveness.
 | `style` | style record + hero frame | `candidates → selected` | `production` |
 | `production` | timeline + media | `running → done \| failed` | `editing` |
 | `editing` | timeline versions | — | `finalized` |
-| `finalized` | render + publish metadata | — | `posted` |
-| `posted` | youtube video id | — | — |
+| `finalized` | a publication: the cut, and what YouTube is told | uploading → posted \| failed | `posted` |
+| `posted` | the publication's youtube video id | — | — (stays posted if a later re-upload fails) |
 
 **Slot filling is mode-agnostic.** The same endpoint accepts a human paste or a
 worker running `claude -p`; nothing downstream can tell the difference.
@@ -223,6 +223,34 @@ narration stream and its byte-range slices, fps and the 10 s timestamp base.
 The browser reads HLS playlists written from this per request. The mp4 is an
 export, made on request (`jobs.kind = 'export'`).
 
+## Stage: publish
+
+The film is on screen and right; the user tells YouTube what it is and the
+studio machine uploads it. Built in Phase 6, PLAN.md 14.
+
+### Contract — a publication
+
+`publications` (migration 007), one row per "publish this cut":
+
+| field | from | rule |
+|---|---|---|
+| `version` | the cut the film is at the click | pinned; choosing another cut later changes nothing |
+| `title` | drafted from the topic | ≤ 100 characters, no `<` `>` |
+| `description` | drafted: the angle, an AI line, every source URL the research cites | ≤ 5,000 bytes, no `<` `>` |
+| `tags` | the user | ≤ 500 characters, commas and quotes counted |
+| `privacy` | private by default | private, unlisted, public |
+| `thumbnail_shot` | the hero beat's first shot | a shot of that cut, or none (YouTube picks) |
+| `synthetic` | on by default | `status.containsSyntheticMedia` |
+| `made_for_kids` | no default: asked | `status.selfDeclaredMadeForKids` |
+| `video_id` | YouTube | once set, the row is never uploaded again |
+| `youtube` | the worker | the session, the privacy applied, upload status, the thumbnail taken, notes |
+
+The rules are `pipeline/publish.py check`, run by the studio (through the
+Python function) and again by the worker before it uploads.
+
+A cut already on YouTube can be uploaded again only with a deliberate tick, as
+a second, separate video.
+
 ## Staleness: the rule that keeps gates honest
 
 Each artifact stores the hash of its upstream input.
@@ -254,6 +282,9 @@ timelines     (id, project_id, version, timeline_json, parent_version, change,
 jobs          (id, project_id, kind, state, progress, claimed_by,
                heartbeat_at, error)
 prompt_log    (id, project_id, kind, prompt_text, response_raw, hash, created_at)
+publications  (id, project_id, version, title, description, tags, privacy,
+               thumbnail_shot, synthetic, made_for_kids, requested_by, job_id,
+               video_id, channel_id, youtube, uploaded_at)
 ```
 
 `artifacts` keeps `markdown_raw` alongside `parsed_json`, and `prompt_log` keeps

@@ -30,7 +30,7 @@ export function StageStrip({ state, size = "compact" }: { state: string; size?: 
   }
 
   return (
-    <ol className="grid grid-cols-6 gap-1.5" aria-label="Stages">
+    <ol className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${STAGES.length}, minmax(0, 1fr))` }} aria-label="Stages">
       {STAGES.map((s, i) => {
         const done = i < current;
         const now = i === current;
@@ -41,7 +41,7 @@ export function StageStrip({ state, size = "compact" }: { state: string; size?: 
                 "h-1 rounded-full " + (done ? "bg-muted" : now ? "bg-accent" : "bg-hairline")
               }
             />
-            <span className={"eyebrow " + (now ? "text-accent" : done ? "text-muted" : "text-faint")}>
+            <span className={"eyebrow truncate " + (now ? "text-accent" : done ? "text-muted" : "text-faint")}>
               {s.label}
               <span className="sr-only">{done ? " (done)" : now ? " (current)" : ""}</span>
             </span>

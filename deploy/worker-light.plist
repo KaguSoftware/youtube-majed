@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
   launchd agent for the worker's light lane: research and script jobs, which
-  run `claude -p` and need no GPU (PLAN.md section 11). A separate process from
+  run `claude -p`, and publish jobs, which upload to YouTube. None needs the
+  GPU (PLAN.md sections 11 and 14). A separate process from
   the GPU worker so Claude never waits behind a render; it takes its own work
   root (work/light) and so its own host lock.
 
@@ -27,7 +28,7 @@
         <string>-m</string>
         <string>pipeline.worker</string>
         <string>--kinds</string>
-        <string>research,script</string>
+        <string>research,script,publish</string>
         <string>--no-caffeinate</string>
     </array>
     <key>EnvironmentVariables</key>
