@@ -45,7 +45,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import config
+from . import config, pins
 
 NEG_INF = -1e30
 
@@ -422,8 +422,10 @@ def _words_from_path(
 class CtcAligner:
     """wav2vec2 CTC, used for both alignment and the ASR cross-check."""
 
-    def __init__(self, model_name: str = config.ALIGN_MODEL) -> None:
-        self.model_name = model_name
+    def __init__(self) -> None:
+        self.pin = pins.MODELS["align"]
+        #: What content addresses and the alignment record name this model by.
+        self.model_name = self.pin.identity
         self._model = None
         self._labels: list[str] = []
         self._blank = 0
@@ -434,8 +436,10 @@ class CtcAligner:
         import torch
         from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
 
-        self._processor = Wav2Vec2Processor.from_pretrained(self.model_name)
-        self._model = Wav2Vec2ForCTC.from_pretrained(self.model_name).eval()
+        pins.assert_cleared(self.pin)
+        repo, rev = self.pin.repo, self.pin.revision
+        self._processor = Wav2Vec2Processor.from_pretrained(repo, revision=rev)
+        self._model = Wav2Vec2ForCTC.from_pretrained(repo, revision=rev, use_safetensors=True).eval()
         self._torch = torch
 
         vocab = self._processor.tokenizer.get_vocab()
@@ -660,6 +664,18 @@ def align_narration(
         elif edits:
             warnings.append(f"{ba.beat_id}: {len(edits)} ASR edit(s) under threshold")
         warnings.extend(advisory)
+
+    # Failure mode 5's "total within tolerance of audio length". Each beat is
+    # aligned on its own slice, so drift cannot accumulate across beats; what
+    # remains is a beat index that no longer describes its wav (a re-synthesis
+    # written under an old index). Then every timing is shifted by a wrong
+    # offset, and only the beats themselves can say so.
+    for a, b in zip(narration.beats, narration.beats[1:]):
+        if b.start < a.end - 1e-3:
+            errors.append(f"{b.beat_id} starts at {b.start:.3f}s, before {a.beat_id} ends ({a.end:.3f}s)")
+    if narration.beats and narration.beats[-1].end > narration.duration + 1e-3:
+        errors.append(f"the last beat ends at {narration.beats[-1].end:.3f}s, after the narration "
+                      f"itself ({narration.duration:.3f}s)")
 
     overall, _ = wer(" ".join(ref_all), " ".join(hyp_all))
     return Alignment(

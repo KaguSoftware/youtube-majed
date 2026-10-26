@@ -58,6 +58,43 @@ export async function machineStatus(): Promise<Record<Lane, MachineState>> {
   return { gpu: lane("gpu"), light: lane("light") };
 }
 
+type WorkerHealth = {
+  pins?: { problems?: string[]; notes?: string[] } | null;
+  smoke?: { ok?: boolean; at?: string; failures?: string[]; drift?: string[] } | null;
+};
+
+/**
+ * What the studio machine last found wrong with itself (pipeline/worker.py,
+ * migration 006). `refusing` says what it will not do until fixed: "all" when
+ * its software no longer matches what was tested, "gpu" when its nightly test
+ * film failed. `drift` is the softer case: the test film came out differently
+ * from before, and films still render. `details` are the machine's own words,
+ * for whoever looks after it.
+ */
+export type MachineHealth = {
+  refusing: "all" | "gpu" | null;
+  drift: boolean;
+  details: string[];
+  checkedAt: Date | null;
+};
+
+export async function machineHealth(): Promise<MachineHealth | null> {
+  const rows = await query<{ kinds: string[]; health: WorkerHealth | null }>(`
+    SELECT DISTINCT ON ('production' = ANY(kinds)) kinds, health
+    FROM workers ORDER BY 'production' = ANY(kinds), last_seen_at DESC`);
+  const pins = rows.flatMap((r) => r.health?.pins?.problems ?? []);
+  const smoke = rows.find((r) => r.kinds.includes("production"))?.health?.smoke ?? null;
+  const failures = smoke?.failures ?? [];
+  const drift = smoke?.drift ?? [];
+  if (!pins.length && !failures.length && !drift.length) return null;
+  return {
+    refusing: pins.length ? "all" : failures.length ? "gpu" : null,
+    drift: drift.length > 0,
+    details: [...pins, ...failures, ...drift],
+    checkedAt: smoke?.at ? new Date(smoke.at) : null,
+  };
+}
+
 /** Work that is waiting for a lane: the offline banner only matters then. */
 export async function waitingWork(): Promise<{ gpu: number; light: number; renders: number; looks: number }> {
   const [row] = await query<{ renders: string; looks: string; light: string }>(`

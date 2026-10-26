@@ -30,7 +30,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import config, qa
+from . import config, pins, qa
 from .timeline import ImageRecord, Shot, image_hash
 
 #: How many rerolls a shot gets before it is flagged for a human. A reroll
@@ -70,8 +70,10 @@ class KleinGenerator:
     process, one Apache-2.0 licence covers both (PLAN.md 8.3).
     """
 
-    def __init__(self, *, model: str = config.IMAGE_MODEL) -> None:
-        self.model_name = model
+    def __init__(self) -> None:
+        self.pin = pins.MODELS["image"]
+        #: What content addresses name this model by (pins.Model.identity).
+        self.model_name = self.pin.identity
         self._model = None
         self._text_only = None
 
@@ -95,24 +97,28 @@ class KleinGenerator:
         if not ok:
             raise RuntimeError(msg)
 
-        # Reuse the Phase 0 licence gate rather than restating the cleared set.
-        # A second copy of a licence whitelist is a second thing to forget to
-        # update, and PLAN.md 1.6 treats this as a business constraint.
-        from bench.backends.mflux_klein import assert_licence_ok
-
-        assert_licence_ok(self.model_name)
+        # The licence register: cleared by name here (which also runs the
+        # Phase 0 gate), and by hash in `pins.check`, which the worker runs
+        # before it claims anything.
+        pins.assert_cleared(self.pin)
 
         from mflux.models.common.config.model_config import ModelConfig
+        from mflux.models.common.resolution.model_revisions import ModelRevisions
         from mflux.models.flux2.variants import Flux2KleinEdit
+
+        # mflux's own pin table, which it consults for every snapshot lookup
+        # and download; it pins the base klein repo but not this checkpoint.
+        # With the entry, only the pinned commit's snapshot counts.
+        ModelRevisions.PINNED[self.pin.repo] = self.pin.revision
 
         t = time.time()
         self._model = Flux2KleinEdit(
             quantize=None,  # the checkpoint is already 4-bit; see PLAN.md 8.1
             model_config=ModelConfig.from_name(
-                self.model_name, base_model=config.IMAGE_BASE_MODEL
+                self.pin.repo, base_model=config.IMAGE_BASE_MODEL
             ),
         )
-        log(f"  loaded {self.model_name} in {time.time() - t:.1f}s")
+        log(f"  loaded {self.pin.repo}@{self.pin.revision[:12]} in {time.time() - t:.1f}s")
 
     def _text_to_image(self):
         """`Flux2Klein` over the already-loaded weights, for prompts with no

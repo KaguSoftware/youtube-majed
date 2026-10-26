@@ -16,7 +16,25 @@ export type Hls = {
   narration_slices?: [number, number, number][];
 };
 
-export type ShotMark = { id: string; start: number; end: number; text: string };
+/**
+ * `look`: why a person should check this shot before the film goes out, in
+ * plain words; empty when nothing was flagged (PLAN.md section 5, failure
+ * modes 5 and 6). The checks ran on the studio machine; this only reads what
+ * they recorded on the timeline.
+ */
+export type ShotMark = { id: string; start: number; end: number; text: string; look: string[] };
+
+/**
+ * pipeline/align.py WEAK_WORD_SCORE: below this the aligner was unsure it
+ * heard the word (selftest holds the two equal). One such word is noise: in
+ * the three local films, all watched and right, 25 of ~150 shots had one,
+ * mostly names (Nahuatl, Catterick) and short words ("of"). A run of them is
+ * the shape of mangled audio: time-reversing three words of real narration
+ * left every one of them unsure, while the good films had no run of even two
+ * (PLAN.md 13). So a shot is flagged for runs only. The narration gate fails
+ * such audio outright; this is for a film made past the gate on purpose.
+ */
+const WEAK_WORD_SCORE = 0.25;
 
 export type Change = {
   request: string; at: number | null; summary: string;
@@ -64,10 +82,49 @@ export async function currentVersion(projectId: string): Promise<number | null> 
 
 /** Where each shot sits in a cut, for the strip under the player. */
 export async function shotMarks(projectId: string, version: number): Promise<ShotMark[]> {
-  return query<ShotMark>(
-    `SELECT s->>'shot_id' AS id, (s->>'start')::float AS start, (s->>'end')::float AS end, s->>'text' AS text
+  const rows = await query<Omit<ShotMark, "look"> & {
+    qa_failed: boolean | null; qa_failures: string[] | null; attempts: number | null; unsure: string[] | null;
+  }>(
+    `SELECT s->>'shot_id' AS id, (s->>'start')::float AS start, (s->>'end')::float AS end, s->>'text' AS text,
+            (s->'image'->'qa'->>'ok')::boolean = false AS qa_failed,
+            s->'image'->'qa'->'failures' AS qa_failures,
+            (s->'image'->>'attempts')::int AS attempts,
+            (SELECT jsonb_agg(word ORDER BY n) FROM (
+               SELECT o.w->>'word' AS word, o.n, (o.w->>'score')::float < $3 AS weak,
+                      lag((o.w->>'score')::float) OVER (ORDER BY o.n) < $3 AS after_weak,
+                      lead((o.w->>'score')::float) OVER (ORDER BY o.n) < $3 AS before_weak
+               FROM jsonb_array_elements(coalesce(s->'words', '[]')) WITH ORDINALITY o(w, n)) x
+             WHERE weak AND (after_weak OR before_weak)) AS unsure
      FROM timelines t, jsonb_array_elements(t.timeline_json->'shots') s
-     WHERE t.project_id = $1 AND t.version = $2`, [projectId, version]);
+     WHERE t.project_id = $1 AND t.version = $2
+     ORDER BY (s->>'start')::float`, [projectId, version, WEAK_WORD_SCORE]);
+  return rows.map(({ qa_failed, qa_failures, attempts, unsure, ...m }) => ({
+    ...m,
+    look: [
+      ...(qa_failed ? [pictureProblem(qa_failures ?? [], attempts ?? 1)] : []),
+      ...(unsure?.length ? [narrationProblem(unsure)] : []),
+    ],
+  }));
+}
+
+/** pipeline/qa.py's verdict on a still, in the studio's words. */
+function pictureProblem(failures: string[], attempts: number): string {
+  const f = failures.join(" ");
+  const what = /hero_reference/.test(f) ? "copies the character reference instead of painting the scene"
+    : /\(adjacent\)/.test(f) ? "looks almost the same as the shot next to it"
+    : /too close/.test(f) ? "looks almost the same as another shot in the film"
+    : /blurred/.test(f) ? "looks blurred"
+    : /flat frame/.test(f) ? "looks empty"
+    : /exposure/.test(f) ? "is too dark or too bright"
+    : "did not pass its picture checks";
+  return attempts > 1 ? `Even after ${attempts} tries, the picture ${what}.` : `The picture ${what}.`;
+}
+
+/** A run of words the aligner was unsure it heard: the narration may not say them. */
+function narrationProblem(words: string[]): string {
+  const shown = [...new Set(words.map((w) => w.toLowerCase()))].slice(0, 4);
+  const list = shown.map((w) => `\u201c${w}\u201d`).join(", ");
+  return `The narration is hard to make out around ${list}. Listen that it says what the script says.`;
 }
 
 export type EditJob = {

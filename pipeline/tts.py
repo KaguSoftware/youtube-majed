@@ -30,7 +30,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import config
+from . import config, pins
 
 #: Abstract voice id -> backend voice. The script contract names a voice in
 #: DESIGN.md terms (`narrator_male_low`); only this table knows it is Kokoro's
@@ -98,10 +98,10 @@ class TTS(ABC):
 
 
 class KokoroTTS(TTS):
-    name = "kokoro-82m"
-
-    def __init__(self, repo_id: str = "hexgrad/Kokoro-82M") -> None:
-        self.repo_id = repo_id
+    def __init__(self) -> None:
+        self.pin = pins.MODELS["tts"]
+        #: What content addresses name this engine by (pins.Model.identity).
+        self.name = self.pin.identity
         self._pipeline = None
 
     def preflight(self) -> tuple[bool, str]:
@@ -148,7 +148,19 @@ class KokoroTTS(TTS):
                 "espeakng-loader or espeak-ng."
             ) from exc
 
-        self._pipeline = KPipeline(lang_code="a", repo_id=self.repo_id)
+        # Kokoro takes no revision: left to itself it downloads `main`. So it
+        # is handed the pinned files, and the voices are loaded up front under
+        # their own names, which it looks up before it would download one.
+        import torch
+        from kokoro import KModel
+
+        pins.assert_cleared(self.pin)
+        snap = self.pin.path
+        model = KModel(repo_id=self.pin.repo, config=str(snap("config.json")),
+                       model=str(snap("kokoro-v1_0.pth"))).eval()
+        self._pipeline = KPipeline(lang_code="a", repo_id=self.pin.repo, model=model)
+        for voice in VOICE_MAP.values():
+            self._pipeline.voices[voice] = torch.load(snap(f"voices/{voice}.pt"), weights_only=True)
 
     def say(self, text: str, voice: str) -> np.ndarray:
         """Deterministic: the same text and voice give the same samples.

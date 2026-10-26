@@ -564,13 +564,17 @@ class Store:
     # -------------------------------------------------------------- workers
 
     def touch_worker(self, worker: str, *, hostname: str, pid: int, current_job: int | None,
-                     kinds: tuple[str, ...] = GPU_KINDS) -> None:
+                     kinds: tuple[str, ...] = GPU_KINDS, health: dict | None = None) -> None:
+        """`health` replaces the stored report when given and is kept when not,
+        so the heartbeat thread need not carry it (migration 006)."""
         self.conn.execute(
-            "INSERT INTO workers (id, hostname, pid, current_job, kinds) VALUES (%s, %s, %s, %s, %s) "
+            "INSERT INTO workers (id, hostname, pid, current_job, kinds, health) "
+            "VALUES (%s, %s, %s, %s, %s, %s) "
             "ON CONFLICT (id) DO UPDATE SET hostname = EXCLUDED.hostname, pid = EXCLUDED.pid, "
             "current_job = EXCLUDED.current_job, kinds = EXCLUDED.kinds, last_seen_at = now(), "
+            "health = COALESCE(EXCLUDED.health, workers.health), "
             "started_at = CASE WHEN workers.pid = EXCLUDED.pid THEN workers.started_at ELSE now() END",
-            (worker, hostname, pid, current_job, list(kinds)),
+            (worker, hostname, pid, current_job, list(kinds), Jsonb(health) if health is not None else None),
         )
 
     def workers(self) -> list[dict]:

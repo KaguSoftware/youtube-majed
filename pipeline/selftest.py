@@ -78,12 +78,7 @@ def _timeline(shots: list[Shot], duration: float) -> Timeline:
     )
 
 
-def _first_pts(path: Path) -> float:
-    """Presentation time of the first frame or sample in a stream file."""
-    import subprocess
-    out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "packet=pts_time",
-                          "-of", "csv=p=0", str(path)], capture_output=True, text=True).stdout
-    return min(float(x.strip(",")) for x in out.split() if x.strip(","))
+_first_pts = assemble.first_pts
 
 
 def main() -> int:
@@ -453,11 +448,275 @@ def main() -> int:
     c.check("a tone beat may name the protagonist without being flagged as asserting a fact",
             not any("asserts" in w for w in told["warnings"]), str(told["warnings"]))
 
+    hardening(c)
+
     print(f"\n{c.run - len(c.failures)}/{c.run} checks passed")
     if c.failures:
         print("failed: " + ", ".join(c.failures))
         return 1
     return 0
+
+
+def hardening(c: Checks) -> None:
+    """Phase 5: the rows of PLAN.md section 5 that need no database. Each
+    section names its row; PLAN.md 13 maps every row to its checks."""
+    import copy
+    import dataclasses
+    import hashlib
+    import http.server
+    import json
+    import os
+    import shutil
+    import threading
+    from datetime import datetime, timedelta, timezone
+
+    from . import align, images, jobs, pins, qa, smoke, tts, worker
+    from .fakes import FakeAligner, FakeGenerator
+    from .tts import BeatAudio, Narration
+
+    repo = Path(__file__).resolve().parent.parent
+    quiet = lambda *a, **k: None  # noqa: E731
+
+    print("\n-- pins: packages and tools (failure mode 10) --")
+    lock = pins.read_requirements()
+    c.check("requirements.lock reads as name==version, the URL-installed spaCy model included",
+            lock.get("pillow") == "12.3.0" and lock.get("en-core-web-sm") == "3.8.0",
+            f"{lock.get('pillow')} {lock.get('en-core-web-sm')}")
+    exact = dict(re.findall(r'"([A-Za-z0-9_.\-]+)(?:\[[^\]]*\])?==([^"]+)"',
+                            (repo / "pyproject.toml").read_text()))
+    off = {n: (v, lock.get(pins._norm(n))) for n, v in exact.items() if lock.get(pins._norm(n)) != v}
+    c.check("every exact pin in pyproject.toml is what requirements.lock installs", exact and not off, str(off))
+    problems, notes = pins.verify_packages({"pillow": "12.3.0", "mflux": "0.23.0"},
+                                           {"pillow": "13.0.0", "numpy": "2.0.0"})
+    c.check("a locked package at another version, or missing, is a problem; an extra is a note",
+            len(problems) == 2 and len(notes) == 1, f"{problems} {notes}")
+    problems, notes = pins.verify_tools({"tools": {"python": "3.11.9", "ffmpeg": "0.0.1"}})
+    c.check("another Python minor is a problem; another ffmpeg a note for the smoke test to judge",
+            any("python" in p for p in problems) and any("ffmpeg" in n for n in notes),
+            f"{problems} {notes}")
+
+    print("\n-- pins: the weights and the licence register (failure modes 10, 13) --")
+    legacy = {"image": "mlx-community/flux2-klein-4b-4bit", "tts": "kokoro-82m",
+              "align": "facebook/wav2vec2-base-960h"}
+    c.check("pinning moved no content address: each model keeps the name its cache was built with",
+            all(pins.MODELS[r].identity == n for r, n in legacy.items()),
+            str({r: m.identity for r, m in pins.MODELS.items()}))
+    c.check("...and the loaders key their caches by it",
+            images.KleinGenerator().model_name == legacy["image"] and tts.KokoroTTS().name == legacy["tts"]
+            and align.CtcAligner().model_name == legacy["align"])
+    moved = dataclasses.replace(pins.MODELS["tts"], revision="0" * 40)
+    c.check("moving a pin changes every content address the model is part of",
+            moved.identity != legacy["tts"] and "@" in moved.identity, moved.identity)
+    locked = pins.read_lock()["models"]
+    c.check("pins.lock.json locks every file each model reads, at its pinned revision",
+            all(locked[r]["revision"] == m.revision and set(m.files) <= set(locked[r]["files"])
+                for r, m in pins.MODELS.items()))
+    for label, bad in (("a non-commercial licence", dataclasses.replace(pins.MODELS["tts"], licence="cc-by-nc-4.0")),
+                       ("a blocked image model", dataclasses.replace(pins.MODELS["image"], repo="flux2-klein-9b"))):
+        try:
+            pins.assert_cleared(bad)
+            c.check(f"{label} is refused before loading", False)
+        except RuntimeError:
+            c.check(f"{label} is refused before loading", True)
+
+    with tempfile.TemporaryDirectory() as td:
+        hub = Path(td) / "hub"
+        toy = pins.Model(role="toy", repo="toy/model", revision="a" * 40, licence="apache-2.0",
+                         files=("w.safetensors", "config.json"), keyed_as="toy", keyed_at="a" * 40)
+
+        def put(name: str, data: bytes) -> Path:
+            """The hub's layout: a blob named by its SHA-256, linked from the snapshot."""
+            blob = hub / "models--toy--model" / "blobs" / hashlib.sha256(data).hexdigest()
+            blob.parent.mkdir(parents=True, exist_ok=True)
+            blob.write_bytes(data)
+            link = toy.path(name, hub)
+            link.parent.mkdir(parents=True, exist_ok=True)
+            if link.is_symlink():
+                link.unlink()
+            link.symlink_to(os.path.relpath(blob, link.parent))
+            return blob
+
+        weights = put("w.safetensors", b"weights" * 1000)
+        put("config.json", b"{}")
+        lk = {"models": {"toy": pins.lock_entry(toy, hub)}}
+        c.check("a cache that matches its lock verifies, quick and deep",
+                not pins.verify_model(toy, lk, cache=hub) and not pins.verify_model(toy, lk, deep=True, cache=hub))
+        weights.write_bytes(b"weightz" * 1000)          # same size, other bytes: a bad disk
+        c.check("a corrupted weight file passes the quick check, which reads no bytes...",
+                not pins.verify_model(toy, lk, cache=hub))
+        c.check("...and the deep check catches it",
+                any("hashes" in p for p in pins.verify_model(toy, lk, deep=True, cache=hub)))
+        weights.write_bytes(b"weights" * 1000)
+        put("w.safetensors", b"WEIGHTS" * 1000)         # another checkpoint under the same name
+        c.check("another checkpoint under the same file name is caught without reading it",
+                any("blob" in p for p in pins.verify_model(toy, lk, cache=hub)))
+        put("w.safetensors", b"weights" * 1000)
+        r = pins.archive(Path(td) / "archive", cache=hub, models=[toy], lock=lk, log=quiet)
+        c.check("archive copies the weights as a hub cache and verifies the copy byte for byte",
+                r.ok and toy.path("w.safetensors", Path(td) / "archive").is_symlink(), r.render())
+        shutil.rmtree(hub)
+        c.check("with the cache gone, the archive alone verifies (HF_HUB_CACHE=<archive> restores)",
+                not pins.verify_model(toy, lk, deep=True, cache=Path(td) / "archive"))
+        c.check("...where the emptied cache says what is missing and how to get it",
+                any("pins fetch" in p for p in pins.verify_model(toy, lk, cache=hub)))
+
+    print("\n-- smoke: drift from the goldens, and when it runs (failure mode 10) --")
+    golden = json.loads(smoke.GOLDEN.read_text())
+    c.check("the goldens compare clean against themselves", smoke.compare(golden, golden) == [])
+    moved = copy.deepcopy(golden)
+    moved["narration"]["words"][3][1] += 0.05
+    moved["shots"][1]["phash"] = f"{int(golden['shots'][1]['phash'], 16) ^ 0b111111:016x}"
+    moved["shots"][2]["attempts"] += 1
+    drift = smoke.compare(golden, moved)
+    c.check("a word moved 50 ms, a repainted picture and an extra reroll are each drift",
+            len(drift) == 3, str(drift))
+    nudged = copy.deepcopy(golden)
+    nudged["narration"]["words"][3][1] += 0.01
+    nudged["shots"][1]["phash"] = f"{int(golden['shots'][1]['phash'], 16) ^ 0b11:016x}"
+    c.check("...while a 10 ms nudge and 2 bits are not", smoke.compare(golden, nudged) == [],
+            str(smoke.compare(golden, nudged)))
+    now = datetime.now(timezone.utc)
+
+    def ran(ago: float, ok: bool) -> smoke.Report:
+        return smoke.Report(at=(now - timedelta(seconds=ago)).isoformat(), seconds=1.0, fake=False,
+                            failures=[] if ok else ["x"])
+
+    c.check("due when never run, a day after a pass and an hour after a failure, not sooner",
+            smoke.due(None) and smoke.due(ran(25 * 3600, True)) and not smoke.due(ran(3600, True))
+            and smoke.due(ran(3700, False)) and not smoke.due(ran(600, False)))
+
+    print("\n-- memory and the offline banner (failure modes 7, 4) --")
+    c.check("swapouts are read from vm_stat, the raw count rather than any summary of it",
+            worker.parse_swapouts("Mach Virtual Memory Statistics: (page size of 16384 bytes)\n"
+                                  "Swapins:                 12.\nSwapouts:              3456.\n") == 3456)
+    studio = (repo / "web" / "lib" / "studio.ts").read_text()
+    m = re.search(r"BUSY_OFFLINE_MS = ([\d_]+)", studio)
+    c.check("the studio's offline banner uses the worker's own offline threshold",
+            m is not None and int(m.group(1).replace("_", "")) == jobs.OFFLINE_AFTER_SECONDS * 1000,
+            m.group(1) if m else "not found")
+
+    cuts = (repo / "web" / "lib" / "cuts.ts").read_text()
+    m = re.search(r"WEAK_WORD_SCORE = ([\d.]+)", cuts)
+    c.check("the editing room flags the words the aligner itself calls low-confidence (failure mode 5)",
+            m is not None and float(m.group(1)) == align.WEAK_WORD_SCORE, m.group(1) if m else "not found")
+
+    print("\n-- image QA: what a reroll is for (failure mode 6) --")
+    with tempfile.TemporaryDirectory() as td:
+        t = Path(td)
+        gen = FakeGenerator()
+        good = t / "good.png"
+        gen.generate("a longhouse at dawn", 1, [], good, size=(832, 480))
+
+        def still(name: str, arr: np.ndarray) -> Path:
+            p = t / f"{name}.png"
+            Image.fromarray(np.clip(arr, 0, 255).astype("uint8")).save(p)
+            return p
+
+        wash = still("wash", np.repeat(np.tile(np.linspace(0, 255, 832), (480, 1))[..., None], 3, 2))
+        flat = still("flat", np.full((480, 832, 3), 128))
+        black = still("black", np.full((480, 832, 3), 2))
+        r = qa.inspect(good)
+        c.check("a picture with structure passes", r.ok, str(r.failures))
+        c.check("a smooth wash is rejected as blurred",
+                any("blurred" in f for f in qa.inspect(wash).failures), str(qa.inspect(wash).failures))
+        c.check("a flat fill is rejected", any("flat" in f for f in qa.inspect(flat).failures))
+        c.check("a black frame is rejected as collapsed exposure",
+                any("exposure" in f for f in qa.inspect(black).failures))
+        c.check("a copy of the reference is rejected as the prompt ignored",
+                any("prompt was ignored" in f for f in qa.inspect(good, reference=good).failures))
+        h = qa.dhash(good)
+        near = h ^ ((1 << 11) - 1)               # 11 bits away: past duplicate, inside similar
+        c.check("eleven bits from a distant shot is a warning, from the shot before it a failure",
+                qa.inspect(good, others={"S09": near}).ok and qa.inspect(good, others={"S09": near}).warnings
+                and not qa.inspect(good, adjacent={"S02": near}).ok)
+        c.check("...unless an edit is held to the likeness the film already had (PLAN.md 12.6)",
+                qa.inspect(good, adjacent={"S02": near}, adjacent_limits={"S02": 10}).ok)
+
+    print("\n-- alignment: the drift assertions (failure mode 5) --")
+    W = align.WordTiming
+    fatal, advisory = align._check_monotonic([W("cold", 0.0, 0.3, 0.9), W("ridge", 0.35, 0.8, 0.9)], "B01")
+    c.check("ordered words with room to be spoken pass", not fatal and not advisory, str(fatal))
+    fatal, _ = align._check_monotonic([W("cold", 0.0, 0.5, 0.9), W("ridge", 0.3, 0.8, 0.9)], "B01")
+    c.check("overlapping words are fatal", any("overlap" in f for f in fatal), str(fatal))
+    fatal, _ = align._check_monotonic([W("cold", 0.5, 0.8, 0.9), W("ridge", 0.2, 0.4, 0.9)], "B01")
+    c.check("a word timed before the one it follows is fatal", any("monotonic" in f for f in fatal), str(fatal))
+    fatal, _ = align._check_monotonic([W("cold", 0.0, 0.3, 0.9), W("wolfskin", 0.4, 0.4, 0.9)], "B01")
+    c.check("a long word with no audio is fatal (the shape of a dropped word)",
+            any("too little audio" in f for f in fatal), str(fatal))
+    fatal, advisory = align._check_monotonic([W("cold", 0.0, 0.3, 0.1)], "B01")
+    c.check("a low-confidence word is advisory, not fatal", not fatal and advisory)
+    sr = config.TTS_SAMPLE_RATE
+
+    def narration(duration: float, second_start: float) -> Narration:
+        one = np.zeros(sr, dtype=np.float32)
+        return Narration(path=Path("<test>"), sample_rate=sr, duration=duration, voice="v", beats=[
+            BeatAudio("B01", "the wind finds the ridge", one, 0.0, 1.0),
+            BeatAudio("B02", "before the snow does", one, second_start, second_start + 1.0)])
+
+    ok = align.align_narration(narration(2.2, 1.2), aligner=FakeAligner(), log=quiet)
+    c.check("beats in order inside the narration pass", not ok.errors, str(ok.errors))
+    c.check("a beat index that runs past its audio is caught",
+            any("after the narration" in e for e in align.align_narration(
+                narration(2.0, 1.2), aligner=FakeAligner(), log=quiet).errors))
+    c.check("beats that overlap in the index are caught",
+            any("before B01 ends" in e for e in align.align_narration(
+                narration(2.0, 0.8), aligner=FakeAligner(), log=quiet).errors))
+
+    print("\n-- sources: a cited page that does not exist is an error (failure mode 2) --")
+
+    class Pages(http.server.BaseHTTPRequestHandler):
+        def _answer(self) -> None:
+            self.send_response(200 if self.path == "/live" else 404)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        do_HEAD = do_GET = _answer
+
+        def log_message(self, *a) -> None:
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Pages)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        base = f"http://127.0.0.1:{server.server_address[1]}"
+        res = docs.parse_research(FIXTURES / "barbarians-01.research.md")
+        res.claims["c1"].source = f"{base}/live"
+        res.claims["c2"].source = f"{base}/gone"
+        report = docs.Report()
+        asked = docs.check_sources(res, report)
+        c.check("a live source passes and a dead one is an error naming its claim",
+                asked == 2 and any("c2" in e and "does not exist" in e for e in report.errors)
+                and not any("c1" in e for e in report.errors + report.warnings), str(report.errors))
+    finally:
+        server.shutdown()
+
+    print("\n-- ffmpeg: odd sizes and audio that does not fit (failure mode 11) --")
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        stills = []
+        for i in range(2):
+            p = tmp / f"s{i}.png"
+            FakeGenerator().generate(f"shot {i}", i, [], p, size=(config.GEN_WIDTH, config.GEN_HEIGHT))
+            stills.append(p)
+        odd = _timeline(_fake_shots([3.0, 3.0], stills), 6.0)
+        odd.render["width"] = 641
+        c.check("an odd frame size is refused before ffmpeg sees it",
+                any("odd" in e for e in odd.validate()[0]))
+        ok_ff, msg = assemble.preflight()
+        if not ok_ff:
+            print(f"  SKIP  {msg}")
+            return
+        from .tts import _write_wav
+        for label, audio_seconds in (("short", 5.4), ("long", 6.6)):
+            tl = _timeline(_fake_shots([3.0, 3.0], stills), 6.0)
+            for s in tl.shots:
+                s.image.path = str(stills[s.index].resolve())
+            paths = config.Paths(root=tmp / label, project="p")
+            wav = paths.run / "narration.wav"
+            _write_wav(wav, np.zeros(int(audio_seconds * sr), dtype=np.float32), sr)
+            rendered = assemble.build(tl, paths, audio=wav, log=quiet)
+            c.near(f"narration {audio_seconds - 6.0:+.1f}s off the timeline: the film is still the timeline's length",
+                   assemble.probe_duration(rendered.video), 6.0, 1.5 / config.FPS)
 
 
 if __name__ == "__main__":

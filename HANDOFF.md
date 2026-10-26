@@ -38,6 +38,36 @@ the dirty shots.
 
 ## 2. Status
 
+**Phase 5 (hardening) is done, and its exit criterion is met:** every row of
+the failure table in PLAN.md section 5 has a test or an explicit
+accepted-risk note, mapped row by row in PLAN.md 13.1. Three things are new:
+
+- **Pins** (`pipeline/pins.py`). `requirements.lock` is committed; the model
+  register holds the repository, commit and licence of each model;
+  `pins.lock.json` holds the SHA-256 of every file the loaders read. Nothing
+  was pinned before: Kokoro and wav2vec2 loaded `main`, and mflux pins the
+  base klein repo but not the 4-bit checkpoint (13.2). A worker whose install
+  drifts claims nothing.
+- **Smoke test** (`pipeline/smoke.py`). It renders the first two beats of the
+  Phase 1 script on the real models from an empty cache and checks them
+  against recorded goldens. Repeat runs are identical (dHash distance 0,
+  byte-identical narration), so drift is meaningful (13.3). The idle GPU
+  worker runs it nightly, and `deploy/install-worker.sh` refuses to deploy
+  unless it passes with `--strict`.
+- **Flags and health in the studio.** The editing room lists shots worth a
+  look: a picture that never passed QA, or a *run* of words the aligner could
+  not hear. Single weak words were measured as noise (25 of ~150 good shots),
+  so they are not flagged (13.4). The header and a banner say when the
+  machine has refused work and why (`workers.health`, migration 006).
+
+**Not yet shipped**, in this order (PLAN.md 13.6): `deploy/install-worker.sh`
+(its new worker applies migration 006 to Neon on start), then
+`vercel deploy --prod`. Also outstanding: `pins archive` to a second disk,
+`prune-films --apply`, and the Phase 3 exit run. On 26 Oct the installed GPU
+worker was already claiming `edit,export`, so step 3 of 12.11 had been done
+since this file last said "Phase 3 code"; the Neon migration and the web
+deploy were not checked.
+
 **Phase 4 (the editing page and edit agent) is built, and its exit criterion
 was met on this machine:** "the mood at 1:24 doesn't match", typed into the
 editing page, put a corrected film on screen in 47.9 s (PLAN.md 12.1). The
@@ -102,6 +132,9 @@ pipeline/
   editor.py     the edit agent: prompt, the claude run, what changed
   media.py      local cache in front of Blob; chunks, narration, stills, refs
   upkeep.py     heal-cuts and prune-films: the store whole and under 1 GB
+  pins.py       pinned packages, tools and weights; the licence register by hash; archive
+  pins.lock.json  SHA-256 of every weight file, plus the Python and ffmpeg versions
+  smoke.py      the smoke test: real models, a 20 s film, goldens in fixtures/
   writer.py     Claude writes research and scripts (`claude -p`, light lane)
   store.py      Postgres: claim / lease / heartbeat / fenced writes, artifacts
   worker.py     the polling worker: host lock, heartbeat thread, signals
@@ -110,14 +143,16 @@ pipeline/
   queuetest.py  52 queue + kill/resume checks against a throwaway database
   migrations/   SQL, applied in order by `Store.migrate()`
   fixtures/     the hardcoded Phase 1 script and research documents
+requirements.lock  `uv pip freeze` of the tested venv; the worker installs exactly this
 slice.py        entry point (no DB; same stages as the worker)
 compose.yaml    local Postgres 17 on 127.0.0.1:54329
 deploy/         launchd agent for the worker (KeepAlive, graceful exit)
 ```
 
-Run `python -m pipeline.selftest` first — 105 checks, no weights, under a
-minute (it renders real chunks through ffmpeg). `pipeline.queuetest` is 118
+Run `python -m pipeline.selftest` first — 148 checks, no weights, about a
+minute (it renders real chunks through ffmpeg). `pipeline.queuetest` is 127
 checks including a full edit round trip with a scripted stand-in for Claude.
+`python -m pipeline.smoke` is the one that loads the models (~2 min).
 `python -m pipeline.gatecheck` is the negative control for the narration gate
 and needs the aligner weights plus one completed run.
 
@@ -341,6 +376,13 @@ docker compose up -d --wait                       # Postgres
 .venv/bin/python -m pipeline.jobs status [JOB]    # per-shot generated/cached log
 .venv/bin/python -m pipeline.jobs workers         # online/offline from heartbeat age
 
+# Phase 5: pins and the smoke test
+.venv/bin/python -m pipeline.pins check [--deep]  # this machine vs requirements.lock + pins.lock.json
+.venv/bin/python -m pipeline.pins fetch           # download the pinned model revisions
+.venv/bin/python -m pipeline.pins archive DEST    # weights as a hub cache; restore with HF_HUB_CACHE=DEST
+.venv/bin/python -m pipeline.smoke [--strict]     # real models, 20 s film, vs fixtures/smoke.golden.json
+.venv/bin/python -m pipeline.smoke --record       # after a deliberate change, having looked at work/smoke/
+
 # Phase 4: edits and downloads (the editing page does the same)
 .venv/bin/python -m pipeline.jobs edit PROJECT "the mood at 1:24 doesn't match"
 .venv/bin/python -m pipeline.jobs export PROJECT [--version N]
@@ -405,6 +447,10 @@ edit against a likeness the film already had (12.6).
 
 - **All frontend work goes through the `/impeccable` skill** — every page and
   every revision, from Phase 3 on. Not for the worker, harness or ffmpeg code.
+- **Moving a pin is a reviewed change**: edit `pins.MODELS` (and the licence
+  if it changed), `pins fetch`, `pins lock`, then `smoke --record` after
+  looking at the film. Upgrading a package: change the venv, regenerate
+  `requirements.lock` with `uv pip freeze`, run all three test suites.
 - **Commits carry no AI attribution**: no `Co-Authored-By`, no "Generated with",
   no session links. Message only.
 - **Look at the artifacts.** Three conclusions in Phase 0 were contradicted by

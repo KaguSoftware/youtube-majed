@@ -9,7 +9,8 @@ import { useFilmSource, type FilmSource } from "@/components/use-film-source";
 import type { ActionState } from "./actions";
 import { keepWarm, requestEdit, stopEdit } from "./edit-actions";
 
-export type Mark = { id: string; start: number; end: number; text: string };
+/** `look`: why a person should check this shot, in plain words (lib/cuts.ts). */
+export type Mark = { id: string; start: number; end: number; text: string; look: string[] };
 export type CutView = {
   version: number;
   source: FilmSource | null;
@@ -142,6 +143,8 @@ export function EditingRoom({ projectId, viewing, earlier, isCurrent, live }: {
 
       <ShotStrip cut={shown} time={time} onSeek={seek} highlight={side === "this" ? viewing.changed : []} />
 
+      <WorthALook marks={shown.marks} time={time} onSeek={seek} canAsk={isCurrent && !live} />
+
       {isCurrent && (
         live
           ? <EditProgress projectId={projectId} live={live} fromVersion={viewing.version} />
@@ -179,7 +182,8 @@ function ShotStrip({ cut, time, onSeek, highlight }: {
                 type="button"
                 onClick={() => onSeek(m.start)}
                 title={`${tc(m.start)}  ${m.text}`}
-                aria-label={`Shot at ${tc(m.start)}${changed.has(m.id) ? ", changed in this cut" : ""}: ${m.text}`}
+                aria-label={`Shot at ${tc(m.start)}${changed.has(m.id) ? ", changed in this cut" : ""}${
+                  m.look.length ? ", worth a look" : ""}: ${m.text}`}
                 aria-current={on ? "time" : undefined}
                 className={"group relative block h-full w-full overflow-hidden bg-raised " +
                   (on ? "" : "opacity-70 hover:opacity-100")}
@@ -199,6 +203,7 @@ function ShotStrip({ cut, time, onSeek, highlight }: {
                 )}
               </button>
               {changed.has(m.id) && <span aria-hidden className="absolute inset-x-0 -bottom-1.5 h-0.5 bg-text" />}
+              {m.look.length > 0 && <LookBadge small className="pointer-events-none absolute right-0.5 top-0.5 sm:right-1 sm:top-1" />}
             </li>
           );
         })}
@@ -209,6 +214,63 @@ function ShotStrip({ cut, time, onSeek, highlight }: {
         style={{ left: `${Math.min(100, (time / duration) * 100)}%` }}
       />
     </div>
+  );
+}
+
+/** The mark on a shot worth checking: a shape as well as a colour. */
+function LookBadge({ className = "", small = false }: { className?: string; small?: boolean }) {
+  // Small in the strip on a phone, where a shot can be narrower than the mark.
+  const size = small ? "size-3 text-[9px] sm:size-4 sm:text-[11px]" : "size-4 text-[11px]";
+  return (
+    <span aria-hidden
+      className={`flex ${size} shrink-0 items-center justify-center rounded-full bg-caution font-bold leading-none text-accent-ink ${className}`}>
+      !
+    </span>
+  );
+}
+
+/**
+ * Shots the studio machine was not sure about: a picture that never passed
+ * its checks, narration the aligner could not clearly hear. Each one jumps
+ * the film there. Nothing is blocked; the person decides.
+ */
+function WorthALook({ marks, time, onSeek, canAsk }: {
+  marks: Mark[]; time: number; onSeek: (t: number) => void; canAsk: boolean;
+}) {
+  const flagged = marks.filter((m) => m.look.length);
+  if (!flagged.length) return null;
+  return (
+    <section aria-labelledby="worth-a-look" className="flex flex-col gap-2 pt-2">
+      <h2 id="worth-a-look" className="eyebrow text-muted">
+        Worth a look before this goes out
+      </h2>
+      <ul className="flex flex-col divide-y divide-hairline">
+        {flagged.map((m) => {
+          const on = time >= m.start && time < m.end;
+          return (
+            <li key={m.id} className="flex items-start gap-4 py-2.5">
+              <button
+                type="button"
+                onClick={() => onSeek(m.start)}
+                aria-label={`Go to the shot at ${tc(m.start)}`}
+                aria-current={on ? "time" : undefined}
+                className={"inline-flex shrink-0 items-center gap-2 rounded-sm px-1.5 py-0.5 text-sm font-semibold transition-colors duration-150 hover:bg-raised " +
+                  (on ? "bg-raised text-text" : "text-text")}
+              >
+                <LookBadge />
+                <span className="tabular w-10 text-left">{tc(m.start)}</span>
+              </button>
+              <p className="max-w-[75ch] pt-0.5 text-sm text-muted">{m.look.join(" ")}</p>
+            </li>
+          );
+        })}
+      </ul>
+      {canAsk && (
+        <p className="text-xs text-faint">
+          If one looks wrong, go to it and ask for the change below. If it looks right, leave it.
+        </p>
+      )}
+    </section>
   );
 }
 

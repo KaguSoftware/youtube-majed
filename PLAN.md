@@ -216,6 +216,9 @@ Work the failure table in section 5. Add the smoke-test job. Pin every version a
 model hash.
 
 **Exit:** every row in section 5 has a test or an explicit accepted-risk note.
+**Met: section 13.1 maps all fifteen rows.** Versions and weights are pinned
+(`pipeline/pins.py`), and a smoke test renders a real 20-second film nightly
+and at every deploy (`pipeline/smoke.py`).
 
 ### Phase 6 — Publish
 
@@ -1496,3 +1499,123 @@ audio track, seeking and playback.
 - The Phase 3 exit run by the non-technical user on production is still
   outstanding (HANDOFF section 2).
 
+---
+
+## 13. Phase 5 findings — verified on this machine
+
+Hardening: section 5 worked row by row, the pins, and the smoke test. Every
+number below was measured on the real models on this Mac. `selftest` is now
+148 checks, `queuetest` 127; the checks named below are their labels.
+
+### 13.1 The failure table, row by row
+
+| # | Failure | What covers it now | Accepted risk, and why |
+|---|---|---|---|
+| 1 | TTS drops a word | The narration gate, already built (9.6). `gatecheck` is its negative control on the full script. The smoke test now runs the same control **every night** on one word: "the narration gate did not notice ... cut from the audio" fails the run. | `force` passes the gate on purpose. Only the operator CLI can set it (the studio cannot), and it stays in the job's payload. The editing room flags runs of unheard words as a backstop (13.4). |
+| 2 | Hallucination reaches publish | Citation validators (selftest "uncited beat is rejected", "dangling citation is rejected"). New: "a live source passes and a dead one is an error naming its claim", against a local HTTP server. | Whether a page *says* what its claim says is not checked by machine. The human approval gate is the mitigation, and its override leaves a name. |
+| 3 | Stale artifact used | queuetest "a job pinned to a superseded script refuses to run", plus upstream-hash checks. | The staleness banner on the document page has no automated UI test; it was checked by hand in Phase 3. |
+| 4 | Worker dies or sleeps | Lease, fencing, kill/resume and takeover checks (Phase 2). New: "the studio's offline banner uses the worker's own offline threshold". | The banner's rendering is not tested by machine. |
+| 5 | Aligner drift | New: "overlapping words are fatal", "a word timed before the one it follows is fatal", "a long word with no audio is fatal", and two new gate assertions, "a beat index that runs past its audio is caught" and "beats that overlap in the index are caught" (alignment cache key moves to v4). The editing room flags suspicious spans (13.4). | A run that crosses a shot boundary splits between two shots, and each half is judged alone. |
+| 6 | Bad image | New: blurred, flat, black, copy-of-reference and adjacent-duplicate checks on `qa.inspect`. A shot that fails after its rerolls is **flagged in the editing room** with the reason in plain words. | No CLIP prompt-similarity or aesthetic score: no embedding model has cleared a licence review (same reason as 9.10). The flag puts a person on the shot instead. |
+| 7 | OOM, swap | One GPU worker per root (queuetest). New: each job's "done" event records the **pages swapped out** during it, with a warning past 50,000 (~0.8 GB). selftest checks the `vm_stat` parse. | No hard memory limit is set. The measured peak is 5.4 GB of 36 GB (section 3), and a limit would turn a slow job into a failed one. |
+| 8 | Disk fills | The free-space floor now holds for **every GPU job** (edit, export, look), not only renders: "a job on a disk below the floor is put back with the reason, before any work". `prune-films` frees the store. | No per-project quota: the cache is content-addressed and shared across projects, so a per-project share of it is not well defined. The local cache is 1.2 GB with 180 GB free. The "alert" is the job's own error ("only N GB free"); there is no push alert. |
+| 9 | Blob upload fails | Upload first, pointer second, with retries (queuetest, Phase 3). | — |
+| 10 | Dependency drift | **Pins** (13.2): packages locked, model files hashed, the worker claims nothing on drift. **Smoke test** (13.3): nightly in the idle worker, and as a gate in `deploy/install-worker.sh`. queuetest "a worker whose pins have drifted claims nothing" and "a smoke test on a generator that paints flat frames fails, on QA", then "...and the worker stops claiming GPU work" and "once a smoke test passes again, it takes the waiting job". | "Vendor workflow JSON" does not apply: ComfyUI is not in the production path. |
+| 11 | ffmpeg edge case | Sync and chunk-timestamp checks (Phases 1 and 4). New: "an odd frame size is refused before ffmpeg sees it", and narration ±0.6 s off the timeline still gives a film exactly the timeline's length. The smoke test re-checks every chunk's frames and timestamps with the installed ffmpeg each night. | — |
+| 12 | Claude rate limit | queuetest "a usage limit fails the job at once, without retrying". Paste mode is the degrade path. | The switch to paste mode is the person's choice, offered on the page, not automatic: someone has to write the pasted document anyway. |
+| 13 | Model pulled, relicensed | The **licence register is keyed by checkpoint hash** (`pins.MODELS` plus `pins.lock.json`), and all three models are licence-checked at load (the TTS and aligner were not before). `pins archive DEST` copies the weights as a hub cache and verifies the copy: "with the cache gone, the archive alone verifies". Each timeline records repository, commit and a weights digest. | The archive has not been run to a second disk yet (operator step, HANDOFF 2). |
+| 14 | YouTube quota | Not built: Phase 6. | No exposure until something uploads. Phase 6 inherits the row's rules: queue publishes, respect quota, never auto-retry on a quota error. |
+| 15 | MacBook is a single point of failure | The worker is stateless: "worker B, on an empty disk, completes the job" through the store. | Relocating it is a config change **only to another Apple Silicon Mac**. The image runtime is MLX, so a rented Linux GPU needs the ComfyUI path (Phase 0's `comfyui` backend) built out first. Section 2's "config change" claim holds for the queue and the store, not the image runtime. |
+
+### 13.2 Pins: what was actually loading
+
+Tracing every file the three loaders opened in an offline load found:
+
+- **Nothing was pinned.** Kokoro and wav2vec2 resolved `refs/main`. mflux
+  keeps its own pin table and pins the base klein repo, but not
+  `mlx-community/flux2-klein-4b-4bit`, which is what this pipeline loads. So
+  a fresh machine would have downloaded whatever `main` was that day.
+- **The base klein repo is never read.** mflux names it as an architecture
+  alias; everything comes from the 4-bit snapshot. Its cache folder holds
+  1.7 GB of `.incomplete` bf16 downloads left over from Phase 0, which are
+  safe to delete.
+- **Kokoro takes no revision**, so it is handed the pinned `config.json` and
+  `.pth` paths, and the voices are loaded up front into the dict it checks
+  before downloading. The output is **sample-identical** to the unpinned
+  loader. The seed still hashes the voice *name*, so cached narration stays
+  valid.
+- **Newer hub versions keep a second, shared blob store** named by Xet hash.
+  The SHA-256 name is on the snapshot's first link only, so following every
+  link compares the wrong hash (the first quick check failed on every weight
+  file for this reason).
+- A deep re-hash of all 5.5 GB takes **2.2 s**, so it runs every night
+  inside the smoke test. The quick start-up check reads no bytes: it compares
+  sizes and the blob names the hub derives from SHA-256.
+- **Pinning moved no content address.** Each model's identity is the name its
+  cache was built with, at the revision it was built at
+  (`pins.Model.identity`). Moving a pin appends the revision, so the old
+  weights' images, narration and alignments are regenerated, not reused.
+- The worker runs with `HF_HUB_OFFLINE=1`, so provisioning is a deliberate
+  step (`pins fetch`) and never something a job does halfway through.
+  `requirements.lock` is committed, and the deploy script syncs from it
+  instead of freezing whatever the repo venv held.
+
+### 13.3 The smoke test: deterministic, so drift means something
+
+`python -m pipeline.smoke` runs `production.run` on the first two beats of
+the Phase 1 script (52 words, 21.45 s, 3 shots) from an empty cache. It took
+107 s and 161 s cold, ~1.5 min warm in the worker.
+
+- **Repeat runs are identical.** On a second cold run, all three stills were
+  at dHash distance 0 from the goldens. The narration was byte-identical, and
+  S03 needed the same one reroll (adjacency rule, distance 20 from S02 on the
+  passing attempt). So `IMAGE_TOLERANCE = 4` and a one-frame word tolerance
+  leave room only for real change.
+- **Invariants fail the run; drift reports.** The invariants are: the gate
+  passes on good audio and fires on a cut word, every shot passes QA, the
+  timeline is contiguous, and every chunk has its exact frame count and
+  first timestamp. A failure stops the worker claiming GPU work (retried
+  hourly). Drift is a difference from the goldens. The nightly run reports
+  it; the deploy gate (`--strict`) refuses it until someone looks at
+  `work/smoke/` and re-records.
+- **Nightly, in the worker.** It runs only right after a database poll found
+  nothing to do, so a queued job never waits behind it, and it writes its
+  result while the database is awake anyway. While it runs, a thread keeps
+  the doorbell polled, so the studio does not show the machine offline.
+
+### 13.4 Flags in the editing room, calibrated before they were shown
+
+Every shot already carried its QA verdict and per-word aligner scores, so the
+flags are derived in `lib/cuts.ts` with no pipeline change.
+
+The obvious rule, any word under `WEAK_WORD_SCORE` (0.25), was measured
+against the three local films, all watched and judged right. It would have
+flagged **25 of ~150 shots**, mostly names (Nahuatl, Huitzilopochtli,
+Catterick) and short words ("of", "two"). A flag on a sixth of good shots
+teaches people to ignore it. So the opposite case was measured too:
+time-reversing three words of real narration (same length, unintelligible)
+left **every one of them** under 0.25, three times out of three. Across all
+three good films there was **no run of even two**. So the editing room flags
+runs only. The narration gate also failed all three mangled spans outright,
+so in practice this flag catches films forced past the gate.
+
+### 13.5 Health: what the studio is told
+
+`workers.health` (migration 006) holds the pins report and the last smoke
+run. It is written on polls the worker makes anyway, so an idle worker
+still lets Neon sleep. The studio header stops saying "ready" when the
+machine is refusing work, and a banner says why in plain words, with the
+machine's own words folded away for whoever maintains it. Drift alone gets
+a quiet one-line notice ("Test film changed"); films still render.
+
+### 13.6 Not yet done
+
+- Production runs Phase 4 code. Shipping Phase 5 is, in this order:
+  1. `deploy/install-worker.sh`. It checks the pins and runs the strict
+     smoke test before touching the install (~2 min). The new worker applies
+     migration 006 to Neon when it starts;
+  2. `vercel deploy --prod`. Its pages read `workers.health`, so not before
+     step 1.
+- `python -m pipeline.pins archive <second disk>`: a copy of the 5.5 GB of
+  weights somewhere other than this Mac's hub cache.
+- Carried over: `prune-films --apply` (12.11) and the Phase 3 exit run.

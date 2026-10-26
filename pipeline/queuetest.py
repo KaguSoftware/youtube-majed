@@ -76,7 +76,7 @@ def queue_semantics(c: Checks, url: str) -> None:
     store = Store(url)
     print("\n-- schema --")
     c.check("migrations apply", store.migrate() == ["001_init.sql", "002_web.sql", "003_library_style.sql",
-                                                  "004_narrative.sql", "005_editing.sql"])
+                                                  "004_narrative.sql", "005_editing.sql", "006_health.sql"])
     c.check("migrations are idempotent", store.migrate() == [])
     payload = seed(store)
     again = seed(store)
@@ -846,6 +846,84 @@ def editing(c: Checks, url: str) -> None:
     store.close()
 
 
+def hardening(c: Checks, url: str) -> None:
+    """Phase 5: the failure-table rows that need a queue (PLAN.md 13)."""
+    import json
+
+    import numpy as np
+    from PIL import Image
+
+    from .fakes import FakeGenerator, fake_engines
+    from .worker import Worker
+
+    store = Store(url)
+    drain(store)
+    payload = {**seed(store), "fake": True, "render_size": [320, 180]}
+
+    print("\n-- a full disk: every GPU job waits rather than failing halfway (failure mode 8) --")
+    with tempfile.TemporaryDirectory() as td:
+        job = store.enqueue("barbarians-01", "production", payload)
+        out = _worker(url, Path(td) / "work", "--exit-when-idle",
+                      env={"MIN_FREE_GB": "1000000"}).communicate(timeout=60)[0]
+        j = store.job(job)
+        c.check("a job on a disk below the floor is put back with the reason, before any work",
+                j["state"] == "queued" and "GB free" in (j["error"] or "")
+                and not [e for e in store.events(job) if e["kind"] in ("stage", "shot")],
+                f"{j['state']} {j['error']}\n{out[-400:]}")
+        drain(store)
+
+    print("\n-- health: a worker that fails its pins or its smoke test claims no GPU work (failure mode 10) --")
+
+    class FlatGenerator(FakeGenerator):
+        """Paints a flat grey frame: what a broken model update could do."""
+
+        def generate(self, prompt, seed, refs, dest, *, size=None):
+            w, h = size or (config.GEN_WIDTH, config.GEN_HEIGHT)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            Image.fromarray(np.full((h, w, 3), 128, dtype=np.uint8)).save(dest)
+            return 0.0
+
+    with tempfile.TemporaryDirectory() as td:
+        w = Worker(url=url, work_root=Path(td), worker_id="health-test", engines=fake_engines(),
+                   fake=True, log=lambda *a: None, smoke_every=0.0)
+        w.check_pins()
+        c.check("a worker installed from the lock passes its pins", not w.unfit, json.dumps(w.health))
+        job = store.enqueue("barbarians-01", "production", payload)
+
+        w.health["pins"] = {"problems": ["pillow: locked 12.3.0, installed 13.0.0"], "notes": []}
+        c.check("a worker whose pins have drifted claims nothing",
+                w._poll(reclaim_own=False) is None and store.job(job)["state"] == "queued")
+        row = next(r for r in store.workers() if r["id"] == "health-test")
+        c.check("...and says why on its row, where the studio reads it",
+                "pillow" in json.dumps(row["health"]), str(row["health"]))
+        w.health["pins"] = {"problems": [], "notes": []}
+
+        w.engines = fake_engines()
+        w.engines._generator = FlatGenerator()
+        w.maybe_smoke()
+        failures = (w.health["smoke"] or {}).get("failures", [])
+        c.check("a smoke test on a generator that paints flat frames fails, on QA",
+                any("failed QA" in f and "flat frame" in f for f in failures), str(failures))
+        c.check("...and the worker stops claiming GPU work",
+                w._poll(reclaim_own=False) is None and store.job(job)["state"] == "queued")
+        row = next(r for r in store.workers() if r["id"] == "health-test")
+        c.check("...and records the failed run on its row",
+                (row["health"] or {}).get("smoke", {}).get("ok") is False)
+        c.check("...and keeps the run to look at", (Path(td) / "smoke" / "report.json").is_file()
+                and (Path(td) / "smoke" / "smoke" / "timeline.json").is_file())
+
+        w.engines = fake_engines()
+        w.maybe_smoke()
+        claim = w._poll(reclaim_own=False)
+        c.check("once a smoke test passes again, it takes the waiting job",
+                claim is not None and claim.job_id == job and w.health["smoke"]["ok"])
+        if claim is not None:
+            store.release(claim)
+        w.store.close()
+    drain(store)
+    store.close()
+
+
 def main() -> int:
     try:
         psycopg.connect(database_url(), connect_timeout=3).close()
@@ -863,6 +941,7 @@ def main() -> int:
         writing(c, url)
         looks(c, url)
         editing(c, url)
+        hardening(c, url)
 
     print(f"\n{c.run - len(c.failures)}/{c.run} checks passed")
     if c.failures:

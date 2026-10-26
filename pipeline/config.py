@@ -23,8 +23,9 @@ REPO = Path(__file__).resolve().parent.parent
 
 #: Pre-quantized 4-bit klein 4B. 4.30 GB against 22.11 GB for the bf16 base,
 #: already quantized so there is no load-time quantize step (PLAN 8.1).
-#: Apache 2.0, verified on both mirrors via the HF API.
-IMAGE_MODEL = "mlx-community/flux2-klein-4b-4bit"
+#: Apache 2.0, verified on both mirrors via the HF API. The repository, the
+#: commit it loads from and its file hashes live in `pins.MODELS` (Phase 5);
+#: this is mflux's name for the architecture.
 IMAGE_BASE_MODEL = "flux2-klein-4b"
 
 #: 832x480 is 4.7x faster than 1024^2 and the only resolution that held a flat
@@ -59,8 +60,8 @@ TTS_SAMPLE_RATE = 24_000
 #:
 #: Deliberately not MMS: `ctc-forced-aligner`'s default model is MMS, which is
 #: CC-BY-NC-4.0 (verified via the HF API) and would be a licensing incident
-#: under PLAN 1.6. The LibriSpeech wav2vec2 models are apache-2.0.
-ALIGN_MODEL = "facebook/wav2vec2-base-960h"
+#: under PLAN 1.6. The LibriSpeech wav2vec2 models are apache-2.0. Pinned,
+#: with the other two models, in `pins.MODELS`.
 ALIGN_SAMPLE_RATE = 16_000
 
 #: Failure mode 1: TTS silently dropping a word desyncs everything downstream

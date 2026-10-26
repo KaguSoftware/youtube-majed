@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Suspense } from "react";
 
-import { MachineStatus, OfflineBanner } from "@/components/machine-status";
+import { HealthBanner, MachineStatus, OfflineBanner } from "@/components/machine-status";
 import { UserMenu } from "@/components/user-menu";
 
 export default function StudioLayout({ children }: { children: React.ReactNode }) {
@@ -28,6 +28,9 @@ export default function StudioLayout({ children }: { children: React.ReactNode }
       </header>
       <Suspense fallback={null}>
         <OfflineBanner />
+      </Suspense>
+      <Suspense fallback={null}>
+        <HealthBanner />
       </Suspense>
       <main id="main" className="flex-1">{children}</main>
     </div>

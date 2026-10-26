@@ -38,7 +38,7 @@ import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import align, assemble, config, docs, images, shots as shots_mod, tts
+from . import align, assemble, config, docs, images, pins, shots as shots_mod, tts
 from .timeline import Timeline, file_sha, sha, upstream_hashes
 
 
@@ -228,12 +228,13 @@ def align_and_gate(inputs: Inputs, narration: tts.Narration, paths: config.Paths
                    engines: Engines, *, log=print) -> align.Alignment:
     aligner = engines.aligner
     key = sha(
+        # v4: beats must lie in order inside the narration (failure mode 5).
         # v3: the WER backstop discounts the recogniser's own spelling and
         #     splits (align.effective_wer); merges are recognised by sound.
         # v2: the gate tells ASR word merges from dropped words (align.deletions).
         # The cached alignment carries the gate's verdict, so a change to the
         # gate must change the key or a re-run reloads the old verdict.
-        "align-v3", file_sha(narration.path), aligner.model_name, inputs.max_wer,
+        "align-v4", file_sha(narration.path), aligner.model_name, inputs.max_wer,
         config.MAX_DELETIONS_PER_BEAT, align.MIN_MS_PER_CHAR, align.MIN_CHARS_FOR_DURATION_CHECK,
     )
     cached = paths.cache / "align" / f"{key}.json"
@@ -269,6 +270,11 @@ def plan(inputs: Inputs, narration: tts.Narration, alignment: align.Alignment,
         period=inputs.script.meta.get("period"), protagonist=docs.protagonist(inputs.script), log=log,
     )
     width, height = inputs.render_size or (config.OUT_WIDTH, config.OUT_HEIGHT)
+    weights = pins.models_record()
+    for role, used in (("image", engines.generator.model_name), ("tts", engines.tts.name),
+                       ("align", engines.aligner.model_name)):
+        if used != pins.MODELS[role].identity:
+            weights[role] = {"name": used}     # a stand-in (fakes.py), not the pinned weights
     timeline = Timeline(
         project=inputs.project,
         topic=inputs.topic,
@@ -297,15 +303,17 @@ def plan(inputs: Inputs, narration: tts.Narration, alignment: align.Alignment,
             "protagonist": list(docs.protagonist(inputs.script) or []) or None,
         },
         render={"width": width, "height": height, "fps": config.FPS, "xfade": config.XFADE_SECONDS},
+        # Which bytes made this film: repository, commit and a digest of the
+        # locked file hashes, so it can be found again in an archive
+        # (failure mode 13, pipeline/pins.py).
         models={
             "image": {
-                "name": config.IMAGE_MODEL, "base": config.IMAGE_BASE_MODEL,
+                **weights["image"], "base": config.IMAGE_BASE_MODEL,
                 "steps": config.GEN_STEPS, "guidance": config.GEN_GUIDANCE,
                 "width": config.GEN_WIDTH, "height": config.GEN_HEIGHT,
-                "licence": "apache-2.0",
             },
-            "tts": {"name": "hexgrad/Kokoro-82M", "licence": "apache-2.0"},
-            "align": {"name": alignment.model, "licence": "apache-2.0"},
+            "tts": weights["tts"],
+            "align": weights["align"],
         },
         upstream=upstream_hashes(inputs.script.raw, inputs.research.raw, style),
         shots=shot_list,

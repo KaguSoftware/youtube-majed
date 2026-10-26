@@ -87,7 +87,7 @@ from datetime import datetime, timezone
 
 import psycopg
 
-from . import assemble, config, docs, editor, images, media, production, writer
+from . import assemble, config, docs, editor, images, media, pins, production, smoke, writer
 from .timeline import Timeline, text_sha
 from .store import (GPU_KINDS, LIGHT_KINDS, Claim, FilmMoved, LeaseLost, MediaIndex, Store,
                     database_url)
@@ -101,7 +101,16 @@ POLL_SECONDS = 5.0
 
 #: Failure mode 8: refuse to start a job on a nearly full disk rather than
 #: failing opaquely halfway through. A 60-shot job writes well under 1 GB.
-MIN_FREE_BYTES = 2 * 1024**3
+#: Checked before every GPU job (they all write media); `MIN_FREE_GB` in the
+#: environment overrides it, which is how the queue test makes a disk "full".
+MIN_FREE_BYTES = int(float(os.environ.get("MIN_FREE_GB", 2)) * 1024**3)
+
+#: Failure mode 7. macOS counts every page it writes to swap; on unified memory
+#: this is the honest pressure signal (HANDOFF section 6: neither MLX's
+#: counter nor RSS sees it). A normal job adds none. 8.8's fatal 1216x704 run
+#: wrote ~28 GB, ~1.7 million 16 KB pages. Past this a job's "done" event and
+#: log say so: 50,000 pages is ~0.8 GB.
+SWAPOUT_WARN = 50_000
 
 #: Backoff before an unexpected failure is retried: attempt n waits n times this.
 RETRY_DELAY_SECONDS = 30.0
@@ -254,7 +263,7 @@ class Worker:
                  poll: float = POLL_SECONDS, fake: bool = False, log=print,
                  kinds: tuple[str, ...] = GPU_KINDS, remote: media.Remote | None = None,
                  doorbell: Doorbell | None = None, doorbell_every: float = DOORBELL_SECONDS,
-                 idle_db: float = IDLE_DB_SECONDS) -> None:
+                 idle_db: float = IDLE_DB_SECONDS, smoke_every: float | None = None) -> None:
         self.url = url
         self.store = Store(url)
         self.work_root = work_root
@@ -270,6 +279,13 @@ class Worker:
         self.doorbell_every, self.idle_db = doorbell_every, idle_db
         self.stopping = False
         self._lock_fd: int | None = None
+        #: What this worker last found wrong with itself (migration 006). The
+        #: studio shows it; `unfit` decides from it what not to claim.
+        self.health: dict = {"pins": None, "smoke": None}
+        #: Seconds between smoke tests while idle; None runs none (the light
+        #: lane, fake workers unless asked, `--once`).
+        self.smoke_every = smoke_every if set(kinds) & set(GPU_KINDS) else None
+        self.smoke_root = work_root / "smoke"
 
     # ---------------------------------------------------------------- setup
 
@@ -305,6 +321,72 @@ class Worker:
         if n:
             self.log(f"  removed {n} partial file(s) left by an interrupted run")
 
+    def check_pins(self) -> None:
+        """Failure modes 10 and 13: run only what was tested, on the weights
+        whose licence was reviewed. The GPU lane checks the model files too
+        (by size and blob name; the smoke test re-hashes them)."""
+        report = pins.check(models=bool(set(self.kinds) & set(GPU_KINDS)) and not self.fake)
+        self.health["pins"] = {"problems": report.problems, "notes": report.notes}
+        for n in report.notes:
+            self.log(f"  pins: {n}")
+        for p in report.problems:
+            self.log(f"  pins: FAIL {p}")
+        if report.problems:
+            self.log("  this worker will claim nothing until its install matches the pins "
+                     "(deploy/install-worker.sh, or `python -m pipeline.pins fetch`)")
+
+    @property
+    def unfit(self) -> tuple[str, ...]:
+        """The job kinds this worker must not claim, given its health. Drift
+        in the pins blocks everything; a failed smoke test blocks GPU work."""
+        if (self.health.get("pins") or {}).get("problems"):
+            return self.kinds
+        if (self.health.get("smoke") or {}).get("failures"):
+            return tuple(k for k in self.kinds if k in GPU_KINDS)
+        return ()
+
+    def maybe_smoke(self) -> None:
+        """The nightly smoke test (pipeline/smoke.py), run while idle on the
+        warm engines, so it costs a minute of GPU rather than a model load.
+
+        Due a day after the last pass, or an hour after a failure. Run only
+        right after a database poll found nothing to do, so a queued job is
+        never what it delays, and the result is written to the worker's row
+        while the database is awake anyway."""
+        if self.smoke_every is None:
+            return
+        last = (smoke.Report.from_json(self.health["smoke"]) if self.health.get("smoke")
+                else smoke.read_last(self.smoke_root))
+        if not smoke.due(last, every=self.smoke_every, retry=min(self.smoke_every, smoke.RETRY_SECONDS)):
+            if last is not None and self.health.get("smoke") is None:
+                self.health["smoke"] = last.to_json()
+            return
+        self.log("smoke test: the production stage on a 20 s fixture, from an empty cache")
+        halt = threading.Event()
+        if self.doorbell:
+            # The studio reads an idle worker's presence from its doorbell
+            # polls (60 s window); keep making them while the GPU is busy.
+            def ring_on() -> None:
+                while not halt.wait(self.doorbell_every):
+                    try:
+                        self.doorbell.check()
+                    except Exception:
+                        pass
+            threading.Thread(target=ring_on, daemon=True, name="smoke-doorbell").start()
+        try:
+            report, _ = smoke.run(self.engines, self.smoke_root, fake=self.fake,
+                                  log=lambda m: self.log(m))
+        finally:
+            halt.set()
+        self.health["smoke"] = report.to_json()
+        for line in report.render().splitlines():
+            self.log(f"  {line.strip()}")
+        if report.failures:
+            self.log("  GPU work waits until a smoke test passes (retried hourly)")
+        self._quietly(lambda: self.store.touch_worker(
+            self.worker_id, hostname=self.hostname, pid=os.getpid(), current_job=None,
+            kinds=self.kinds, health=self.health))
+
     def install_signals(self) -> None:
         def handler(signum, _frame):
             if self.stopping:
@@ -323,6 +405,7 @@ class Worker:
         self.acquire_host_lock()
         self.install_signals()
         self.sweep_partials()
+        self.check_pins()
         self.log(f"worker {self.worker_id} (pid {os.getpid()}) on {self.work_root}, "
                  f"kinds {','.join(self.kinds)}, media {self.remote.name}, "
                  f"lease {self.lease:.0f}s, heartbeat {self.heartbeat_every:.0f}s, "
@@ -378,6 +461,7 @@ class Worker:
                 if once or exit_when_idle:
                     self.log("queue empty")
                     return 0
+                self.maybe_smoke()
                 if self.doorbell:
                     next_db = self._next_db_poll()
                 else:
@@ -392,9 +476,12 @@ class Worker:
 
     def _poll(self, *, reclaim_own: bool) -> Claim | None:
         self.store.touch_worker(self.worker_id, hostname=self.hostname, pid=os.getpid(),
-                                current_job=None, kinds=self.kinds)
+                                current_job=None, kinds=self.kinds, health=self.health)
+        kinds = tuple(k for k in self.kinds if k not in self.unfit)
+        if not kinds:
+            return None
         return self.store.claim(self.worker_id, self.lease, reclaim_own=reclaim_own,
-                                fake=self.fake, kinds=self.kinds)
+                                fake=self.fake, kinds=kinds)
 
     def _next_db_poll(self) -> float:
         """The safety-net poll, brought forward to whenever the queue next
@@ -429,10 +516,16 @@ class Worker:
         })
         hooks = JobHooks(self, claim, hb)
         t0 = time.time()
+        swap0 = swapouts()
         try:
+            if claim.kind not in LIGHT_KINDS:
+                free = shutil.disk_usage(self.work_root).free
+                if free < MIN_FREE_BYTES:
+                    raise Transient(f"only {free / 1024**3:.1f} GB free under {self.work_root} "
+                                    f"(needs {MIN_FREE_BYTES / 1024**3:.0f} GB)")
             if claim.kind in LIGHT_KINDS:
                 row = self.write_document(claim, hooks)
-                self.store.event(claim, "done", {
+                self._done(claim, swap0, {
                     "artifact_id": row["id"], "version": row["version"],
                     "doc_status": row["doc_status"], "seconds": round(time.time() - t0, 1),
                 })
@@ -441,7 +534,7 @@ class Worker:
                 return
             if claim.kind == "style":
                 row = self.paint_looks(claim, hooks)
-                self.store.event(claim, "done", {
+                self._done(claim, swap0, {
                     "style_run": row["id"], "candidates": len(row["candidates_json"]),
                     "seconds": round(time.time() - t0, 1)})
                 self.log(f"<< job {claim.job_id} done in {time.time() - t0:.1f}s: "
@@ -449,20 +542,17 @@ class Worker:
                 return
             if claim.kind == "edit":
                 out = self.edit_film(claim, hooks)
-                self.store.event(claim, "done", {**out, "seconds": round(time.time() - t0, 1)})
+                self._done(claim, swap0, {**out, "seconds": round(time.time() - t0, 1)})
                 self.log(f"<< job {claim.job_id} done in {time.time() - t0:.1f}s: "
                          + (f"timeline v{out['version']}" if out.get("version") else "no change"))
                 return
             if claim.kind == "export":
                 out = self.export_film(claim, hooks)
-                self.store.event(claim, "done", {**out, "seconds": round(time.time() - t0, 1)})
+                self._done(claim, swap0, {**out, "seconds": round(time.time() - t0, 1)})
                 self.log(f"<< job {claim.job_id} done in {time.time() - t0:.1f}s: {out['film']}")
                 return
             if claim.kind != "production":
                 raise production.Gate("kind", [f"no handler for {claim.kind!r} jobs in this worker yet"])
-            free = shutil.disk_usage(self.work_root).free
-            if free < MIN_FREE_BYTES:
-                raise Transient(f"only {free / 1024**3:.1f} GB free under {self.work_root}")
             mirror = media.Mirror(
                 self.work_root / "cache", self.remote,
                 MediaIndex(self.store, self.remote.name, project_id=claim.project_id,
@@ -474,7 +564,7 @@ class Worker:
                                     log=self.log)
             hooks.check()
             version = self.store.complete(claim, result.timeline.to_json())
-            self.store.event(claim, "done", {
+            self._done(claim, swap0, {
                 "timeline_version": version, "seconds": round(time.time() - t0, 1),
                 "generated": result.stats.generated if result.stats else 0,
                 "cached": result.stats.cached if result.stats else 0,
@@ -529,6 +619,16 @@ class Worker:
             self._quietly(lambda: self.store.touch_worker(
                 self.worker_id, hostname=self.hostname, pid=os.getpid(), current_job=None,
                 kinds=self.kinds))
+
+    def _done(self, claim: Claim, swap0: int | None, payload: dict) -> None:
+        """The job's "done" event, with the pages it pushed to swap."""
+        now = swapouts()
+        if swap0 is not None and now is not None:
+            payload["swapouts"] = now - swap0
+            if now - swap0 > SWAPOUT_WARN:
+                self.log(f"  warn   {now - swap0:,} pages swapped out during this job: memory "
+                         "pressure (PLAN.md 8.8); is something else using the GPU?")
+        self.store.event(claim, "done", payload)
 
     def _quietly(self, fn):
         try:
@@ -834,6 +934,21 @@ def resolve_ref(ref: str, mirror: media.Mirror) -> Path:
     return path
 
 
+def swapouts() -> int | None:
+    """Pages swapped out since boot (`vm_stat`), or None off macOS."""
+    try:
+        out = subprocess.run(["vm_stat"], capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return parse_swapouts(out)
+
+
+def parse_swapouts(vm_stat: str) -> int | None:
+    import re
+    m = re.search(r"^Swapouts:\s+(\d+)", vm_stat, re.M)
+    return int(m.group(1)) if m else None
+
+
 def machine_name() -> str:
     """A name for this machine that does not change with the network.
 
@@ -917,6 +1032,10 @@ def main(argv: list[str] | None = None) -> int:
                          "checkpoints and render without loading a model")
     ap.add_argument("--fake-delay", type=float, default=0.0,
                     help="seconds per fake image, to give a kill test something to interrupt")
+    ap.add_argument("--smoke-every", type=float, default=None,
+                    help=f"seconds between smoke tests while idle (default {smoke.EVERY_SECONDS:.0f}; "
+                         "none for --fake unless given)")
+    ap.add_argument("--no-smoke", action="store_true", help="never run the smoke test")
     args = ap.parse_args(argv)
 
     if args.fake:
@@ -924,6 +1043,10 @@ def main(argv: list[str] | None = None) -> int:
 
         engines = fake_engines(image_delay=args.fake_delay)
     else:
+        # Only the pinned snapshots, never a download of `main`: provisioning
+        # is `python -m pipeline.pins fetch`, a deliberate step (pins.py). Set
+        # before anything imports huggingface_hub, which reads it once.
+        os.environ.setdefault("HF_HUB_OFFLINE", "1")
         engines = production.Engines(unload_images=False)
     if not args.no_caffeinate and not args.fake:
         keep_awake()
@@ -954,6 +1077,9 @@ def main(argv: list[str] | None = None) -> int:
         lease=args.lease, heartbeat=args.heartbeat, poll=args.poll, fake=args.fake,
         log=lambda *a: print(*a, flush=True), kinds=kinds, remote=media.remote_from_env(),
         doorbell=doorbell, doorbell_every=args.doorbell_every, idle_db=args.idle_db,
+        smoke_every=None if args.no_smoke else (
+            args.smoke_every if args.smoke_every is not None
+            else (None if args.fake else smoke.EVERY_SECONDS)),
     )
     return worker.run(once=args.once, exit_when_idle=args.exit_when_idle)
 

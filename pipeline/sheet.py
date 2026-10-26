@@ -180,7 +180,7 @@ def generate(style, out_dir: Path, *, generator=None, log=print) -> list[ViewChe
         # Each view gets its own seed; the identity comes from the anchor, and
         # reusing one seed across views would be asking for the same picture.
         seed = style.seed + 7_000 + abs(hash(name)) % 1000
-        h = image_hash(prompt, seed, [anchor])
+        h = image_hash(prompt, seed, [anchor], model=generator.model_name)
         raw = out_dir / f"view_{name}_{h}.png"
 
         if not raw.exists():

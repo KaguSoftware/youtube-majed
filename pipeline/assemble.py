@@ -313,6 +313,13 @@ def _encode_chunk(chunk: Chunk, timeline: Timeline, segments: list[Path], dest: 
     os.replace(tmp, dest)
 
 
+def first_pts(path: Path) -> float:
+    """Presentation time of the first frame or sample in a stream file."""
+    out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "packet=pts_time",
+                          "-of", "csv=p=0", str(path)], capture_output=True, text=True).stdout
+    return min(float(x.strip(",")) for x in out.split() if x.strip(","))
+
+
 def count_frames(path: Path) -> int:
     out = _run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-count_packets",
                 "-show_entries", "stream=nb_read_packets", "-of", "csv=p=0", str(path)],

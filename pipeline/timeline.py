@@ -271,7 +271,7 @@ def image_hash(
     seed: int,
     refs: list[Path],
     *,
-    model: str = config.IMAGE_MODEL,
+    model: str,
     steps: int = config.GEN_STEPS,
     width: int = config.GEN_WIDTH,
     height: int = config.GEN_HEIGHT,
