@@ -44,6 +44,9 @@ slice = [
 # needs no Postgres client install to reach Neon or the compose.yaml database.
 worker = [
     "psycopg[binary]==3.3.6",
+    # The CA bundle store.py verifies Neon's certificate against. The bundled
+    # libpq cannot read the macOS keychain, so sslrootcert=system fails.
+    "certifi==2026.10.23",
     # docs.py parses beat bodies as YAML; the web app's validator function
     # pins the same version in web/requirements.txt.
     "pyyaml==6.0.3",

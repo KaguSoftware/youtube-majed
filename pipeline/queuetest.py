@@ -857,9 +857,62 @@ def hardening(c: Checks, url: str) -> None:
     from .fakes import FakeGenerator, fake_engines
     from .worker import Worker
 
+    import socket
+
+    from .store import connect_options
+
     store = Store(url)
     drain(store)
     payload = {**seed(store), "fake": True, "render_size": [320, 180]}
+
+    print("\n-- a connection that never answers fails, rather than hanging the worker --")
+    neon = "postgresql://u:p@ep-x.c-1.us-east-1.aws.neon.tech/db"
+    opts = connect_options(neon)
+    c.check("a remote host is verified against certifi and opened with direct TLS",
+            opts.get("sslmode") == "verify-full" and opts.get("sslnegotiation") == "direct"
+            and Path(opts.get("sslrootcert", "")).is_file(), str(opts))
+    opts = connect_options(neon + "?sslmode=require&connect_timeout=3")
+    c.check("...but what DATABASE_URL sets wins",
+            "sslmode" not in opts and "connect_timeout" not in opts and "sslnegotiation" in opts, str(opts))
+    c.check("...and a plaintext-capable sslmode gets no direct TLS, which libpq would refuse",
+            "sslnegotiation" not in connect_options(neon + "?sslmode=prefer"))
+    c.check("the local database gets timeouts and keepalives but no TLS",
+            not {"sslmode", "sslnegotiation"} & set(connect_options(url))
+            and connect_options(url).get("keepalives") == 1)
+
+    with socket.socket(fileno=os.dup(store.conn.pgconn.socket)) as s:
+        idle = s.getsockopt(socket.IPPROTO_TCP, getattr(socket, "TCP_KEEPIDLE", None)
+                            or socket.TCP_KEEPALIVE)
+        c.check("a live connection's socket has keepalives on, probing after 30 s idle",
+                s.getsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE) != 0 and idle == 30, f"idle={idle}")
+
+    with socket.socket() as silent:
+        silent.bind(("127.0.0.1", 0))
+        silent.listen()
+        t0 = time.monotonic()
+        try:
+            Store(f"postgresql://u@127.0.0.1:{silent.getsockname()[1]}/db?connect_timeout=2").close()
+            outcome = "connected"
+        except psycopg.OperationalError as exc:
+            outcome = f"failed ({type(exc).__name__})"
+        c.check("a server that accepts and never speaks fails the connect in seconds",
+                outcome.startswith("failed") and time.monotonic() - t0 < 10,
+                f"{outcome} after {time.monotonic() - t0:.1f}s")
+
+    guarded = Store(url, deadline=2.0)
+    t0 = time.monotonic()
+    try:
+        guarded.conn.execute("select pg_sleep(30)")
+        outcome = "returned"
+    except psycopg.OperationalError as exc:
+        outcome = f"failed ({type(exc).__name__})"
+    took = time.monotonic() - t0
+    c.check("a query stuck past the deadline is ended as a dropped connection",
+            outcome.startswith("failed") and took < 10, f"{outcome} after {took:.1f}s")
+    guarded.reconnect()
+    c.check("...which the worker's reconnect recovers from",
+            guarded._one("select 1 as one")["one"] == 1)
+    guarded.close()
 
     print("\n-- a full disk: every GPU job waits rather than failing halfway (failure mode 8) --")
     with tempfile.TemporaryDirectory() as td:

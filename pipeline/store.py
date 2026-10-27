@@ -24,16 +24,34 @@ expired, only whether the token still matches. A Mac that slept through its
 lease with nobody else waiting for the job just carries on when it wakes. The
 lease is a permission for someone else to take over, not a deadline the owner
 must beat.
+
+### A connection that never answers
+
+A worker waits on the network for every query, and a far end can vanish
+without a word: Neon suspends the compute while the Mac sleeps, or the Mac
+moves to another network under an open socket. On 26 Oct the GPU worker sat
+18 hours in one read that way, its lane dead and nothing in its log. Three
+layers keep a wait finite: `connect_timeout` for connecting, TCP keepalives
+for a peer that has gone (about a minute of silence), and `Deadline` for the
+case keepalives cannot see — a NAT or middlebox still acknowledging for a
+server that is gone. Each ends in the OperationalError the worker already
+treats as a dropped connection, so recovery is the reconnect it already has.
 """
 
 from __future__ import annotations
 
 import os
+import socket
+import sys
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import certifi
 import psycopg
+from psycopg.conninfo import conninfo_to_dict
+from psycopg.pq import TransactionStatus
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
@@ -45,9 +63,86 @@ DEFAULT_URL = "postgresql://ytm:ytm@127.0.0.1:54329/ytm"
 
 MIGRATIONS = Path(__file__).resolve().parent / "migrations"
 
+#: libpq settings every connection gets unless DATABASE_URL sets them itself.
+#: Keepalives probe after 30 s idle and give up after three missed probes;
+#: tcp_user_timeout bounds an unacknowledged write the same way, on Linux only
+#: (libpq ignores it where the OS lacks it).
+CONNECT_OPTIONS: dict[str, Any] = {
+    "connect_timeout": 10,
+    "keepalives": 1, "keepalives_idle": 30, "keepalives_interval": 10, "keepalives_count": 3,
+    "tcp_user_timeout": 60_000,
+}
+
+#: Added for any host not on this machine. `sslmode=require` encrypts but
+#: checks no certificate. And a direct TLS handshake replaces Postgres's
+#: plaintext SSLRequest, which some networks drop outright: the one this Mac
+#: joined on 27 Oct passes HTTP on port 5432 and silently eats Postgres.
+#: Direct negotiation needs libpq 17+, which psycopg[binary] bundles.
+REMOTE_OPTIONS: dict[str, Any] = {
+    "sslmode": "verify-full", "sslrootcert": certifi.where(), "sslnegotiation": "direct",
+}
+
+LOCAL_HOSTS = ("localhost", "127.0.0.1", "::1")
+
+#: The longest one query may wait on the server. Every query here takes
+#: milliseconds; one still waiting after two minutes has lost its server.
+QUERY_DEADLINE_SECONDS = 120.0
+
 
 def database_url() -> str:
     return os.environ.get("DATABASE_URL", DEFAULT_URL)
+
+
+def connect_options(url: str) -> dict[str, Any]:
+    """The defaults above, less whatever `url` already sets: the URL wins."""
+    given = conninfo_to_dict(url)
+    host = str(given.get("host") or os.environ.get("PGHOST") or "")
+    opts = dict(CONNECT_OPTIONS)
+    if host and not host.startswith("/") and host not in LOCAL_HOSTS:
+        opts.update(REMOTE_OPTIONS)
+    # libpq refuses direct negotiation under a sslmode that allows plaintext.
+    if given.get("sslmode", opts.get("sslmode")) not in ("require", "verify-ca", "verify-full"):
+        opts.pop("sslnegotiation", None)
+    return {k: v for k, v in opts.items() if k not in given}
+
+
+class Deadline(threading.Thread):
+    """Ends a query that has waited on the server past `seconds`.
+
+    Samples the connection a few times a deadline; a query that is in flight
+    at every sample for the whole of it is stuck, and the guard shuts its
+    socket down. The blocked call then fails as a dropped connection would.
+    """
+
+    def __init__(self, store: "Store", seconds: float) -> None:
+        super().__init__(name="db-deadline", daemon=True)
+        self.store, self.seconds = store, seconds
+        self._halt = threading.Event()
+
+    def run(self) -> None:
+        conn, waited = None, 0.0
+        step = min(5.0, self.seconds / 4)
+        while not self._halt.wait(step):
+            try:
+                busy = self.store.conn.info.transaction_status == TransactionStatus.ACTIVE
+            except Exception:
+                busy = False
+            if not busy or self.store.conn is not conn:
+                conn, waited = self.store.conn, 0.0
+                continue
+            waited += step
+            if waited >= self.seconds:
+                print(f"database: a query waited {waited:.0f}s on the server; "
+                      "dropping the connection", file=sys.stderr, flush=True)
+                try:
+                    with socket.socket(fileno=os.dup(conn.pgconn.socket)) as s:
+                        s.shutdown(socket.SHUT_RDWR)
+                except Exception:
+                    pass
+                waited = 0.0
+
+    def stop(self) -> None:
+        self._halt.set()
 
 
 class LeaseLost(RuntimeError):
@@ -83,12 +178,17 @@ WRITING_KINDS = ("research", "script")
 
 
 class Store:
-    def __init__(self, url: str | None = None) -> None:
+    def __init__(self, url: str | None = None, *,
+                 deadline: float | None = QUERY_DEADLINE_SECONDS) -> None:
         self.url = url or database_url()
         self.conn = self._connect()
+        self.deadline = Deadline(self, deadline) if deadline else None
+        if self.deadline:
+            self.deadline.start()
 
     def _connect(self) -> psycopg.Connection:
-        return psycopg.connect(self.url, autocommit=True, row_factory=dict_row)
+        return psycopg.connect(self.url, autocommit=True, row_factory=dict_row,
+                               **connect_options(self.url))
 
     def reconnect(self) -> None:
         """Replace a connection the server dropped.
@@ -105,6 +205,8 @@ class Store:
         self.conn = self._connect()
 
     def close(self) -> None:
+        if self.deadline:
+            self.deadline.stop()
         self.conn.close()
 
     def __enter__(self) -> "Store":
