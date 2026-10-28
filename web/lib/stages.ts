@@ -24,4 +24,6 @@ export const DURATIONS = [
   { seconds: 60, label: "1 min", hint: "A short" },
   { seconds: 180, label: "3 min", hint: "The standard" },
   { seconds: 300, label: "5 min", hint: "A deep dive" },
+  { seconds: 480, label: "8 min", hint: "Long form" },
+  { seconds: 600, label: "10 min", hint: "The full story" },
 ] as const;

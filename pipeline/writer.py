@@ -38,9 +38,10 @@ from .timeline import text_sha
 #: The CLI to run. Tests point this at a stand-in that prints a canned reply.
 CLAUDE_BIN = os.environ.get("CLAUDE_BIN", "claude")
 
-#: Research reads many pages; a script is a single long write. Generous, since
-#: the heartbeat thread holds the lease while Claude works.
-TIMEOUT_SECONDS = {"research": 20 * 60, "script": 10 * 60}
+#: Research reads many pages; a script is a single long write. Sized for the
+#: longest film (10 minutes: ~70 claims, ~50 beats) and generous, since the
+#: heartbeat thread holds the lease while Claude works.
+TIMEOUT_SECONDS = {"research": 40 * 60, "script": 20 * 60}
 
 #: Words per second the script is budgeted at: docs.WPM, the validator's own.
 WORDS_PER_SECOND = docs.WPM / 60

@@ -49,12 +49,12 @@ export function NewFilmForm({ cancel = false }: { cancel?: boolean }) {
 
       <fieldset className="flex flex-col gap-3">
         <legend className="eyebrow mb-3 text-muted">Length</legend>
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
           {DURATIONS.map((d) => {
             const on = duration === String(d.seconds);
             return (
               <label key={d.seconds}
-                className={"flex cursor-pointer flex-col gap-0.5 rounded-md px-4 py-3 ring-1 ring-inset transition-[box-shadow,background-color] duration-150 ease-out-quart has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent " +
+                className={"flex cursor-pointer flex-col gap-0.5 rounded-md px-3 py-3 ring-1 ring-inset transition-[box-shadow,background-color] duration-150 ease-out-quart has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent " +
                   (on ? "bg-lifted ring-2 ring-accent" : "ring-edge hover:bg-raised")}>
                 <input type="radio" name="duration" value={d.seconds} checked={on}
                   onChange={() => setDuration(String(d.seconds))} className="sr-only" />
