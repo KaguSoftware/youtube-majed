@@ -81,9 +81,9 @@ export async function publishChannel(): Promise<Channel> {
 }
 
 /** Each shot of a cut and the beat it belongs to: the thumbnail picker's frames. */
-export async function cutShots(projectId: string, version: number): Promise<{ id: string; beat: string; start: number; hash: string | null }[]> {
+export async function cutShots(projectId: string, version: number): Promise<{ id: string; beat: string; start: number; still: string | null }[]> {
   return query(
-    `SELECT s->>'shot_id' AS id, s->>'beat_id' AS beat, (s->>'start')::float AS start, s->'image'->>'hash' AS hash
+    `SELECT s->>'shot_id' AS id, s->>'beat_id' AS beat, (s->>'start')::float AS start, s->'image'->>'path' AS still
      FROM timelines t, jsonb_array_elements(t.timeline_json->'shots') s
      WHERE t.project_id = $1 AND t.version = $2 ORDER BY (s->>'start')::float`, [projectId, version]);
 }

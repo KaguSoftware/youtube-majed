@@ -37,6 +37,38 @@ from .timeline import ImageRecord, Shot, image_hash
 #: costs ~15s; letting one shot reroll forever costs the whole run.
 MAX_ATTEMPTS = 3
 
+#: Stills are lossy WebP at this quality: ~120 KB against ~740 KB as PNG, at
+#: 38-42 dB PSNR. Measured on the 161 cached stills: QA's Laplacian falls at
+#: most 15% (the blurriest still stays at 2x the floor) and the dHash moves at
+#: most 3 bits (duplicates are 8). The WebP is written once, at generation,
+#: and is the still everywhere — disk, store, browser — so a takeover judges
+#: the same bytes the first worker did.
+STILL_QUALITY = 90
+
+
+def still_path(images: Path, h: str, mirror=None) -> Path:
+    """The still for image hash `h`: a PNG if one was made before stills were
+    WebP, so an old film's shots stay cache hits, else the WebP."""
+    legacy = images / f"{h}.png"
+    if mirror.has(legacy) if mirror is not None else legacy.exists():
+        return legacy
+    return images / f"{h}.webp"
+
+
+def write_still(image, dest: Path, *, lossless: bool = False) -> None:
+    """A PIL image to `dest`, in the format its suffix names, atomically.
+
+    `lossless` for a region retouch, which promises every pixel outside the
+    region is the base's: a lossy re-encode would move them all, and again on
+    each retouch of a retouch."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = config.partial(dest)
+    if dest.suffix == ".webp":
+        image.save(tmp, "WEBP", **({"lossless": True} if lossless else {"quality": STILL_QUALITY}), method=6)
+    else:
+        image.save(tmp, "PNG")
+    os.replace(tmp, dest)
+
 
 @dataclass
 class GenStats:
@@ -159,12 +191,7 @@ class KleinGenerator:
             image = self._model.generate_image(**common, image_paths=[str(r) for r in refs])
         else:
             image = self._text_to_image().generate_image(**common)
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        tmp = config.partial(dest)
-        image.save(path=tmp, overwrite=True)  # overwrite defaults to False
-        if not tmp.exists() or tmp.stat().st_size == 0:
-            raise RuntimeError(f"generate_image returned but wrote nothing to {tmp}")
-        os.replace(tmp, dest)
+        write_still(image.image, dest)
         return time.time() - t
 
     def unload(self) -> None:
@@ -222,7 +249,7 @@ def generate_shots(
             # The generator's name is part of the address, so a fake or a
             # different model can never satisfy a lookup for klein's output.
             h = image_hash(shot.prompt, seed, refs, model=generator.model_name)
-            dest = paths.images / f"{h}.png"
+            dest = still_path(paths.images, h, paths.mirror)
 
             if paths.mirror.ensure(dest):
                 elapsed, source = 0.0, "cached"
@@ -364,7 +391,7 @@ def retouch_region(base: Path, region, instruction: str, seed: int, *, generator
     h_edit = image_hash(instruction, seed, [ref], model=generator.model_name,
                         width=size[0], height=size[1])
     h = sha("retouch-v1", h_edit, file_sha(base), [x0, y0, x1, y1])
-    dest = cache / "images" / f"{h}.png"
+    dest = still_path(cache / "images", h, mirror)
     if mirror.ensure(dest) if mirror is not None else dest.exists():
         return dest, h, 0.0
     painted = cache / "retouch" / f"{h_edit}.png"
@@ -390,10 +417,7 @@ def retouch_region(base: Path, region, instruction: str, seed: int, *, generator
     mask = Image.fromarray((m * 255).astype(np.uint8))
     out = frame.copy()
     out.paste(patch, (x0, y0), mask)
-
-    tmp = config.partial(dest)
-    out.save(tmp)
-    os.replace(tmp, dest)
+    write_still(out, dest, lossless=True)
     return dest, h, elapsed
 
 
@@ -464,7 +488,7 @@ def repaint_shots(
                                                   cache=paths.cache, mirror=paths.mirror)
             else:
                 h = image_hash(prompt, seed, refs, model=generator.model_name)
-                dest = paths.images / f"{h}.png"
+                dest = still_path(paths.images, h, paths.mirror)
                 elapsed = 0.0
                 if not paths.mirror.ensure(dest):
                     if not generator.loaded:

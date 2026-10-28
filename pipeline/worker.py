@@ -233,7 +233,7 @@ class JobHooks(production.Hooks):
         )
         self.store.event(self.claim, "shot", {
             "shot": shot.shot_id, "source": source, "generated": generated, "cached": cached,
-            "attempts": image.attempts, "hash": image.hash,
+            "attempts": image.attempts, "hash": image.hash, "still": image.path,
             "seconds": round(sum(stats.times[-generated:]), 2) if generated else 0.0,
         })
         self.check()
@@ -707,7 +707,7 @@ class Worker:
             from .timeline import image_hash
 
             h = image_hash(prompt, int(seed), [], model=gen.model_name)
-            dest = paths.images / f"{h}.png"
+            dest = images.still_path(paths.images, h, mirror)
             source = "cached"
             if not mirror.ensure(dest):
                 if not gen.loaded:
@@ -1001,7 +1001,7 @@ class Worker:
         shot = next((s for s in timeline.shots if s.shot_id == pub["thumbnail_shot"]), None)
         if shot is None or shot.image is None:
             return [f"There is no shot {pub['thumbnail_shot']} in the cut, so YouTube chose the thumbnail."]
-        still = mirror.path(f"images/{shot.image.hash}.png")
+        still = paths.root / shot.image.path
         if not mirror.ensure(still):
             return [f"The still for {shot.shot_id} is not in the store, so YouTube chose the thumbnail."]
         thumb = youtube.make_thumbnail(still, paths.run / f"thumb-{shot.shot_id}.jpg")

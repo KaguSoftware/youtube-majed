@@ -6,7 +6,7 @@ import { button } from "@/components/ui";
 import type { Cut } from "@/lib/cuts";
 import { one } from "@/lib/db";
 import { ago } from "@/lib/format";
-import { imageKey, mediaUrl, mediaUrls } from "@/lib/media";
+import { mediaUrl, mediaUrls, stillKey } from "@/lib/media";
 import { publishDraft } from "@/lib/pipeline";
 import type { ProjectRow } from "@/lib/projects";
 import {
@@ -84,7 +84,7 @@ async function FormArea({ p, cut, channel, from, alreadyPosted, collapsed }: {
     "ORDER BY version DESC LIMIT 1", [p.id]);
   const [draft, stills, sheetUrl] = await Promise.all([
     from ? null : publishDraft({ topic: p.topic, angle: p.angle }, research?.markdown_raw).catch(() => null),
-    mediaUrls(shots.flatMap((s) => (s.hash ? [imageKey(s.hash)] : []))).catch(() => ({} as Record<string, string>)),
+    mediaUrls(shots.flatMap((s) => (s.still ? [stillKey(s.still)] : []))).catch(() => ({} as Record<string, string>)),
     cut.sheet ? mediaUrl(cut.sheet.key).catch(() => null) : Promise.resolve(null),
   ]);
   // The thumbnail starts on the beat the look was chosen from: the frame
@@ -99,7 +99,7 @@ async function FormArea({ p, cut, channel, from, alreadyPosted, collapsed }: {
   };
   const form = (
     <PublishForm projectId={p.id} version={cut.version} duration={cut.duration} channel={channel}
-      frames={shots.map((s) => ({ id: s.id, start: s.start, still: s.hash ? stills[imageKey(s.hash)] ?? null : null }))}
+      frames={shots.map((s) => ({ id: s.id, start: s.start, still: s.still ? stills[stillKey(s.still)] ?? null : null }))}
       sheet={cut.sheet && sheetUrl ? { url: sheetUrl, ...cut.sheet } : null}
       initial={initial} alreadyPosted={alreadyPosted} />
   );
@@ -296,10 +296,10 @@ function Thumb({ url, title, hover = false, empty }: { url: string | null; title
 /** The chosen thumbnail's still, from the cut it was published from. */
 async function thumbUrl(pub: Publication): Promise<string | null> {
   if (!pub.thumbnail_shot) return null;
-  const row = await one<{ hash: string | null }>(
-    `SELECT s->'image'->>'hash' AS hash FROM publications p
+  const row = await one<{ still: string | null }>(
+    `SELECT s->'image'->>'path' AS still FROM publications p
      JOIN timelines t ON t.project_id = p.project_id AND t.version = p.version,
      jsonb_array_elements(t.timeline_json->'shots') s
      WHERE p.id = $1 AND s->>'shot_id' = p.thumbnail_shot`, [pub.id]);
-  return row?.hash ? mediaUrl(imageKey(row.hash)).catch(() => null) : null;
+  return row?.still ? mediaUrl(stillKey(row.still)).catch(() => null) : null;
 }

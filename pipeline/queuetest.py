@@ -425,7 +425,7 @@ def media_takeover(c: Checks, url: str) -> None:
                 (media_dir / sheet.get("key", "-")).is_file() and len(sheet.get("shots", [])) == 10
                 and sheet["cols"] * sheet["rows"] >= 10, str(sheet))
         missing = [s["shot_id"] for s in tl["shots"]
-                   if not (media_dir / "images" / f"{s['image']['hash']}.png").is_file()]
+                   if not (media_dir / s["image"]["path"].removeprefix("cache/")).is_file()]
         c.check("every still the timeline names is in the store", not missing, str(missing))
         rows = store.conn.execute("SELECT key FROM media WHERE store = %s",
                                   (f"dir:{media_dir}",)).fetchall()
@@ -443,7 +443,7 @@ def media_takeover(c: Checks, url: str) -> None:
     def stills_missing(media_dir: Path) -> list[str]:
         tl = store.latest_timeline("barbarians-01")["timeline_json"]
         return [s["shot_id"] for s in tl["shots"]
-                if not (media_dir / "images" / f"{s['image']['hash']}.png").is_file()]
+                if not (media_dir / s["image"]["path"].removeprefix("cache/")).is_file()]
 
     print("\n-- media: a failed upload is retried, not charged to the job --")
     with tempfile.TemporaryDirectory() as tm, tempfile.TemporaryDirectory() as tw:

@@ -15,7 +15,6 @@ the same shot asked for twice produces the same bytes under the same hash.
 from __future__ import annotations
 
 import hashlib
-import os
 import time
 from pathlib import Path
 
@@ -24,6 +23,7 @@ from PIL import Image
 
 from . import config
 from .align import WordTiming, normalize
+from .images import write_still
 from .production import Engines
 from .tts import TTS
 
@@ -108,10 +108,7 @@ class FakeGenerator:
         arr = np.asarray(img).astype(np.int16) + rng.integers(-24, 24, (h, w, 3))
         if self.delay:
             time.sleep(self.delay)
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        tmp = config.partial(dest)
-        Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8)).save(tmp)
-        os.replace(tmp, dest)
+        write_still(Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8)), dest)
         self.calls.append(dest.stem)
         return time.time() - t
 

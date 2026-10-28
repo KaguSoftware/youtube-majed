@@ -14,7 +14,7 @@ re-running a half-finished job is just running it:
 
     narration   cache/audio/<hash(beat texts, voice, engine)>.wav  (seeded; tts.py)
     alignment   cache/align/<hash(wav bytes, aligner, gate settings)>.json
-    images      cache/images/<hash(prompt, seed, refs, model settings)>.png
+    images      cache/images/<hash(prompt, seed, refs, model settings)>.webp
     segments    cache/segments/<hash(image, move, duration, render)>.mp4
 
 The checkpoint the worker writes to Postgres after each stage and each shot is
@@ -361,7 +361,7 @@ def contact_sheet(timeline: Timeline, paths: config.Paths) -> tuple[Path, dict]:
     """Every shot's still, in order, in one small WebP.
 
     The web app's filmstrips and thumbnails read frames out of this with CSS
-    rather than fetching each 700 KB PNG: one upload per film instead of one
+    rather than fetching each full still: one upload per film instead of one
     per shot, and a few hundred KB per page instead of megabytes. Both matter
     on the free tier (2,000 uploads and 10 GB of transfer a month).
     """

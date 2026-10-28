@@ -133,7 +133,7 @@ class Timeline:
     #: Media keys (media.py) for what the web app shows. `film` is the render;
     #: `sheet` is a contact sheet of every shot's still with its grid layout
     #: (production.contact_sheet). A shot's full still is always
-    #: `images/<image.hash>.png`, so it needs no entry.
+    #: `image.path` under `cache/`, so it needs no entry.
     media: dict = field(default_factory=dict)
     schema: int = SCHEMA_VERSION
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())

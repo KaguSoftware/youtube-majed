@@ -1,6 +1,6 @@
 import { getUser } from "@/lib/auth";
 import { query } from "@/lib/db";
-import { imageKey, mediaUrls } from "@/lib/media";
+import { mediaUrls, stillKey } from "@/lib/media";
 
 /*
  * A render's or an edit's progress as server-sent events, read from
@@ -17,6 +17,14 @@ const POLL_MS = 1_500;
 const TERMINAL = new Set(["done", "failed", "released", "error"]);
 
 type EventRow = { id: string; job_id: string; attempt: number; kind: string; data: Record<string, unknown>; at: Date };
+
+/** A shot event's still. Events from before stills were WebP name only the
+ *  hash, and every still then was a PNG. */
+function shotStill(r: EventRow): string | null {
+  if (r.kind !== "shot") return null;
+  if (r.data.still) return stillKey(String(r.data.still));
+  return r.data.hash ? `images/${String(r.data.hash)}.png` : null;
+}
 
 export async function GET(request: Request, ctx: RouteContext<"/api/films/[id]/events">) {
   if (!(await getUser())) return new Response("unauthorized", { status: 401 });
@@ -44,10 +52,11 @@ export async function GET(request: Request, ctx: RouteContext<"/api/films/[id]/e
           "SELECT id, job_id, attempt, kind, data, at FROM job_events WHERE job_id = $1 AND id > $2 ORDER BY id LIMIT 200",
           [job.id, after]);
         // Frames: one presigned URL per shot, signed locally (lib/media.ts).
-        const hashes = rows.filter((r) => r.kind === "shot" && r.data.hash).map((r) => imageKey(String(r.data.hash)));
-        const urls = hashes.length ? await mediaUrls(hashes).catch(() => ({} as Record<string, string>)) : {};
+        const keys = rows.map(shotStill).filter((k): k is string => k !== null);
+        const urls = keys.length ? await mediaUrls(keys).catch(() => ({} as Record<string, string>)) : {};
         for (const r of rows) {
-          const url = r.kind === "shot" && r.data.hash ? urls[imageKey(String(r.data.hash))] : undefined;
+          const key = shotStill(r);
+          const url = key ? urls[key] : undefined;
           send(`id: ${r.id}\nevent: progress\ndata: ${JSON.stringify({ ...r, url })}\n\n`);
           after = Number(r.id);
           if (TERMINAL.has(r.kind) && r.kind !== "error") finished = true;

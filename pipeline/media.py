@@ -14,7 +14,8 @@ worker's job without regenerating its shots (PLAN.md Phase 3, carried item 1).
 A key is the artifact's path under `work/cache/`, so the local cache *is* a
 mirror of the remote one and nothing needs translating:
 
-    images/<hash>.png       generated stills, every attempt including rerolls
+    images/<hash>.webp      generated stills, every attempt including rerolls
+                            (.png for stills made before they were WebP)
     audio/<hash>.wav|json   narration and its beat index
     align/<hash>.json       forced alignment
     films/<sha>.mp4         an mp4 of a film version, made for a download

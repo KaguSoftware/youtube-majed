@@ -42,5 +42,6 @@ export async function mediaUrls(keys: string[]): Promise<Record<string, string>>
   return Object.fromEntries(entries);
 }
 
-/** The still for a shot: content-addressed by its image hash. */
-export const imageKey = (hash: string) => `images/${hash}.png`;
+/** The media key of a shot's still, from the path its timeline records
+ *  (`cache/images/<hash>.webp`, or `.png` for stills made before WebP). */
+export const stillKey = (path: string) => path.replace(/^cache\//, "");
