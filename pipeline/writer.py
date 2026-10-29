@@ -78,7 +78,9 @@ NARRATIVES: dict[str, Narrative] = {
         ),
         script=(
             "Tell it as the story of the protagonist's life, not a survey of their world.\n"
-            "- Open in a scene: the protagonist doing something, at a moment that matters.\n"
+            "- Cold open on the protagonist's most dangerous or strangest moment, cut in at its "
+            "sharpest second. Then step back to how they got there; the film catches up with that "
+            "moment at the turn.\n"
             "- Give them something they want or fear, and let the film follow whether they get it.\n"
             "- The facts arrive as things that happen to them, things they hold, see and do. "
             "\"Rations were wheat and beer\" becomes the protagonist breaking bread at dusk.\n"
@@ -95,8 +97,8 @@ NARRATIVES: dict[str, Narrative] = {
         ),
         script=(
             "Tell it as a mystery the viewer solves alongside the narrator.\n"
-            "- Open on the puzzle: a strange object, an unexplained event, a question that nags. "
-            "Do not answer it yet.\n"
+            "- Open on the puzzle as its strangest concrete fact: the object, the record, the "
+            "absence that should not be there. Do not answer it yet.\n"
             "- Reveal the evidence like clues, one per beat, each changing what we think.\n"
             "- Let a wrong answer look right for a while, then turn it.\n"
             "- Hold the answer back until near the end. Where the research says the evidence is "
@@ -114,7 +116,8 @@ NARRATIVES: dict[str, Narrative] = {
         ),
         script=(
             "Tell it as a chronicle with momentum: events in order, each one causing the next.\n"
-            "- Open on the world as it was, and the first crack in it.\n"
+            "- Open on the moment it breaks, or the first sign of what is coming. Then go back to "
+            "the world as it was, and the first crack in it.\n"
             "- Build pressure beat by beat: connect beats with cause and consequence "
             "(\"so\", \"but\", \"and then\"), never with \"another thing to know\".\n"
             "- One clear turning point, roughly two thirds of the way in.\n"
@@ -135,7 +138,8 @@ NARRATIVES: dict[str, Narrative] = {
             "\"You wake before first light. The hearth is cold.\"\n"
             "- The narration says \"you\" for the protagonist; the visuals still name them by "
             "their short name, since they are what gets painted.\n"
-            "- Open in a body and a place: what you feel, hear and see.\n"
+            "- Open in a body, a place and a problem: what you feel, hear and see, and what is "
+            "about to go wrong for you.\n"
             "- Every fact is something you experience, handle or are told to do.\n"
             "- Give the day a shape: a task, a problem, a moment of danger or relief.\n"
             "- End on a single quiet moment, never on a summary."
@@ -149,7 +153,8 @@ NARRATIVES: dict[str, Narrative] = {
         ),
         script=(
             "Tell it as an explainer: one clear question, answered step by step.\n"
-            "- Open with the question, made vivid by a scene rather than stated flatly.\n"
+            "- Open on the fact that makes the question urgent, in a scene. Then ask the "
+            "question plainly.\n"
             "- Each beat moves the answer forward; no beat is a list of facts.\n"
             "- Keep the protagonist on screen as the human face of the answer.\n"
             "- End with the answer in one line and an image that holds it."
@@ -200,6 +205,29 @@ Rules:
   tools, food, light, landscape. The film is illustrated shot by shot, and
   vague research produces anachronistic pictures.
 - Stay on the topic and angle. Leave out what the angle excludes.
+
+How to research, in two passes:
+1. Survey. Search widely first, to map the topic and find where its story
+   is: what is strange, disputed, surprising or human about it. Look for
+   the find that changed what scholars believed, the detail that sounds
+   wrong but is true, the cost someone paid, the question still open.
+2. Dig. Then go deep on the strongest threads: the excavation report, the
+   museum's catalogue entry, the translated primary text (letters, laws,
+   inventories, inscriptions, court records), the scholar's own article.
+   A specific fact from a primary source beats a general one from a summary.
+   Read widely: at least {sources_min} different pages across several sites.
+
+The film needs story material, not just coverage, so the claims must include:
+- the single most arresting true thing you found: the opening of the film
+  is built on it, so it must be checkable and specific;
+- a central question the topic raises, and the evidence that answers it,
+  including any evidence that first pointed the wrong way;
+- surprises and contradictions: what people assume, and what the evidence
+  says instead;
+- human-scale detail: what one person of this kind held, ate, feared, paid,
+  wrote or was punished for;
+- stakes: what went wrong, what it cost, who lost;
+- what is still unknown or argued over.
 """
 
 RESEARCH_FORMAT = """\
@@ -226,9 +254,14 @@ source: https://the-page-you-read.example/path
 ### c2 — short label
 claim: ...
 source: https://...
+story: hook. Why this grips: the one-line note for the writer.
 ```
 
 Number claims c1, c2, c3... in order. Write {claims_min} to {claims_max} claims.
+`story` is optional, and only on the claims that carry the story (about a
+quarter of them): one of hook, question, answer, surprise, human, stakes,
+turn, unknown, then a full stop and why it grips, in a few words. It is a
+note for the writer and states no fact the claim does not.
 Quote YAML values that contain a colon.
 """
 
@@ -237,6 +270,7 @@ def research_prompt(project: dict, note: str | None = None) -> tuple[str, str]:
     _, told = narrative(project.get("narrative"))
     duration = int(project.get("target_duration") or 180)
     n = max(8, round(duration / 9))
+    system = RESEARCH_SYSTEM.format(sources_min=max(8, n // 3))
     fmt = RESEARCH_FORMAT.format(
         project=project["id"], topic_yaml=json.dumps(project["topic"]),
         angle_yaml=json.dumps(project.get("angle") or ""), target_duration=duration,
@@ -253,7 +287,7 @@ def research_prompt(project: dict, note: str | None = None) -> tuple[str, str]:
     if note:
         lines += ["", "Notes from the reviewer on the previous version:", note.strip()]
     lines += ["", fmt]
-    return RESEARCH_SYSTEM, "\n".join(lines)
+    return system, "\n".join(lines)
 
 
 SCRIPT_SYSTEM = """\
@@ -262,9 +296,47 @@ documentaries. You write what the viewer hears, beat by beat, from approved
 research only. The research is your material, not your outline: a film is a
 story told with facts, never a lesson that recites them.
 
+The opening decides whether anyone watches. Most viewers leave in the first
+fifteen seconds, so B01 is the hardest beat in the film and gets the most work:
+- The first sentence is the most arresting true thing in the research, made
+  concrete: a strange object, a contradiction, a cost, a moment of danger, a
+  detail that sounds wrong but is true. The research marks candidates with
+  `story: hook`. If that first sentence could open any film on this topic,
+  it is the wrong sentence.
+- By the end of B01 the viewer has a question they need answered, and knows
+  the film will answer it. Raise it; do not answer it yet.
+- Then stakes: within the first two beats, why it mattered to someone, what
+  it cost or what was about to go wrong.
+- Never open on weather, landscape or mood alone, on a date, on background,
+  or with "Imagine", "Picture this", "For centuries", "Throughout history",
+  "Have you ever wondered", or a definition.
+- B02 tightens the hook. It never drops back to background or context:
+  context comes later, inside scenes, once the viewer wants it.
+
+The flow, which is what separates a story from a list:
+- One central question runs through the whole film. Every beat moves toward
+  its answer or complicates it. Order the facts by what they mean to that
+  question, never by category (food, then shelter, then work).
+- Open loops and close them: raise a question and answer it a few beats
+  later, while a bigger one stays open. Plant a detail early that pays off
+  late. Keep the biggest answer for near the end.
+- Every beat's first sentence grows from the last beat's final one: a
+  consequence ("So"), a contrast ("But"), a question answered, a cost coming
+  due. No beat starts cold on a new subject.
+- Escalate: stakes rise, and one clear turn, around two thirds of the way in,
+  changes what the viewer thought they knew.
+- Select, do not inventory. You need not use every claim. One telling number
+  that is felt beats five that are listed: at most two numbers in a beat,
+  and never a run of names, prices or quantities.
+- Rhythm: vary sentence length. After a run of detail, a short line that
+  lands. Let a reveal sit alone at the end of its beat.
+- The ending answers the opening question and returns to the opening image,
+  changed by what we now know.
+
 Rules for the story:
 - Tell it in the way the brief asks (its "How to tell it" section). That
-  choice shapes the opening, the order of the beats and the ending.
+  choice shapes the opening, the order of the beats and the ending, and the
+  rules above apply to all of them.
 - Never lecture. No "in this video", no "let's look at", no "it's important
   to know", no "historians tell us" as a way in, no addressing the viewer as
   a student, no closing summary of what was covered.
@@ -273,7 +345,8 @@ Rules for the story:
 - Every beat pulls toward the next: a question raised, a cost coming due, a
   change on the way. The viewer should want the next beat.
 - The protagonist is a representative figure, not a recorded person. Say so
-  once, early and lightly ("No record keeps his name. Call him Victor."). What
+  once, early and lightly ("No record keeps his name. Call him Victor."),
+  but after the hook has landed, never in the first sentence. What
   they do, own and suffer is what the research says people like them did, and
   those beats cite the claims. Never give a real, named historical person
   words or deeds the research does not record.
@@ -324,8 +397,16 @@ character, so anyone shown prominently is painted as that same person):
 """
 
 SCRIPT_FORMAT = """\
-Return the finished script and nothing else, inside one ```markdown fence, in
-exactly this format (YAML front matter, then one `### Bnn — title` section per
+First, outside the fence, plan the film in under two hundred words:
+- the central question, in one line;
+- three candidate opening sentences, each built on a different claim, and
+  which one wins and why (the most specific and surprising, not the prettiest);
+- the open loops: what each one asks, and the beat that closes it;
+- the turn, and the final image.
+
+Then return the finished script inside one ```markdown fence. Before you do,
+reread B01 as a stranger scrolling past would; if it does not make you need
+B02, rewrite it. The script must be in exactly this format (YAML front matter, then one `### Bnn — title` section per
 beat, each section body a YAML mapping; `narration` is a block scalar):
 
 ```markdown

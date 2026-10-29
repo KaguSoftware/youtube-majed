@@ -50,6 +50,15 @@ one side, AAC priming on the other; measured). With a fixed base, the first
 frame of chunk i is presented at exactly TS_BASE + F_i / fps and the first
 narration sample at TS_BASE.
 
+### Captions
+
+When the timeline's `render.captions` is set, each chunk overlays the
+captions (captions.py) that fall in its frames, after the dissolve, so the
+words sit still while the picture moves under them. They are part of the
+chunk's hash, so an edit still re-encodes only the chunks it changed. A film
+planned before captions has no `render.captions`, and its chunks, their
+hashes and their bytes are what they always were.
+
 Audio is explicitly padded and trimmed to the timeline duration rather than
 left to `-shortest`, because failure mode 11 is an audio/video length mismatch
 and `-shortest` resolves it silently in whichever direction happens to apply.
@@ -65,7 +74,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import config
+from . import captions as captions_mod, config
 from .timeline import Shot, Timeline, file_sha, sha
 
 
@@ -251,6 +260,9 @@ class Chunk:
     #: The next shot's segment, dissolved into over the last X frames.
     next_segment: str | None
     hash: str
+    #: Captions on screen in this chunk: (image key, text, first, last), the
+    #: frames counted from the chunk's own start, both inclusive.
+    captions: tuple = ()
 
     @property
     def name(self) -> str:
@@ -264,6 +276,10 @@ def plan_chunks(timeline: Timeline) -> list[Chunk]:
     shots = timeline.shots
     starts = [round(s.start * fps) for s in shots] + [round(timeline.duration * fps)]
     segs = [segment_hash(s, timeline.render) for s in shots]
+    cue_frames = []
+    if timeline.render.get("captions"):
+        cue_frames = [(captions_mod.image_key(c.text, timeline.render), c.text, *c.frames(fps))
+                      for c in captions_mod.cues(shots, timeline.duration)]
     out: list[Chunk] = []
     for i, s in enumerate(shots):
         frames = starts[i + 1] - starts[i]
@@ -272,14 +288,22 @@ def plan_chunks(timeline: Timeline) -> list[Chunk]:
                                f"{x}-frame dissolve")
         lead = 0 if i == 0 else x
         nxt = segs[i + 1] if i + 1 < len(shots) else None
-        h = sha("chunk-v1", segs[i], nxt, lead, x, starts[i], frames, fps,
-                timeline.render["width"], timeline.render["height"], FILM_VIDEO, TS_BASE)
+        lo, hi = starts[i], starts[i] + frames
+        caps = tuple((key, text, max(a, lo) - lo, min(b, hi) - lo - 1)
+                     for key, text, a, b in cue_frames if a < hi and b > lo)
+        parts = ["chunk-v1", segs[i], nxt, lead, x, starts[i], frames, fps,
+                 timeline.render["width"], timeline.render["height"], FILM_VIDEO, TS_BASE]
+        if caps:
+            # Only when there are captions, so a film without them keeps the
+            # chunk hashes (and the stored chunks) it always had.
+            parts.append(["captions", captions_mod.STYLE, [[k, a, b] for k, _, a, b in caps]])
         out.append(Chunk(index=i, start=starts[i], frames=frames, lead=lead,
-                         segment=segs[i], next_segment=nxt, hash=h))
+                         segment=segs[i], next_segment=nxt, hash=sha(*parts), captions=caps))
     return out
 
 
-def _encode_chunk(chunk: Chunk, timeline: Timeline, segments: list[Path], dest: Path) -> None:
+def _encode_chunk(chunk: Chunk, timeline: Timeline, segments: list[Path], dest: Path,
+                  caption_dir: Path | None = None) -> None:
     fps = timeline.render["fps"]
     x = round(timeline.render["xfade"] * fps)
     norm = f"settb=AVTB,fps={fps},format=yuv420p,setsar=1"
@@ -296,7 +320,20 @@ def _encode_chunk(chunk: Chunk, timeline: Timeline, segments: list[Path], dest: 
         filters.append(f"[a][b]xfade=transition=fade:duration={x / fps:.6f}:"
                        f"offset={(chunk.frames - x) / fps:.6f}[x]")
         last = "x"
-    filters.append(f"[{last}]trim=end_frame={chunk.frames},setpts=PTS-STARTPTS[v]")
+    trimmed = "t0" if chunk.captions else "v"
+    filters.append(f"[{last}]trim=end_frame={chunk.frames},setpts=PTS-STARTPTS[{trimmed}]")
+    last = trimmed
+    # Each caption is one still PNG; overlay repeats its only frame, and
+    # `enable` on the chunk's own frame number puts it on screen exactly.
+    x_pos, y_pos = captions_mod.overlay_position(timeline.render)
+    for k, (key, _text, a, b) in enumerate(chunk.captions):
+        n = len(inputs) // 2
+        inputs += ["-i", str(caption_dir / f"{key}.png")]
+        filters.append(f"[{last}][{n}:v]overlay=x={x_pos}:y={y_pos}:"
+                       f"enable='between(n,{a},{b})'[t{k + 1}]")
+        last = f"t{k + 1}"
+    if chunk.captions:
+        filters.append(f"[{last}]format=yuv420p[v]")
     tmp = config.partial(dest)
     _run(
         ["ffmpeg", "-y", *inputs, "-filter_complex", ";".join(filters), "-map", "[v]",
@@ -343,9 +380,15 @@ def render_chunks(timeline: Timeline, paths, *, jobs: int = CHUNK_JOBS, encoded:
     need = {i for c, _ in todo for i in (c.index, c.index + 1) if i < len(plan)}
     segments = render_segments(timeline, paths, only=need,
                                log=log if len(need) == len(plan) else (lambda *a: None))
+    caption_dir = paths.cache / "captions"
+    # Drawn here, one at a time, before the chunks encode in parallel: two
+    # chunks sharing a caption must not race to write the same file.
+    needed = {key: text for c, _ in todo for key, text, _, _ in c.captions}
+    for key, text in needed.items():
+        captions_mod.draw(text, timeline.render, caption_dir / f"{key}.png")
     if todo:
         with ThreadPoolExecutor(max(1, jobs)) as ex:
-            list(ex.map(lambda cp: _encode_chunk(cp[0], timeline, segments, cp[1]), todo))
+            list(ex.map(lambda cp: _encode_chunk(cp[0], timeline, segments, cp[1], caption_dir), todo))
     log(f"  chunks: {len(todo)} encoded, {len(plan) - len(todo)} unchanged")
     if encoded is not None:
         encoded.extend(c.index for c, _ in todo)

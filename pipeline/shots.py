@@ -239,10 +239,15 @@ def plan(
     log(f"  shot budget {target_shots} over {len(beats)} beats: "
         + ", ".join(f"{b.beat_id}:{c}" for b, c in zip(beats, counts)))
 
+    from .captions import display_tokens
+
     shots: list[Shot] = []
     for beat, n in zip(beats, counts):
         ba = by_id[beat.beat_id]
         pieces = _split_beat(beat.narration, ba.words, n, ba.start, ba.end)
+        # The script's spelling of each word, for the captions. Without it
+        # (the walk did not land) the captions fall back to the aligned word.
+        shown = display_tokens(beat.narration, len(ba.words)) or [None] * len(ba.words)
         ladder = FRAMINGS.get(len(pieces), FRAMINGS[3])
 
         for k, (s_start, s_end, w_lo, w_hi) in enumerate(pieces):
@@ -268,7 +273,8 @@ def plan(
                     words=[
                         {"word": w.word, "start": round(w.start, 4),
                          "end": round(w.end, 4), "score": round(w.score, 4)}
-                        for w in words
+                        | ({} if d is None else {"display": d})
+                        for w, d in zip(words, shown[w_lo : w_hi + 1])
                     ],
                 )
             )

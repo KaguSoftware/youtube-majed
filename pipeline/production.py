@@ -38,7 +38,7 @@ import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import align, assemble, config, docs, images, pins, shots as shots_mod, tts
+from . import align, assemble, captions, config, docs, images, pins, shots as shots_mod, tts
 from .timeline import Timeline, file_sha, sha, upstream_hashes
 
 
@@ -302,7 +302,8 @@ def plan(inputs: Inputs, narration: tts.Narration, alignment: align.Alignment,
             "period": inputs.script.meta.get("period"),
             "protagonist": list(docs.protagonist(inputs.script) or []) or None,
         },
-        render={"width": width, "height": height, "fps": config.FPS, "xfade": config.XFADE_SECONDS},
+        render={"width": width, "height": height, "fps": config.FPS, "xfade": config.XFADE_SECONDS,
+                **({"captions": captions.STYLE} if config.CAPTIONS else {})},
         # Which bytes made this film: repository, commit and a digest of the
         # locked file hashes, so it can be found again in an archive
         # (failure mode 13, pipeline/pins.py).

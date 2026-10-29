@@ -106,6 +106,11 @@ FPS = 30
 #: does not shorten the film or drift the audio (see assemble.py).
 XFADE_SECONDS = 0.4
 
+#: Burn the narration in as captions (pipeline/captions.py). Recorded on the
+#: timeline when a film is planned, so a film keeps what it was made with:
+#: turning this off leaves earlier films' captions, and their chunks, alone.
+CAPTIONS = True
+
 #: Ken Burns. Generated stills are upscaled before the pan so the zoom has real
 #: pixels to work with rather than interpolating 832x480 up to 1080p.
 KENBURNS_UPSCALE = 2.5

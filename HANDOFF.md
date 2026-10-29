@@ -148,6 +148,8 @@ pipeline/
   images.py     warm Flux2KleinEdit, content-addressed, QA-driven rerolls
   qa.py         blur/artefact checks + near-duplicate detection
   assemble.py   ffmpeg Ken Burns segments -> per-shot chunks (HLS) -> mp4 on request
+  captions.py   the narration burned in: phrases from the word timings, drawn by Pillow, laid on with overlay
+  fonts/        Source Sans 3 Semibold (OFL), the captions' font, vendored so every machine draws the same
   run.py        the CLI; stage order is cheap-stages-first by design
   selftest.py   weights-free checks, incl. the sync arithmetic against ffmpeg
   gatecheck.py  negative control: splices words out and proves the gate fires

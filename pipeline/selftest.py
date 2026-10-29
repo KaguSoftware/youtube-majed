@@ -241,6 +241,64 @@ def main() -> int:
                     sum(x[1] for x in slices) == before.narration.stat().st_size
                     and abs(sum(x[0] for x in slices) - 12.5) < 0.05, str(slices))
 
+            print("\n-- captions: burned in, in whole frames, still two chunks an edit --")
+            from . import captions
+            from .align import normalize
+            line = ("Before the sun touches the treeline, he is already awake. The half-starved "
+                    "dog — thin as a rake — waits by the door, and the fire is fed first.")
+            norm = normalize(line).split()
+            shown = captions.display_tokens(line, len(norm))
+            c.check("each aligned word gets the script's spelling, split tokens shown once",
+                    shown is not None and shown[:6] == ["Before", "the", "sun", "touches", "the", "treeline,"]
+                    and "half-starved" in shown and shown[shown.index("half-starved") + 1] == ""
+                    and "dog —" in shown, str(shown))
+            c.check("a walk that does not land gives no spelling rather than the wrong one",
+                    captions.display_tokens(line, len(norm) + 1) is None)
+            tl = _timeline(_fake_shots([4.0, 4.0, 4.5], stills), 12.5)
+            tl.render["captions"] = captions.STYLE
+            per = 11.8 / len(norm)
+            for i, (w, d) in enumerate(zip(norm, shown)):
+                t = 0.2 + i * per
+                tl.shots[min(2, int(t // 4))].words.append(
+                    {"word": w, "start": t, "end": t + per * 0.8, "score": 1.0, "display": d})
+            cues = captions.cues(tl.shots, tl.duration)
+            c.check("captions are one short line each, in the script's words",
+                    all(len(q.text) <= captions.MAX_CHARS for q in cues)
+                    and " ".join(q.text for q in cues) == line,
+                    str([q.text for q in cues]))
+            c.check("captions never overlap and never run past the film",
+                    all(a.end <= b.start + 1e-9 for a, b in zip(cues, cues[1:])) and cues[-1].end <= 12.5,
+                    str(cues))
+            paths = config.Paths(root=tmp / "captions", project="p")
+            for i, s in enumerate(tl.shots):
+                s.image.path = str(stills[i % len(stills)].resolve())
+            wav = paths.run / "narration.wav"
+            _write_wav(wav, np.zeros(int(12.5 * 24000), dtype=np.float32), 24000)
+            before = assemble.build(tl, paths, audio=wav, log=lambda *a: None)
+            c.near("captioned film length == the timeline", assemble.probe_duration(before.video), 12.5,
+                   1.5 / config.FPS)
+            c.check("captioned chunks keep their frame counts",
+                    all(assemble.count_frames(p) == ch.frames for ch, p in before.chunks))
+            c.check("a caption crossing a chunk boundary is in both chunks",
+                    any(a[-1][0] == b[0][0] for a, b in zip([ch.captions for ch, _ in before.chunks],
+                                                           [ch.captions for ch, _ in before.chunks][1:])
+                        if a and b))
+            plain = _timeline(tl.shots, 12.5)
+            wordless = _timeline(_fake_shots([4.0, 4.0, 4.5], stills), 12.5)
+            for s, w in zip(plain.shots, wordless.shots):
+                w.image.path = s.image.path
+            c.check("a film planned without captions keeps the chunk hashes it always had",
+                    [ch.hash for ch in assemble.plan_chunks(plain)]
+                    == [ch.hash for ch in assemble.plan_chunks(wordless)]
+                    != [ch.hash for ch, _ in before.chunks]
+                    and not any(ch.captions for ch in assemble.plan_chunks(plain)))
+            tl.shots[1].image.hash, tl.shots[1].image.path = "fake-new", str(stills[2].resolve())
+            seen = []
+            after = assemble.render_chunks(tl, paths, log=seen.append)
+            changed = [ch.index for (ch, _), (old, _) in zip(after, before.chunks) if ch.hash != old.hash]
+            c.check("with captions, a new still in shot 2 still changes chunks 1 and 2 only",
+                    changed == [0, 1], str(changed))
+
     print("\n-- edits: the operations the edit agent's tools apply --")
     from . import edits
 
@@ -419,10 +477,22 @@ def main() -> int:
             writer.extract_document(reply) == doc)
     c.check("an unfenced reply is kept from its front matter on",
             writer.extract_document("Sure.\n---\nproject: x\n---\nbody") .startswith("---\nproject: x"))
+    planned = ("Central question: why did the garrison never starve?\n\nOpening candidates:\n"
+               "1. A bronze measure... (wins: it is strange and specific)\n\n"
+               f"```markdown\n{doc}```\n")
+    c.check("the script's plan, written before the fence, is not part of the document",
+            writer.extract_document(planned) == doc)
     project = {"id": "p", "topic": "Rations on Hadrian's Wall", "angle": "not battles", "target_duration": 180}
     system, prompt = writer.script_prompt(project, doc)
     c.check("the script prompt budgets words at the validator's own rate (150 wpm)",
             "450 words" in prompt and "Period-accurate" in system)
+    c.check("the script is asked for a hook, a through-line and a plan before it is written",
+            "The opening decides whether anyone watches" in system and "One central question" in system
+            and "three candidate opening sentences" in prompt)
+    system, _ = writer.research_prompt(project | {"target_duration": 600})
+    c.check("research is a survey then a dig, for story material, across many pages",
+            "Survey." in system and "Dig." in system and "at least 22 different pages" in system
+            and "{" not in system)
     system, prompt = writer.research_prompt(project, note="more on bread")
     c.check("the research prompt carries the topic, angle and reviewer's note",
             "Rations on Hadrian's Wall" in prompt and "not battles" in prompt and "more on bread" in prompt
