@@ -85,6 +85,12 @@ MAX_WER = 0.18
 #: even more than this one.
 MAX_DELETIONS_PER_BEAT = 0
 
+#: How many times the narration gate may re-speak the beats it names before it
+#: stops the render. Narration is seeded, so rendering again replays the same
+#: audio into the same verdict; a retake is the only thing that changes it.
+#: Only the named beats are re-spoken, each slower than the last (tts.py).
+NARRATION_RETAKES = 3
+
 # ------------------------------------------------------------------ shot plan
 
 #: Phase 1 target. A beat is 1-3 shots (DESIGN.md); the planner distributes

@@ -220,8 +220,18 @@ async function StagePanel({ p, step }: { p: ProjectRow; step: ReturnType<typeof 
 function explainFailure(error: string | null): string {
   const e = error ?? "";
   if (e.startsWith("narration")) {
-    return "The check that listens back to the narration thought some words were missing from the recording. " +
-      "Rendering again often clears it; if it keeps happening, rephrase the beats it names in the script.";
+    // The studio machine already re-recorded these beats before stopping
+    // (pipeline/production.py narrate_and_gate), and narration is seeded, so
+    // rendering the same script again replays the same recording.
+    const beats = [...new Set(e.match(/\bB\d+(?=[:,;])/g) ?? [])];
+    const named = beats.length
+      ? new Intl.ListFormat("en", { type: "conjunction" }).format(beats)
+      : "some beats";
+    const retakes = Number(/after (\d+) retake/.exec(e)?.[1] ?? 0);
+    return `The narration check ${retakes ? "still " : ""}heard words missing in ${named}` +
+      (retakes ? `, even after recording ${beats.length === 1 ? "it" : "them"} ${retakes === 1 ? "again" : `${retakes} more times`}. ` : ". ") +
+      `Rendering the same script again gives the same recording, so rephrase ${beats.length === 1 ? "that beat" : "those beats"} first. ` +
+      "The missing word is usually swallowed by the one next to it: split the sentence or swap the word.";
   }
   if (e.startsWith("validate")) return "The research or script has problems that block the render. Open them to see what to fix.";
   if (e.startsWith("inputs")) return "The research or script changed after this render was started. Render again to use the latest approved versions.";

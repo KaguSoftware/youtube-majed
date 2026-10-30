@@ -49,6 +49,18 @@ BEAT_GAP_SECONDS = 0.35
 #: model in align.py sees levels closer to the speech it was trained on.
 PEAK_TARGET = 0.89
 
+#: Each retake speaks this much slower than the last, down to RETAKE_MIN_SPEED.
+#: The narration gate's failures on correct scripts are words run into their
+#: neighbours — LETTING heard as "IN" — and a slightly slower read is what
+#: gives a swallowed word its own syllables back. The seed changes too, so even
+#: at the floor each take is a different performance.
+RETAKE_SPEED_STEP = 0.05
+RETAKE_MIN_SPEED = 0.85
+
+
+def retake_speed(take: int) -> float:
+    return max(RETAKE_MIN_SPEED, 1.0 - RETAKE_SPEED_STEP * take)
+
 
 @dataclass
 class BeatAudio:
@@ -90,8 +102,13 @@ class TTS(ABC):
     def load(self) -> None: ...
 
     @abstractmethod
-    def say(self, text: str, voice: str) -> np.ndarray:
-        """Synthesize one span. Must raise rather than return partial audio."""
+    def say(self, text: str, voice: str, take: int = 0) -> np.ndarray:
+        """Synthesize one span. Must raise rather than return partial audio.
+
+        `take` asks for a different performance of the same text: take 0 is
+        the narration every cache was built with; a later take is what the
+        narration gate asks for when it heard a word go missing.
+        """
 
     def preflight(self) -> tuple[bool, str]:
         return True, "ok"
@@ -162,8 +179,8 @@ class KokoroTTS(TTS):
         for voice in VOICE_MAP.values():
             self._pipeline.voices[voice] = torch.load(snap(f"voices/{voice}.pt"), weights_only=True)
 
-    def say(self, text: str, voice: str) -> np.ndarray:
-        """Deterministic: the same text and voice give the same samples.
+    def say(self, text: str, voice: str, take: int = 0) -> np.ndarray:
+        """Deterministic: the same text, voice and take give the same samples.
 
         Kokoro's vocoder draws from torch's global RNG, so unseeded it is not —
         two cold syntheses of this script measured a peak sample difference of
@@ -171,6 +188,9 @@ class KokoroTTS(TTS):
         narration a pure function of the script, which is what lets a pruned
         cache be rebuilt into the same film. `fork_rng` keeps the seed from
         leaking into anything else in a long-lived worker.
+
+        Take 0 keeps the original seed and speed, so every narration cached
+        before retakes existed is still the narration its key names.
         """
         if self._pipeline is None:
             raise RuntimeError("say() before load()")
@@ -178,11 +198,12 @@ class KokoroTTS(TTS):
 
         import torch
 
-        seed = int.from_bytes(hashlib.sha256(f"{voice}\0{text}".encode()).digest()[:8], "little")
+        salt = f"{voice}\0{text}" + (f"\0take{take}" if take else "")
+        seed = int.from_bytes(hashlib.sha256(salt.encode()).digest()[:8], "little")
         chunks: list[np.ndarray] = []
         with torch.random.fork_rng(devices=[]):
             torch.manual_seed(seed)
-            results = list(self._pipeline(text, voice=voice, speed=1.0))
+            results = list(self._pipeline(text, voice=voice, speed=retake_speed(take)))
         for result in results:
             if result.audio is None:
                 raise RuntimeError(
@@ -216,6 +237,8 @@ def synthesize(
     engine: TTS | None = None,
     voice_id: str = "narrator_male_low",
     gap: float = BEAT_GAP_SECONDS,
+    takes: dict[str, int] | None = None,
+    memo: dict | None = None,
     log=print,
 ) -> Narration:
     """Speak every beat, concatenate with gaps, write one wav.
@@ -223,7 +246,13 @@ def synthesize(
     Returns the per-beat index. The returned `start`/`end` are the authority on
     where each beat's words can possibly lie; nothing downstream should infer
     beat boundaries from the audio itself.
+
+    `takes` names the take to speak for a beat (absent: take 0). `memo` keeps
+    raw samples across calls, so a retake of two beats re-speaks two beats,
+    not the film.
     """
+    takes = takes or {}
+    memo = {} if memo is None else memo
     engine = engine or KokoroTTS()
     voice = VOICE_MAP.get(voice_id, voice_id)
     if voice_id not in VOICE_MAP:
@@ -238,7 +267,11 @@ def synthesize(
     cursor = 0  # in samples, so boundaries are exact rather than rounded twice
 
     for i, beat in enumerate(beats):
-        samples = engine.say(beat.narration, voice)
+        take = takes.get(beat.beat_id, 0)
+        said = (engine.name, voice, beat.narration, take)
+        if said not in memo:
+            memo[said] = engine.say(beat.narration, voice, take=take)
+        samples = memo[said]
         start = cursor / sr
         end = (cursor + len(samples)) / sr
         index.append(
@@ -251,7 +284,7 @@ def synthesize(
             )
         )
         log(f"  {beat.beat_id}  {end - start:5.2f}s  {len(beat.words):3d} words  "
-            f"({len(beat.words) / (end - start) * 60:.0f} wpm)")
+            f"({len(beat.words) / (end - start) * 60:.0f} wpm)" + (f"  take {take}" if take else ""))
         pieces.append(samples)
         cursor += len(samples)
         if i < len(beats) - 1:

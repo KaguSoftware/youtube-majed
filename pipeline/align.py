@@ -688,5 +688,25 @@ def align_narration(
     )
 
 
+def retake_beats(errors: list[str], beat_ids) -> list[str] | None:
+    """-> the beats a retake could fix, or None if one could not fix them all.
+
+    Every per-beat gate message starts `<beat id>: ` — a dropped or starved
+    word, the WER backstop, a word outside its beat. Those are about how one
+    beat was spoken, and re-speaking it is a fair test. Anything else (beats
+    out of order, a track shorter than its index) says the narration file
+    itself is wrong, and re-speaking a beat would only hide that.
+    """
+    known = set(beat_ids)
+    named: list[str] = []
+    for e in errors:
+        beat, sep, _ = e.partition(": ")
+        if not sep or beat not in known:
+            return None
+        if beat not in named:
+            named.append(beat)
+    return named or None
+
+
 def write_alignment(alignment: Alignment, path: Path) -> None:
     path.write_text(json.dumps(alignment.to_json(), indent=2) + "\n")

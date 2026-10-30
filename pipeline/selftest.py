@@ -733,6 +733,76 @@ def hardening(c: Checks) -> None:
             any("before B01 ends" in e for e in align.align_narration(
                 narration(2.0, 0.8), aligner=FakeAligner(), log=quiet).errors))
 
+    print("\n-- narration: the gate re-speaks the beats it names, and only those --")
+    from . import production
+    from .fakes import SECONDS_PER_WORD, FakeTTS
+    from .timeline import sha
+
+    c.check("per-beat gate failures name the beats to retake",
+            align.retake_beats(["B28: 1 word(s) absent from the narration ['LETTING']",
+                                "B31: WER 20.0% exceeds 18%", "B28: ASR edits"],
+                               ["B28", "B31"]) == ["B28", "B31"])
+    c.check("...and a fault in the track itself is not a retake's to hide",
+            align.retake_beats(["B31: WER 20.0% exceeds 18%", "B02 starts at 0.800s, before B01 ends"],
+                               ["B01", "B02", "B31"]) is None)
+
+    class Counting(FakeTTS):
+        def __init__(self) -> None:
+            self.said: list[tuple[str, int]] = []
+
+        def say(self, text: str, voice: str, take: int = 0) -> np.ndarray:
+            self.said.append((text, take))
+            return super().say(text, voice, take)
+
+    class Swallows(FakeAligner):
+        """Hears the first word of one beat go missing until it is spoken
+        `slower` times as long as take 0 speaks it."""
+
+        def __init__(self, text: str, slower: float) -> None:
+            self.text, self.slower = text, slower
+
+        def align(self, samples, sample_rate, text, offset=0.0):
+            timings, heard = super().align(samples, sample_rate, text, offset)
+            take0 = len(text.split()) * SECONDS_PER_WORD
+            if text == self.text and len(samples) / sample_rate < take0 * self.slower:
+                heard = " ".join(heard.split()[1:])
+            return timings, heard
+
+    script = docs.parse_script(smoke.SCRIPT)
+    inputs = production.Inputs(project="p", topic="t", research=docs.parse_research(smoke.RESEARCH),
+                               script=script, style=config.PHASE1_STYLE, allow_fixture_sources=True)
+    target = script.beats[1]
+    with tempfile.TemporaryDirectory() as td:
+        voice = Counting()
+        engines = production.Engines(tts_engine=voice, aligner=Swallows(target.narration, 1.02))
+        lines: list[str] = []
+        _, alignment = production.narrate_and_gate(
+            inputs, config.Paths(root=Path(td) / "once", project="p"), engines, production.Hooks(),
+            lambda *a: None, log=lambda *a, **k: lines.append(" ".join(map(str, a))))
+        retakes = [(t, k) for t, k in voice.said if k]
+        c.check("a word the gate heard go missing is re-spoken, and the render carries on",
+                not alignment.errors and retakes == [(target.narration, 1)], str(retakes))
+        c.check("...re-speaking that beat alone, not the film",
+                len(voice.said) == len(script.beats) + 1, str(len(voice.said)))
+        c.check("...and saying so in the log", any(f"retake {target.beat_id}" in ln for ln in lines),
+                str(lines[-3:]))
+        first = sha("narr-v2", voice.name, voice.sample_rate, "narrator_male_low",
+                    tts.VOICE_MAP["narrator_male_low"], tts.BEAT_GAP_SECONDS, tts.PEAK_TARGET,
+                    [(b.beat_id, b.narration) for b in script.beats])
+        c.check("a first take keeps the cache key it had before retakes existed",
+                (Path(td) / "once" / "cache" / "audio" / f"{first}.wav").is_file())
+
+        engines = production.Engines(tts_engine=Counting(), aligner=Swallows(target.narration, 9.0))
+        try:
+            production.narrate_and_gate(
+                inputs, config.Paths(root=Path(td) / "never", project="p"), engines,
+                production.Hooks(), lambda *a: None, log=quiet)
+            c.check("a beat no retake fixes still stops the render", False)
+        except production.Gate as gate:
+            c.check("a beat no retake fixes still stops the render, saying what was tried",
+                    gate.errors[0].startswith(f"still failing after {config.NARRATION_RETAKES} retake(s)")
+                    and target.beat_id in gate.errors[0], str(gate.errors[:2]))
+
     print("\n-- sources: a cited page that does not exist is an error (failure mode 2) --")
 
     class Pages(http.server.BaseHTTPRequestHandler):

@@ -3,7 +3,7 @@
 Phase 1 had this inline in `run.py`. It moves here so the CLI slice and the
 Phase 2 worker run the *same* code, in the same order:
 
-    validate -> narrate -> align (+ gates) -> plan -> images -> render
+    validate -> narrate -> align (+ gates, retaking the beats they name) -> plan -> images -> render
 
 ### Why resuming needs no special path
 
@@ -43,9 +43,9 @@ from .timeline import Timeline, file_sha, sha, upstream_hashes
 
 
 class Gate(RuntimeError):
-    """A deterministic stop: a validator, the narration gate, an unrenderable
-    timeline. Retrying would fail identically, so the worker fails the job
-    instead of requeueing it."""
+    """A deterministic stop: a validator, the narration gate (once its retakes
+    are spent), an unrenderable timeline. Retrying would fail identically, so
+    the worker fails the job instead of requeueing it."""
 
     def __init__(self, stage: str, errors: list[str]) -> None:
         self.stage = stage
@@ -170,13 +170,19 @@ def validate(inputs: Inputs, *, log=print) -> dict:
     return {name: {"errors": r.errors, "warnings": r.warnings} for name, r in reports.items()}
 
 
-def narrate(inputs: Inputs, paths: config.Paths, engines: Engines, *, log=print) -> tts.Narration:
+def narrate(inputs: Inputs, paths: config.Paths, engines: Engines, *,
+            takes: dict[str, int] | None = None, memo: dict | None = None,
+            log=print) -> tts.Narration:
+    """`takes` re-speaks the beats it names (see `narrate_and_gate`)."""
     voice_id = inputs.script.meta.get("voice", "narrator_male_low")
     engine = engines.tts
+    takes = {b: t for b, t in (takes or {}).items() if t}
     key = sha(
         "narr-v2", engine.name, engine.sample_rate, voice_id, tts.VOICE_MAP.get(voice_id),
         tts.BEAT_GAP_SECONDS, tts.PEAK_TARGET,
         [(b.beat_id, b.narration) for b in inputs.script.beats],
+        # Only when there are any, so every first-take narration keeps its key.
+        *([sorted(takes.items()), tts.RETAKE_SPEED_STEP, tts.RETAKE_MIN_SPEED] if takes else []),
     )
     wav = paths.cache / "audio" / f"{key}.wav"
     index_path = wav.with_suffix(".json")
@@ -188,11 +194,13 @@ def narrate(inputs: Inputs, paths: config.Paths, engines: Engines, *, log=print)
     if paths.mirror.ensure(wav) and paths.mirror.ensure(index_path):
         log(f"  cached {wav.name}")
     else:
-        made = tts.synthesize(inputs.script.beats, wav, engine=engine, voice_id=voice_id, log=log)
+        made = tts.synthesize(inputs.script.beats, wav, engine=engine, voice_id=voice_id,
+                              takes=takes, memo=memo, log=log)
         # The index goes last: a wav without its index is not a cache hit.
         sr = made.sample_rate
         _write_json(index_path, {
             "sample_rate": sr, "voice": made.voice, "duration": made.duration,
+            **({"takes": takes} if takes else {}),
             "beats": [
                 {"beat_id": b.beat_id, "text": b.text,
                  "start": int(round(b.start * sr)), "end": int(round(b.end * sr))}
@@ -259,6 +267,44 @@ def align_and_gate(inputs: Inputs, narration: tts.Narration, paths: config.Paths
             raise Gate("narration", alignment.errors)
         log("  force: continuing despite the narration gate")
     return alignment
+
+
+def narrate_and_gate(inputs: Inputs, paths: config.Paths, engines: Engines, hooks: Hooks,
+                     stage, *, log=print) -> tuple[tts.Narration, align.Alignment]:
+    """Narrate, gate, and re-speak only the beats the gate names.
+
+    Narration is seeded, so a failed gate is not bad luck that rendering again
+    clears: the same script replays the same audio into the same verdict. What
+    changes the verdict is a different performance of the beats it names, so
+    those — and only those — get another take (slower, reseeded; tts.py), up to
+    config.NARRATION_RETAKES times. Every take is content-addressed like the
+    first, so a job that resumes walks the same takes out of the cache.
+    """
+    takes: dict[str, int] = {}
+    memo: dict = {}
+    for retake in range(config.NARRATION_RETAKES + 1):
+        again = f", retake {retake}" if retake else ""
+        stage("narrate", f"narrate ({engines.tts.name}){again}")
+        narration = narrate(inputs, paths, engines, takes=takes, memo=memo, log=log)
+        hooks.done("narration", {"wav_sha": file_sha(narration.path),
+                                 "duration": round(narration.duration, 4), "voice": narration.voice,
+                                 **({"takes": dict(takes)} if takes else {})})
+
+        stage("align", f"align + ASR gate ({engines.aligner.model_name}){again}")
+        try:
+            return narration, align_and_gate(inputs, narration, paths, engines, log=log)
+        except Gate as gate:
+            beats = align.retake_beats(gate.errors, [b.beat_id for b in narration.beats])
+            if beats is None or retake == config.NARRATION_RETAKES:
+                if retake:
+                    raise Gate(gate.stage, [f"still failing after {retake} retake(s) of "
+                                            f"{', '.join(sorted(takes))}"] + gate.errors) from gate
+                raise
+            for b in beats:
+                takes[b] = takes.get(b, 0) + 1
+            log(f"  retake {', '.join(beats)}: the gate heard words missing, speaking "
+                f"{'it' if len(beats) == 1 else 'them'} again")
+    raise AssertionError("unreachable")
 
 
 def plan(inputs: Inputs, narration: tts.Narration, alignment: align.Alignment,
@@ -449,13 +495,7 @@ def run(inputs: Inputs, paths: config.Paths, *, engines: Engines | None = None,
     reports = validate(inputs, log=log)
     hooks.done("validate", reports)
 
-    stage("narrate", f"narrate ({engines.tts.name})")
-    narration = narrate(inputs, paths, engines, log=log)
-    hooks.done("narration", {"wav_sha": file_sha(narration.path),
-                             "duration": round(narration.duration, 4), "voice": narration.voice})
-
-    stage("align", f"align + ASR gate ({engines.aligner.model_name})")
-    alignment = align_and_gate(inputs, narration, paths, engines, log=log)
+    narration, alignment = narrate_and_gate(inputs, paths, engines, hooks, stage, log=log)
     hooks.done("alignment", {"overall_wer": round(alignment.overall_wer, 4),
                              "words": len(alignment.words), "warnings": alignment.warnings})
 
