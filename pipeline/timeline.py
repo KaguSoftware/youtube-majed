@@ -135,6 +135,11 @@ class Timeline:
     #: (production.contact_sheet). A shot's full still is always
     #: `image.path` under `cache/`, so it needs no entry.
     media: dict = field(default_factory=dict)
+    #: Sound effects over the narration (pipeline/sfx.py), each
+    #: {"id", "sound", "name", "at", "volume"} plus "key" for an uploaded
+    #: sound and "credit" for one whose licence asks to be credited. Empty for
+    #: every film made before sounds, and for a fresh render.
+    sounds: list[dict] = field(default_factory=list)
     schema: int = SCHEMA_VERSION
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     validation: dict = field(default_factory=lambda: {"errors": [], "warnings": []})
@@ -249,6 +254,17 @@ class Timeline:
                     f"shots {dupes} share a prompt and seed and would generate the "
                     "same image"
                 )
+
+        # A sound past the end would be cut off unheard; a duplicate id would
+        # make "remove that one" ambiguous.
+        ids = [c.get("id") for c in self.sounds]
+        if len(set(ids)) != len(ids):
+            errors.append("two sounds share an id")
+        for c in self.sounds:
+            if not 0 <= c.get("at", -1) < self.duration:
+                errors.append(f"sound {c.get('id')} at {c.get('at')}s is outside the film (0-{self.duration:.2f}s)")
+            if not 0 < float(c.get("volume", 1.0)) <= 2:
+                errors.append(f"sound {c.get('id')} has volume {c.get('volume')}; it must be above 0 and at most 2")
 
         # Even dimensions, or ffmpeg's encoders reject the stream (failure 11).
         for key in ("width", "height"):

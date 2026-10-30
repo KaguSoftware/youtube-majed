@@ -32,17 +32,67 @@ import numpy as np
 
 from . import config, pins
 
-#: Abstract voice id -> backend voice. The script contract names a voice in
-#: DESIGN.md terms (`narrator_male_low`); only this table knows it is Kokoro's
-#: `am_michael`, which is what keeps the contract backend-agnostic.
-VOICE_MAP = {
-    "narrator_male_low": "am_michael",
-    "narrator_male_british": "bm_george",
+@dataclass(frozen=True)
+class Voice:
+    """A narrator the studio offers. `kokoro` is the backend's voice and
+    `lang` the G2P it is spoken through: British voices read British
+    pronunciation (misaki `b`), not American spellings in a British voice."""
+
+    kokoro: str
+    lang: str = "a"
+
+
+#: Abstract voice id -> backend voice. The script contract and the studio name
+#: a voice in DESIGN.md terms (`narrator_male_low`); only this table knows it is
+#: Kokoro's `am_michael`, which is what keeps the contract backend-agnostic.
+#: The two original ids keep their meaning, so every narration cached under
+#: them is still the narration its key names. The rest are Kokoro's English
+#: voices graded C or better in its VOICES.md at the pinned revision; the D
+#: and F voices were trained on minutes of audio and drop words. Order and ids
+#: match web/lib/voices.ts (selftest checks).
+VOICES: dict[str, Voice] = {
+    "narrator_male_low": Voice("am_michael"),
+    "narrator_male_us_fenrir": Voice("am_fenrir"),
+    "narrator_male_us_puck": Voice("am_puck"),
+    "narrator_male_british": Voice("bm_george", "b"),
+    "narrator_male_british_fable": Voice("bm_fable", "b"),
+    "narrator_female_us_heart": Voice("af_heart"),
+    "narrator_female_us_bella": Voice("af_bella"),
+    "narrator_female_us_nicole": Voice("af_nicole"),
+    "narrator_female_us_aoede": Voice("af_aoede"),
+    "narrator_female_us_kore": Voice("af_kore"),
+    "narrator_female_us_sarah": Voice("af_sarah"),
+    "narrator_female_us_nova": Voice("af_nova"),
+    "narrator_female_us_alloy": Voice("af_alloy"),
+    "narrator_female_british_emma": Voice("bf_emma", "b"),
+    "narrator_female_british_isabella": Voice("bf_isabella", "b"),
 }
+VOICE_MAP = {vid: v.kokoro for vid, v in VOICES.items()}
+DEFAULT_VOICE = "narrator_male_low"
+
+
+@dataclass(frozen=True)
+class Pace:
+    """How the narration is delivered. Kokoro has no control for emotion, so
+    a delivery is its speaking rate and the pause between beats: a measured
+    read lets a grave line land, a brisk one carries a lively film."""
+
+    speed: float
+    gap: float
+
 
 #: Silence inserted between beats. Long enough to read as a deliberate beat
 #: break, short enough not to feel like a stall.
 BEAT_GAP_SECONDS = 0.35
+
+#: Pace id -> delivery. `natural` is the narration every film had before
+#: paces, and keeps its cache keys. Order and ids match web/lib/voices.ts.
+PACES: dict[str, Pace] = {
+    "measured": Pace(speed=0.9, gap=0.6),
+    "natural": Pace(speed=1.0, gap=BEAT_GAP_SECONDS),
+    "brisk": Pace(speed=1.1, gap=0.25),
+}
+DEFAULT_PACE = "natural"
 
 #: Kokoro emits roughly [-0.4, 0.4]. Normalizing up helps twice: the narration
 #: is audible without the viewer reaching for the volume, and the CTC acoustic
@@ -102,12 +152,13 @@ class TTS(ABC):
     def load(self) -> None: ...
 
     @abstractmethod
-    def say(self, text: str, voice: str, take: int = 0) -> np.ndarray:
+    def say(self, text: str, voice: str, take: int = 0, speed: float = 1.0) -> np.ndarray:
         """Synthesize one span. Must raise rather than return partial audio.
 
         `take` asks for a different performance of the same text: take 0 is
         the narration every cache was built with; a later take is what the
-        narration gate asks for when it heard a word go missing.
+        narration gate asks for when it heard a word go missing. `speed` is
+        the delivery's rate (PACES); a retake slows from it.
         """
 
     def preflight(self) -> tuple[bool, str]:
@@ -158,6 +209,7 @@ class KokoroTTS(TTS):
         # catch, except here it is cheap to prevent instead of detect.
         try:
             espeak.EspeakFallback(british=False)
+            espeak.EspeakFallback(british=True)
         except Exception as exc:
             raise RuntimeError(
                 f"espeak fallback unavailable ({exc}); out-of-dictionary words "
@@ -175,12 +227,17 @@ class KokoroTTS(TTS):
         snap = self.pin.path
         model = KModel(repo_id=self.pin.repo, config=str(snap("config.json")),
                        model=str(snap("kokoro-v1_0.pth"))).eval()
-        self._pipeline = KPipeline(lang_code="a", repo_id=self.pin.repo, model=model)
-        for voice in VOICE_MAP.values():
-            self._pipeline.voices[voice] = torch.load(snap(f"voices/{voice}.pt"), weights_only=True)
+        # One G2P per accent over the one model; each voice lives in its own.
+        self._pipelines = {lang: KPipeline(lang_code=lang, repo_id=self.pin.repo, model=model)
+                           for lang in sorted({v.lang for v in VOICES.values()})}
+        for v in VOICES.values():
+            self._pipelines[v.lang].voices[v.kokoro] = torch.load(snap(f"voices/{v.kokoro}.pt"),
+                                                                   weights_only=True)
+        self._pipeline = self._pipelines["a"]
+        self._lang = {v.kokoro: v.lang for v in VOICES.values()}
 
-    def say(self, text: str, voice: str, take: int = 0) -> np.ndarray:
-        """Deterministic: the same text, voice and take give the same samples.
+    def say(self, text: str, voice: str, take: int = 0, speed: float = 1.0) -> np.ndarray:
+        """Deterministic: the same text, voice, take and speed give the same samples.
 
         Kokoro's vocoder draws from torch's global RNG, so unseeded it is not —
         two cold syntheses of this script measured a peak sample difference of
@@ -203,7 +260,8 @@ class KokoroTTS(TTS):
         chunks: list[np.ndarray] = []
         with torch.random.fork_rng(devices=[]):
             torch.manual_seed(seed)
-            results = list(self._pipeline(text, voice=voice, speed=retake_speed(take)))
+            pipeline = self._pipelines[self._lang.get(voice, "a")]
+            results = list(pipeline(text, voice=voice, speed=speed * retake_speed(take)))
         for result in results:
             if result.audio is None:
                 raise RuntimeError(
@@ -235,8 +293,8 @@ def synthesize(
     dest: Path,
     *,
     engine: TTS | None = None,
-    voice_id: str = "narrator_male_low",
-    gap: float = BEAT_GAP_SECONDS,
+    voice_id: str = DEFAULT_VOICE,
+    pace: str = DEFAULT_PACE,
     takes: dict[str, int] | None = None,
     memo: dict | None = None,
     log=print,
@@ -257,6 +315,8 @@ def synthesize(
     voice = VOICE_MAP.get(voice_id, voice_id)
     if voice_id not in VOICE_MAP:
         log(f"  warn   voice {voice_id!r} not in VOICE_MAP, passing through to {engine.name}")
+    delivery = PACES.get(pace) or PACES[DEFAULT_PACE]
+    speed, gap = delivery.speed, delivery.gap
 
     engine.load()
     sr = engine.sample_rate
@@ -268,9 +328,9 @@ def synthesize(
 
     for i, beat in enumerate(beats):
         take = takes.get(beat.beat_id, 0)
-        said = (engine.name, voice, beat.narration, take)
+        said = (engine.name, voice, beat.narration, take, speed)
         if said not in memo:
-            memo[said] = engine.say(beat.narration, voice, take=take)
+            memo[said] = engine.say(beat.narration, voice, take=take, speed=speed)
         samples = memo[said]
         start = cursor / sr
         end = (cursor + len(samples)) / sr
@@ -305,5 +365,45 @@ def synthesize(
 
     _write_wav(dest, track, sr)
     duration = len(track) / sr
-    log(f"  wrote {dest.name}  {duration:.2f}s  voice={voice}  peak={peak:.2f}->{PEAK_TARGET}")
+    log(f"  wrote {dest.name}  {duration:.2f}s  voice={voice}  pace={pace}  peak={peak:.2f}->{PEAK_TARGET}")
     return Narration(path=dest, sample_rate=sr, beats=index, duration=duration, voice=voice)
+
+
+# ------------------------------------------------------------------ samples
+
+#: What every voice says in the studio's picker: two sentences, long enough
+#: for Kokoro to settle (it is weak under ~20 tokens), in the films' register.
+SAMPLE_TEXT = ("In the winter of four hundred and six, the Rhine froze solid. "
+               "And the tribes who had waited for years on the far bank simply walked across.")
+
+
+def write_samples(dest: Path, *, engine: TTS | None = None, log=print) -> list[Path]:
+    """One mp3 per voice at the natural pace, for web/public/voices. The
+    studio previews a pace by playing these faster or slower with the pitch
+    kept, which is what Kokoro's `speed` does too."""
+    import subprocess
+
+    engine = engine or KokoroTTS()
+    engine.load()
+    dest.mkdir(parents=True, exist_ok=True)
+    made = []
+    for vid, voice in VOICES.items():
+        samples = engine.say(SAMPLE_TEXT, voice.kokoro)
+        peak = float(np.abs(samples).max()) or 1.0
+        wav = dest / f".{vid}.wav"
+        _write_wav(wav, samples * (PEAK_TARGET / peak), engine.sample_rate)
+        mp3 = dest / f"{vid}.mp3"
+        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(wav), "-ac", "1",
+                        "-b:a", "64k", str(mp3)], check=True)
+        wav.unlink()
+        log(f"  {vid:34s} {voice.kokoro:12s} {len(samples) / engine.sample_rate:4.1f}s")
+        made.append(mp3)
+    return made
+
+
+if __name__ == "__main__":
+    import sys
+
+    if len(sys.argv) != 3 or sys.argv[1] != "samples":
+        sys.exit("python -m pipeline.tts samples DEST   # one mp3 per voice, for the studio's picker")
+    write_samples(Path(sys.argv[2]))

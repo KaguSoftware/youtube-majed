@@ -1,13 +1,16 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useActionState, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useActionState, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
 import { button, field } from "@/components/ui";
 import { useFilmSource, type FilmSource } from "@/components/use-film-source";
 
+import type { Cue } from "@/lib/cuts";
+
 import type { ActionState } from "./actions";
-import { keepWarm, requestEdit, stopEdit } from "./edit-actions";
+import { keepWarm, requestEdit, requestRepaint, stopEdit } from "./edit-actions";
+import { SoundLane, Sounds, type Staged, type UploadView } from "./sounds";
 
 /** `look`: why a person should check this shot, in plain words (lib/cuts.ts). */
 export type Mark = { id: string; start: number; end: number; text: string; look: string[] };
@@ -21,8 +24,14 @@ export type CutView = {
   focus: number | null;
   change: { request: string; summary: string } | null;
   duration: number;
+  sounds: Cue[];
 };
-export type LiveEdit = { id: string; request: string; at: number | null; chunked: boolean };
+/** A shot's full-size still, for the frames grid. */
+export type Frame = { id: string; still: string | null };
+/** `repaint`: frames marked in the grid, painted again without Claude.
+ *  `sounds`: sounds placed in the studio, mixed in without Claude. */
+export type LiveEdit = { id: string; request: string; at: number | null; chunked: boolean; repaint: boolean;
+  sounds: boolean };
 
 /** "1:24" from seconds. */
 export function tc(seconds: number): string {
@@ -37,20 +46,27 @@ const SEEN = (projectId: string) => `ytm:edit-pending:${projectId}`;
  * The player is the page (web/PRODUCT.md, the footage is the hero); under it
  * the shot strip, which is also the scrubber; under that the request.
  * While Claude works the request turns into its progress, and when the new
- * cut arrives the player opens on the change.
+ * cut arrives the player opens on the change. Last, every frame of the film,
+ * to mark the ones that came out wrong and paint them again. Between the
+ * two, the sounds: what is on the film, and the library to add from.
  */
-export function EditingRoom({ projectId, viewing, earlier, isCurrent, live }: {
+export function EditingRoom({ projectId, viewing, earlier, isCurrent, live, frames, uploads }: {
   projectId: string;
   viewing: CutView;
   /** The cut this one was made from, for comparing. */
   earlier: CutView | null;
   isCurrent: boolean;
   live: LiveEdit | null;
+  /** Only for the film as it is, with no change being made. */
+  frames: Frame[] | null;
+  /** The studio's own sounds; likewise. */
+  uploads: UploadView[] | null;
 }) {
   const video = useRef<HTMLVideoElement>(null);
   const [side, setSide] = useState<"this" | "earlier">("this");
   const [resume, setResume] = useState<{ time: number; playing: boolean } | null>(null);
   const [time, setTime] = useState(0);
+  const [staged, setStaged] = useState<Staged[]>([]);
   const shown = side === "earlier" && earlier ? earlier : viewing;
   useFilmSource(video, shown.source, resume);
 
@@ -142,6 +158,7 @@ export function EditingRoom({ projectId, viewing, earlier, isCurrent, live }: {
       </div>
 
       <ShotStrip cut={shown} time={time} onSeek={seek} highlight={side === "this" ? viewing.changed : []} />
+      <SoundLane cues={shown.sounds} staged={side === "this" ? staged : []} duration={shown.duration} onSeek={seek} />
 
       <WorthALook marks={shown.marks} time={time} onSeek={seek} canAsk={isCurrent && !live} />
 
@@ -149,6 +166,15 @@ export function EditingRoom({ projectId, viewing, earlier, isCurrent, live }: {
         live
           ? <EditProgress projectId={projectId} live={live} fromVersion={viewing.version} />
           : <ChangeRequest projectId={projectId} time={time} chunked={!!viewing.source && viewing.source.kind === "hls"} />
+      )}
+
+      {isCurrent && !live && uploads && viewing.source && (
+        <Sounds projectId={projectId} video={video} time={time} duration={viewing.duration} cues={viewing.sounds}
+          uploads={uploads} staged={side === "this" ? staged : []} onStage={setStaged} onSeek={seek} />
+      )}
+
+      {isCurrent && !live && frames && frames.length > 0 && (
+        <Frames projectId={projectId} frames={frames} cut={viewing} />
       )}
     </section>
   );
@@ -267,7 +293,7 @@ function WorthALook({ marks, time, onSeek, canAsk }: {
       </ul>
       {canAsk && (
         <p className="text-xs text-faint">
-          If one looks wrong, go to it and ask for the change below. If it looks right, leave it.
+          If one looks wrong, mark it under Every frame to paint it again, or describe the change below. If it looks right, leave it.
         </p>
       )}
     </section>
@@ -345,6 +371,122 @@ function ChangeRequest({ projectId, time, chunked }: { projectId: string; time: 
   );
 }
 
+/** pipeline/editor.py MAX_REPAINT. */
+const MAX_REPAINT = 12;
+
+/**
+ * Every frame of the film at a size where a wrong hand shows. Click marks a
+ * frame; the marked ones are painted again together, from the same
+ * description, as one new cut (so one undo). Anything that needs a different
+ * picture, not another try at the same one, goes in the change box above.
+ */
+function Frames({ projectId, frames, cut }: { projectId: string; frames: Frame[]; cut: CutView }) {
+  const [state, action, pending] = useActionState<ActionState, FormData>(requestRepaint.bind(null, projectId), {});
+  const [marked, setMarked] = useState<string[]>([]);
+  const marks = useMemo(() => new Map(cut.marks.map((m) => [m.id, m])), [cut.marks]);
+  const toggle = (id: string) =>
+    setMarked((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  // In film order, whatever order they were clicked in.
+  const ordered = frames.filter((f) => marked.includes(f.id));
+  const tooMany = ordered.length > MAX_REPAINT;
+
+  return (
+    <form action={action} aria-labelledby="every-frame" className="flex flex-col gap-4 border-t border-hairline pt-6">
+      <div className="flex flex-col gap-1">
+        <h2 id="every-frame" className="eyebrow text-muted">Every frame <span className="tabular text-faint">({frames.length})</span></h2>
+        <p className="max-w-[75ch] text-sm text-muted">
+          Click the frames that came out wrong, like a hand melting into the bed, then paint them again. Each
+          one is painted fresh from the same description, so it shows the same moment, drawn differently.
+        </p>
+      </div>
+
+      <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4">
+        {frames.map((f) => {
+          const m = marks.get(f.id);
+          const on = marked.includes(f.id);
+          return (
+            <li key={f.id}>
+              <button
+                type="button"
+                onClick={() => toggle(f.id)}
+                aria-pressed={on}
+                aria-label={`Frame at ${m ? tc(m.start) : f.id}${m?.look.length ? ", worth a look" : ""}${m ? `: ${m.text}` : ""}`}
+                title={m?.text}
+                className={"group relative block aspect-[832/480] w-full overflow-hidden rounded-sm bg-raised " +
+                  "transition-shadow duration-150 ease-out-quart focus-visible:outline-2 focus-visible:outline-offset-2 " +
+                  "focus-visible:outline-accent " +
+                  (on ? "ring-2 ring-accent ring-offset-2 ring-offset-room" : "")}
+              >
+                {f.still ? (
+                  // eslint-disable-next-line @next/next/no-img-element -- presigned media
+                  <img src={f.still} alt="" loading="lazy" decoding="async" className="size-full object-cover" />
+                ) : cut.sheet ? (
+                  <span aria-hidden className="block size-full" style={sprite(cut.sheet, f.id)} />
+                ) : null}
+                <span className={"absolute left-1.5 top-1.5 rounded-sm px-1.5 py-0.5 text-xs font-semibold " +
+                  "transition-opacity duration-150 ease-out-quart " +
+                  (on ? "bg-accent text-accent-ink" : "bg-room/85 text-text opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100")}>
+                  {on ? "Paint again" : "Mark"}
+                </span>
+                {m && (
+                  <span className="tabular absolute bottom-1.5 left-1.5 rounded-sm bg-room/85 px-1.5 py-0.5 text-xs text-text">
+                    {tc(m.start)}
+                  </span>
+                )}
+                {m && m.look.length > 0 && <LookBadge className="absolute right-1.5 top-1.5" />}
+              </button>
+              {on && <input type="hidden" name="shot" value={f.id} />}
+            </li>
+          );
+        })}
+      </ul>
+
+      {(ordered.length > 0 || state.error) && (
+        <div className="sticky bottom-4 z-10 flex flex-wrap items-center justify-between gap-x-6 gap-y-3 rounded-md bg-lifted px-4 py-3 ring-1 ring-hairline motion-safe:animate-[fadein_200ms_var(--ease-out-quart)]">
+          <div className="min-w-0 text-sm" aria-live="polite">
+            {ordered.length > 0 ? (
+              <p className="text-text">
+                <span className="font-semibold">{ordered.length} marked</span>
+                <span className="tabular text-muted">
+                  {" "}at {ordered.map((f) => (marks.get(f.id) ? tc(marks.get(f.id)!.start) : f.id)).join(", ")}
+                </span>
+              </p>
+            ) : null}
+            {tooMany ? (
+              <p className="text-danger">Up to {MAX_REPAINT} at a time. Unmark {ordered.length - MAX_REPAINT}.</p>
+            ) : state.error ? (
+              <p role="alert" className="text-danger">{state.error}</p>
+            ) : (
+              <p className="text-faint">About 15 seconds a frame, then the film is cut again.</p>
+            )}
+          </div>
+          <div className="flex gap-2">
+            {ordered.length > 0 && (
+              <button type="button" onClick={() => setMarked([])} className={button.quiet}>Clear</button>
+            )}
+            <button type="submit" disabled={pending || tooMany || ordered.length === 0} className={button.primary}>
+              {pending ? "Sending…" : `Paint ${ordered.length === 1 ? "it" : ordered.length} again`}
+            </button>
+          </div>
+        </div>
+      )}
+    </form>
+  );
+}
+
+/** One shot's frame out of the contact sheet, by background position. */
+function sprite(sheet: NonNullable<CutView["sheet"]>, id: string): CSSProperties {
+  const i = Math.max(0, sheet.shots.indexOf(id));
+  const col = i % sheet.cols;
+  const row = Math.floor(i / sheet.cols);
+  return {
+    backgroundImage: `url(${sheet.url})`,
+    backgroundSize: `${sheet.cols * 100}% ${sheet.rows * 100}%`,
+    backgroundPosition: `${sheet.cols > 1 ? (col / (sheet.cols - 1)) * 100 : 0}% ${
+      sheet.rows > 1 ? (row / (sheet.rows - 1)) * 100 : 0}%`,
+  };
+}
+
 type Ev = { id: string; kind: string; data: Record<string, unknown>; at: string; url?: string };
 
 /** One of Claude's tool calls, in the studio's words. */
@@ -362,14 +504,17 @@ function step(e: Ev): string | null {
     case "nudge_shot_boundary": return `Moving the cut${at}`;
     case "split_shot": return `Splitting the shot${at} in two`;
     case "merge_shots": return `Joining two shots${at}`;
+    case "add_sound": return `Placing ${(d.result ?? "").split(" at ")[0]}${at}`;
+    case "remove_sound": return `Taking ${(d.result ?? "").split(" at ")[0]} off${at}`;
     default: return null;
   }
 }
 
 const PHASES = [
-  { key: "understanding", label: "Claude reads your note and finds the shot" },
+  { key: "understanding", label: "Claude reads your note and finds the shot", repaint: "Finding the marked frames",
+    sounds: "Placing the sounds" },
   { key: "painting", label: "Painting" },
-  { key: "cutting", label: "Cutting it into the film" },
+  { key: "cutting", label: "Cutting it into the film", sounds: "Mixing them into the film" },
 ];
 
 /** The change being made, live: Claude's steps, then the new frames, then
@@ -405,7 +550,9 @@ function EditProgress({ projectId, live, fromVersion }: { projectId: string; liv
     return { stage, steps, frames, outcome, claimed };
   }, [events]);
 
-  const phase = PHASES.findIndex((p) => p.key === view.stage);
+  // Sounds change no picture, so there is no painting to wait for.
+  const phases = live.sounds ? PHASES.filter((p) => p.sounds) : PHASES;
+  const phase = phases.findIndex((p) => p.key === view.stage);
   const seconds = Math.round((now - started) / 1000);
 
   return (
@@ -413,23 +560,29 @@ function EditProgress({ projectId, live, fromVersion }: { projectId: string; liv
       <div className="flex flex-wrap items-baseline justify-between gap-3">
         <p className="title-card text-title">
           <span className="mr-3 inline-block size-2.5 rounded-full bg-accent align-middle motion-safe:animate-pulse" aria-hidden />
-          {view.outcome?.kind === "done" ? "Done. Opening the new cut" : "Making the change"}
+          {view.outcome?.kind === "done" ? "Done. Opening the new cut" : live.repaint ? "Painting again"
+            : live.sounds ? "Mixing in the sounds" : "Making the change"}
         </p>
         <form action={stopEdit.bind(null, projectId)}>
           <button type="submit" className={button.quiet}>Stop</button>
         </form>
       </div>
-      <p className="max-w-[65ch] text-lg text-text">&ldquo;{live.request}&rdquo;
-        {live.at !== null && <span className="text-muted"> at {tc(live.at)}</span>}
-      </p>
-      <ol className="grid gap-2 sm:grid-cols-3" aria-label="Steps">
-        {PHASES.map((p, i) => {
+      {live.repaint || live.sounds ? (
+        <p className="max-w-[65ch] text-lg text-text">{live.request}</p>
+      ) : (
+        <p className="max-w-[65ch] text-lg text-text">&ldquo;{live.request}&rdquo;
+          {live.at !== null && <span className="text-muted"> at {tc(live.at)}</span>}
+        </p>
+      )}
+      <ol className={"grid gap-2 " + (phases.length === 3 ? "sm:grid-cols-3" : "sm:grid-cols-2")} aria-label="Steps">
+        {phases.map((p, i) => {
+          const label = live.repaint && p.repaint ? p.repaint : live.sounds && p.sounds ? p.sounds : p.label;
           const done = phase > i || view.outcome?.kind === "done";
           const current = phase === i && !view.outcome;
           return (
             <li key={p.key} aria-current={current ? "step" : undefined} className="flex flex-col gap-2">
               <span className={"h-1 rounded-full " + (done ? "bg-muted" : current ? "bg-accent" : "bg-hairline")} />
-              <span className={"text-xs " + (current ? "text-text" : done ? "text-muted" : "text-faint")}>{p.label}</span>
+              <span className={"text-xs " + (current ? "text-text" : done ? "text-muted" : "text-faint")}>{label}</span>
             </li>
           );
         })}

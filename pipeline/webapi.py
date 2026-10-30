@@ -8,7 +8,7 @@ studio validates and builds prompts with exactly the code the worker runs:
      "verify_sources"?}                       -> docs.check verdict
     {"action": "prompt", "kind": ..., "project": {id, topic, angle, target_duration},
      "research_markdown"?, "note"?}           -> {"system", "prompt"} as the worker would send
-    {"action": "publish_draft", "project": {topic, angle}, "research_markdown"?}
+    {"action": "publish_draft", "project": {topic, angle}, "research_markdown"?, "credits"?}
                                               -> {"title", "description", "tags", "sources"}
     {"action": "publish_check", "meta": {title, description, tags, privacy}}
                                               -> {"errors": [...]}, as the worker judges it
@@ -30,7 +30,7 @@ MAX_DOCUMENT = 512 * 1024
 def handle(req: dict) -> dict:
     action = req.get("action", "check")
     if action == "publish_draft":
-        return publish.draft(req["project"], req.get("research_markdown"))
+        return publish.draft(req["project"], req.get("research_markdown"), req.get("credits") or [])
     if action == "publish_check":
         return {"errors": publish.check(req["meta"])}
     kind = req["kind"]

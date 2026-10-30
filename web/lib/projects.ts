@@ -14,6 +14,9 @@ export type ProjectRow = {
   topic: string;
   angle: string | null;
   narrative: string | null;
+  /** pipeline/tts.py VOICES and PACES; NULL before migration 008. */
+  voice: string | null;
+  pace: string | null;
   target_duration: number | null;
   state: string;
   hero_beat: string | null;
@@ -26,7 +29,7 @@ export type ProjectRow = {
 };
 
 const PROJECT_SELECT = `
-  SELECT p.id, p.topic, p.angle, p.narrative, p.target_duration, p.state, p.hero_beat, p.created_at,
+  SELECT p.id, p.topic, p.angle, p.narrative, p.voice, p.pace, p.target_duration, p.state, p.hero_beat, p.created_at,
     (SELECT row_to_json(a) FROM (SELECT version, doc_status, source FROM artifacts
        WHERE project_id = p.id AND kind = 'research' ORDER BY version DESC LIMIT 1) a) AS research,
     (SELECT row_to_json(a) FROM (SELECT version, doc_status, source FROM artifacts

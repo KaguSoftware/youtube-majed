@@ -24,7 +24,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from . import assemble, config, docs, shots as shots_mod
+from . import assemble, config, docs, sfx, shots as shots_mod
 from .timeline import Motion, ImageRecord, Shot, Timeline
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
@@ -299,6 +299,73 @@ def main() -> int:
             c.check("with captions, a new still in shot 2 still changes chunks 1 and 2 only",
                     changed == [0, 1], str(changed))
 
+            print("\n-- sound effects: mixed into the soundtrack, not one chunk re-encoded --")
+            from . import sfx
+            tl = _timeline(_fake_shots([3.0, 3.5, 2.8, 3.2], stills), 12.5)
+            paths = config.Paths(root=tmp / "sfx", project="p")
+            for i, s in enumerate(tl.shots):
+                s.image.path = str(stills[i % len(stills)].resolve())
+            wav = paths.run / "narration.wav"
+            # A quiet tone stands in for the voice, so the mix can be lined up
+            # against it sample by sample.
+            voice = 0.2 * np.sin(2 * np.pi * 220 * np.arange(int(12.5 * 24000)) / 24000)
+            _write_wav(wav, voice.astype(np.float32), 24000)
+            before = assemble.build(tl, paths, audio=wav, log=lambda *a: None)
+            c.check("a film with no sounds has no mix: its narration is its soundtrack",
+                    sfx.soundtrack(tl, wav, paths) == wav)
+            tl.sounds = [{"id": "x1", "sound": "pop", "name": "Pop", "at": 5.0, "volume": 1.0}]
+            seen = []
+            after = assemble.build(tl, paths, audio=wav, log=seen.append)
+            c.check("a sound re-encodes no chunk", after.encoded == [] and
+                    [ch.hash for ch, _ in after.chunks] == [ch.hash for ch, _ in before.chunks], str(seen))
+            c.check("...and makes a new narration stream", after.narration != before.narration)
+            c.near("the film with a sound is still the timeline's length", assemble.probe_duration(after.video),
+                   12.5, 1.5 / config.FPS)
+            mixed = sfx._decode(sfx.soundtrack(tl, wav, paths))
+            plain = sfx._decode(wav)
+            r = sfx.MIX_RATE
+            c.check("the voice is where it was, to the sample, before the sound",
+                    len(mixed) == len(plain) and float(np.abs(mixed[:int(4.9 * r)] - plain[:int(4.9 * r)]).max()) < 2e-3,
+                    f"{len(mixed)} vs {len(plain)} samples, "
+                    f"max diff {float(np.abs(mixed[:int(4.9 * r)] - plain[:int(4.9 * r)]).max()):.4f}")
+            extra = np.abs(mixed - plain)
+            onset = int(np.argmax(extra > 0.05)) / r
+            c.near("the sound starts where it was placed", onset, 5.0, 0.006)
+            c.check("a loud sound over the voice does not clip", float(np.abs(mixed).max()) <= 0.98,
+                    f"peak {float(np.abs(mixed).max()):.3f}")
+            tl.sounds = []
+            c.check("taking the sound off gives back the first narration stream",
+                    assemble.narration_stream(tl, sfx.soundtrack(tl, wav, paths), paths)[0] == before.narration)
+
+    print("\n-- sound effects: the library --")
+    from . import sfx
+    web = Path(__file__).resolve().parent.parent / "web"
+    sts = (web / "lib" / "sounds.ts").read_text()
+    c.check("the studio lists exactly sfx.STOCK, in order and by the same names",
+            re.findall(r'\{ id: "(\w+)", name: "([^"]+)"', sts) == [(s.id, s.name) for s in sfx.STOCK.values()],
+            str(len(re.findall(r'\{ id: "(\w+)"', sts))))
+    c.check("...in sfx.GROUPS, each sound in one of them",
+            re.findall(r'GROUPS = \[([^\]]+)\]', sts) and re.findall(r'"([^"]+)"', re.findall(
+                r'GROUPS = \[([^\]]+)\]', sts)[0]) == sfx.GROUPS
+            and all(s.group in sfx.GROUPS for s in sfx.STOCK.values()))
+    c.check("every stock sound is built, and the studio previews the very file the worker mixes",
+            all((sfx.SOUNDS_DIR / f"{i}.mp3").is_file()
+                and (web / "public" / "sfx" / f"{i}.mp3").read_bytes() == (sfx.SOUNDS_DIR / f"{i}.mp3").read_bytes()
+                for i in sfx.STOCK),
+            str([i for i in sfx.STOCK if not (sfx.SOUNDS_DIR / f"{i}.mp3").is_file()]))
+    recorded = [s for s in sfx.STOCK.values() if isinstance(s.source, sfx.Recording)]
+    c.check("every recording is public domain, CC0 or CC BY, and every CC BY one is credited",
+            all(s.source.license in ("Public domain", "CC0", "CC BY 3.0") for s in recorded)
+            and all((s.credit is None) == (s.source.license != "CC BY 3.0") for s in recorded))
+    from . import sfx_synth
+    c.check("...and the studio says which ones the YouTube description credits",
+            re.findall(r'"(\w+)"', re.findall(r'CREDITED: readonly string\[\] = \[([^\]]*)\]', sts)[0])
+            == [s.id for s in sfx.STOCK.values() if s.credit])
+    c.check("every made sound has its recipe",
+            all(s.source in sfx_synth.RECIPES for s in sfx.STOCK.values() if isinstance(s.source, str)))
+    c.check("a film's credits name each licence once",
+            sfx.credits([{"credit": "a"}, {}, {"credit": "a"}, {"credit": "b"}]) == ["a", "b"])
+
     print("\n-- edits: the operations the edit agent's tools apply --")
     from . import edits
 
@@ -353,6 +420,43 @@ def main() -> int:
     except edits.EditError as exc:
         refused = "S01-S03" in str(exc)
     c.check("an unknown shot is refused with the shots that exist", refused)
+
+    e = session([8.0, 8.0, 8.0])
+    e.add_sound("sad_trombone", after="W11 W12", volume="loud")
+    e.add_sound("Air horn", at="0:20")
+    cue = e.timeline.sounds[0]
+    c.check("a sound placed after words lands as the last of them ends, by id or by name",
+            abs(cue["at"] - (e.timeline.shots[1].words[2]["end"] + 0.05)) < 1e-6
+            and cue["volume"] == sfx.VOLUMES["loud"] and [x["sound"] for x in e.timeline.sounds]
+            == ["sad_trombone", "air_horn"] and not e.pending() and not e.timeline.validate()[0],
+            str(e.timeline.sounds))
+    c.check("the shot a sound sits in says so",
+            "sounds" in e.describe(e.timeline.shots[1]) and "sounds" not in e.describe(e.timeline.shots[0]))
+    for bad in (lambda: e.add_sound("bruh", at="0:05"), lambda: e.add_sound("pop", at="0:30"),
+                lambda: e.add_sound("pop", after="never said"), lambda: e.remove_sound("x9")):
+        try:
+            bad()
+            refused = False
+        except edits.EditError:
+            refused = True
+        if not refused:
+            break
+    c.check("an unknown sound, a time past the end, unspoken words, a missing id: refused",
+            refused and len(e.timeline.sounds) == 2)
+    e.remove_sound("x1")
+    e.add_sound("pop", at=3)
+    c.check("a sound comes off by id, and a new one takes a fresh id",
+            [(x["sound"], x["id"]) for x in e.timeline.sounds] == [("pop", "x3"), ("air_horn", "x2")])
+    e.add_sound("laugh_track", at=1)
+    c.check("a sound whose licence asks for credit carries it",
+            sfx.credits(e.timeline.sounds) == [sfx.STOCK["laugh_track"].credit])
+    from . import editor
+    placed = editor.place_sounds(worded([8.0, 8.0, 8.0]), add=[{"sound": "boo", "at": 9.5},
+                                                                {"sound": "nope", "at": 1}],
+                                 remove=[], context={})
+    c.check("sounds placed in the studio need no Claude, and one refused does not stop the rest",
+            [x["sound"] for x in placed.draft.sounds] == ["boo"] and [o["ok"] for o in placed.ops] == [True, False]
+            and placed.summary == "Added Booing at 0:09.", placed.summary)
 
     print("\n-- docs.check: the one entry point both slot modes share --")
     r_text = (FIXTURES / "barbarians-01.research.md").read_text()
@@ -512,6 +616,18 @@ def main() -> int:
     ts = (Path(__file__).resolve().parent.parent / "web" / "lib" / "narratives.ts").read_text()
     c.check("the studio's narrative picker offers exactly writer.NARRATIVES",
             re.findall(r'id: "(\w+)"', ts) == list(writer.NARRATIVES), str(re.findall(r'id: "(\w+)"', ts)))
+    from . import pins as _pins, tts as _tts
+    web = Path(__file__).resolve().parent.parent / "web"
+    vts = (web / "lib" / "voices.ts").read_text()
+    c.check("the studio's narrator picker offers exactly tts.VOICES, each with its sample",
+            re.findall(r'\{ id: "(narrator_\w+)"', vts) == list(_tts.VOICES)
+            and all((web / "public" / "voices" / f"{v}.mp3").is_file() for v in _tts.VOICES),
+            str(re.findall(r'\{ id: "(narrator_\w+)"', vts)))
+    c.check("...and exactly tts.PACES, at their speeds",
+            [(i, float(r)) for i, r in re.findall(r'\{ id: "(\w+)", label: "\w+", hint: "[^"]*", rate: ([\d.]+)', vts)]
+            == [(i, p.speed) for i, p in _tts.PACES.items()])
+    c.check("...and every voice it offers is pinned",
+            all(f"voices/{v.kokoro}.pt" in _pins.MODELS["tts"].files for v in _tts.VOICES.values()))
     told = docs.check("script", "---\nproject: x\nperiod: Roman Britain\nprotagonist: Victor\n"
                       "protagonist_look: a man\n---\n### B01 - x\nnarration: |\n  The wind finds Victor.\n"
                       "visual: Victor on a turf rampart\nmood: cold\ntone: true\n")
@@ -750,9 +866,9 @@ def hardening(c: Checks) -> None:
         def __init__(self) -> None:
             self.said: list[tuple[str, int]] = []
 
-        def say(self, text: str, voice: str, take: int = 0) -> np.ndarray:
+        def say(self, text: str, voice: str, take: int = 0, speed: float = 1.0) -> np.ndarray:
             self.said.append((text, take))
-            return super().say(text, voice, take)
+            return super().say(text, voice, take, speed)
 
     class Swallows(FakeAligner):
         """Hears the first word of one beat go missing until it is spoken
@@ -791,6 +907,17 @@ def hardening(c: Checks) -> None:
                     [(b.beat_id, b.narration) for b in script.beats])
         c.check("a first take keeps the cache key it had before retakes existed",
                 (Path(td) / "once" / "cache" / "audio" / f"{first}.wav").is_file())
+
+        engines = production.Engines(tts_engine=Counting(), aligner=FakeAligner())
+        natural = production.narrate(inputs, config.Paths(root=Path(td) / "v", project="p"), engines, log=quiet)
+        chosen = production.narrate(dataclasses.replace(inputs, voice="narrator_female_british_emma",
+                                                        pace="measured"),
+                                    config.Paths(root=Path(td) / "v", project="p"), engines, log=quiet)
+        gaps = (len(script.beats) - 1) * (tts.PACES["measured"].gap - tts.BEAT_GAP_SECONDS)
+        c.check("the narrator and pace chosen in the studio are the ones spoken",
+                chosen.voice == "bf_emma" and chosen.source != natural.source
+                and chosen.duration > natural.duration / tts.PACES["measured"].speed * 0.98 + gaps * 0.98,
+                f"{chosen.voice} {natural.duration:.2f}s -> {chosen.duration:.2f}s")
 
         engines = production.Engines(tts_engine=Counting(), aligner=Swallows(target.narration, 9.0))
         try:

@@ -6,11 +6,13 @@ import {
   currentVersion, exportOf, getCut, lastEdit, listCuts, shotMarks, timecode, type Cut,
 } from "@/lib/cuts";
 import { ago } from "@/lib/format";
-import { mediaUrl } from "@/lib/media";
+import { mediaUrl, mediaUrls, stillKey } from "@/lib/media";
+import { listUploads } from "@/lib/sound-library";
 import type { ProjectRow } from "@/lib/projects";
+import { cutShots } from "@/lib/publications";
 
 import { chooseCut, prepareDownload } from "./edit-actions";
-import { EditingRoom, type CutView, type LiveEdit } from "./editing-room";
+import { EditingRoom, type CutView, type Frame, type LiveEdit } from "./editing-room";
 import { Publish } from "./publish";
 
 /**
@@ -31,10 +33,14 @@ export async function Editing({ p, cutParam }: { p: ProjectRow; cutParam: string
     view(p.id, cut), parent ? view(p.id, parent) : Promise.resolve(null), exportOf(p.id, cut.version),
   ]);
   const live: LiveEdit | null = edit && (edit.state === "queued" || edit.state === "running")
-    ? { id: edit.id, request: edit.payload.request, at: edit.payload.at, chunked: !!cut.hls } : null;
+    ? { id: edit.id, request: edit.payload.request, at: edit.payload.at, chunked: !!cut.hls,
+        repaint: !!edit.payload.repaint?.length, sounds: !!edit.payload.sounds } : null;
   const currentCut = cuts.find((c) => c.version === current);
   const failed = edit && !live && (edit.state === "failed") && currentCut &&
     new Date(edit.created_at) > new Date(currentCut.created_at) ? edit : null;
+  // Every frame of the film, full size, to pick out the ones to paint again.
+  const [frames, uploads] = isCurrent && !live ? await Promise.all([stills(p.id, cut.version), listUploads()])
+    : [null, null];
   const downloadUrl = download?.state === "done" && download.film ? await mediaUrl(download.film).catch(() => null)
     : cut.film ? await mediaUrl(cut.film).catch(() => null) : null;
 
@@ -80,7 +86,8 @@ export async function Editing({ p, cutParam }: { p: ProjectRow; cutParam: string
         </div>
       )}
 
-      <EditingRoom projectId={p.id} viewing={viewing} earlier={earlier} isCurrent={isCurrent} live={live} />
+      <EditingRoom projectId={p.id} viewing={viewing} earlier={earlier} isCurrent={isCurrent} live={live}
+        frames={frames} uploads={uploads} />
 
       <Download projectId={p.id} version={cut.version} state={download?.state ?? null} url={downloadUrl}
         size={download?.size ?? null} />
@@ -102,7 +109,13 @@ async function view(projectId: string, cut: Cut): Promise<CutView> {
     ...(cut.change?.shots ?? []),
     ...(cut.change?.ops ?? []).map((o) => String(o.args.shot_id ?? "")).filter(Boolean),
   ]);
-  const starts = marks.filter((m) => touched.has(m.id)).map((m) => m.start);
+  // A sound added in this cut: its op's result names the cue ("...; id x3").
+  const placed = (cut.change?.ops ?? []).filter((o) => o.tool === "add_sound")
+    .map((o) => /id (x\d+)$/.exec(o.result)?.[1]).filter(Boolean);
+  const starts = [
+    ...marks.filter((m) => touched.has(m.id)).map((m) => m.start),
+    ...cut.sounds.filter((c) => placed.includes(c.id)).map((c) => c.at),
+  ];
   return {
     version: cut.version,
     source: cut.hls ? { kind: "hls", url: `/api/films/${projectId}/cuts/${cut.version}/master.m3u8` }
@@ -114,7 +127,15 @@ async function view(projectId: string, cut: Cut): Promise<CutView> {
     focus: starts.length ? Math.min(...starts) : null,
     change: cut.change ? { request: cut.change.request, summary: cut.change.summary } : null,
     duration: cut.duration,
+    sounds: cut.sounds,
   };
+}
+
+async function stills(projectId: string, version: number): Promise<Frame[]> {
+  const shots = await cutShots(projectId, version);
+  const urls = await mediaUrls(shots.flatMap((s) => (s.still ? [stillKey(s.still)] : [])))
+    .catch(() => ({} as Record<string, string>));
+  return shots.map((s) => ({ id: s.id, still: s.still ? urls[stillKey(s.still)] ?? null : null }));
 }
 
 function Download({ projectId, version, state, url, size }: {

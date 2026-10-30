@@ -14,7 +14,8 @@ one turn; a half-applied one would cost the user a broken version.
 What an edit may never change is the narration. The words, their timing and
 the audio are the film's spine: shot boundaries come from where words were
 measured to fall (shots.py), so cuts move only onto word boundaries, and no
-operation adds, removes or retimes a word.
+operation adds, removes or retimes a word. Sound effects go on top of it
+(pipeline/sfx.py): a cue at a time, which no other edit moves.
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Callable
 
-from . import config
+from . import config, sfx
 from .shots import FRAMINGS
 from .timeline import Motion, Shot, Timeline
 
@@ -74,6 +75,9 @@ class Session:
     timeline: Timeline
     prompt_for: Callable[[str, str, str | None], str]
     ops: list[dict] = field(default_factory=list)
+    #: The sounds a cue may use (sfx.library): the stock ones, and the
+    #: studio's uploads when the worker passes them.
+    sounds: dict[str, dict] = field(default_factory=sfx.library)
 
     # ------------------------------------------------------------- reading
 
@@ -106,6 +110,9 @@ class Session:
                             else f"will be retouched: {s.repaint['instruction']}")
         elif s.retouch:
             d["retouched"] = s.retouch["instruction"]
+        cues = [c for c in self.timeline.sounds if s.start <= c["at"] < s.end]
+        if cues:
+            d["sounds"] = [f"{c['name']} at {timecode(c['at'])} (id {c['id']})" for c in cues]
         return d
 
     def around(self, s: Shot, *, before: int = 1, after: int = 1) -> list[dict]:
@@ -129,6 +136,7 @@ class Session:
     def _apply(self, tool: str, args: dict, fn: Callable[[], str]) -> dict:
         """Run one operation on the draft, or refuse it without a trace."""
         saved = copy.deepcopy(self.timeline.shots)
+        saved_sounds = copy.deepcopy(self.timeline.sounds)
         try:
             message = fn()
             self._renumber()
@@ -137,6 +145,7 @@ class Session:
                 raise EditError("that would leave the film unplayable: " + "; ".join(errors[:3]))
         except EditError:
             self.timeline.shots = saved
+            self.timeline.sounds = saved_sounds
             raise
         self.ops.append({"tool": tool, "args": args, "result": message})
         return {"done": message}
@@ -315,6 +324,92 @@ class Session:
             return (f"{a.shot_id} and {b.shot_id} merged into one shot from {timecode(a.start)} to "
                     f"{timecode(b.end)}, showing the picture of the {keep} ({gone.shot_id}'s is dropped)")
         return self._apply("merge_shots", {"shot_id": shot_id, "keep": keep}, op)
+
+    # ------------------------------------------------------------- sounds
+
+    def add_sound(self, sound: str, at: str | float | None = None, volume: str | float = "normal",
+                  after: str | None = None) -> dict:
+        """A sound effect at `at`, or just after the words `after` (the
+        occurrence nearest `at`, if both are given): "a laugh after the joke"
+        lands on the joke's last word, not wherever the playhead was."""
+        key = self._sound_id(sound)
+        entry = self.sounds[key]
+        if isinstance(volume, str):
+            gain = sfx.VOLUMES.get(volume.strip().lower())
+            if gain is None:
+                raise EditError(f"volume is one of {', '.join(sfx.VOLUMES)}")
+        else:
+            gain = float(volume)
+        near = parse_timecode(at) if at is not None and str(at).strip() else None
+        if near is None and not after:
+            raise EditError("say where: `at` a time, or `after` some words of the narration")
+
+        def op() -> str:
+            t = self._phrase_end(after, near) + 0.05 if after else near
+            if not 0 <= t < self.timeline.duration:
+                raise EditError(f"{timecode(t)} is outside the film (0:00.0-{timecode(self.timeline.duration)})")
+            if len(self.timeline.sounds) >= sfx.MAX_CUES:
+                raise EditError(f"the film already has {sfx.MAX_CUES} sounds; remove some first")
+            cue = {"id": self._cue_id(), "sound": key, "name": entry["name"], "at": round(t, 3), "volume": gain}
+            for extra in ("key", "credit"):
+                if entry.get(extra):
+                    cue[extra] = entry[extra]
+            self.timeline.sounds.append(cue)
+            self.timeline.sounds.sort(key=lambda c: c["at"])
+            word = self._word_at(t)
+            return (f"{entry['name']} at {timecode(t)}" + (f", on '{word}'" if word else "")
+                    + (f" ({volume})" if volume != "normal" else "") + f"; id {cue['id']}")
+        return self._apply("add_sound", {"sound": key, "at": at, "after": after, "volume": volume}, op)
+
+    def remove_sound(self, sound_id: str) -> dict:
+        def op() -> str:
+            cue = next((c for c in self.timeline.sounds if c["id"] == str(sound_id).strip()), None)
+            if cue is None:
+                have = ", ".join(f"{c['id']} ({c['name']} at {timecode(c['at'])})" for c in self.timeline.sounds)
+                raise EditError(f"there is no sound {sound_id} on the film" + (f"; it has {have}" if have
+                                else "; it has none"))
+            self.timeline.sounds.remove(cue)
+            return f"{cue['name']} at {timecode(cue['at'])} removed"
+        return self._apply("remove_sound", {"sound_id": sound_id}, op)
+
+    def _sound_id(self, sound: str) -> str:
+        """A library id, or a sound's name in any case."""
+        text = str(sound or "").strip()
+        if text in self.sounds:
+            return text
+        by_name = {v["name"].lower(): k for k, v in self.sounds.items()}
+        if text.lower() in by_name:
+            return by_name[text.lower()]
+        raise EditError(f"there is no sound {sound!r}; use an id from the sound list")
+
+    def _cue_id(self) -> str:
+        used = [int(c["id"][1:]) for c in self.timeline.sounds if re.fullmatch(r"x\d+", c["id"])]
+        return f"x{max(used, default=0) + 1}"
+
+    def _words(self) -> list[dict]:
+        return [w for s in self.timeline.shots for w in s.words]
+
+    def _word_at(self, t: float) -> str | None:
+        words = self._words()
+        hit = next((w for w in words if w["start"] <= t < w["end"]), None)
+        if hit is None:
+            before = [w for w in words if w["end"] <= t]
+            if before and t - before[-1]["end"] < 0.6:
+                return f"just after {before[-1]['word']}"
+        return hit["word"] if hit else None
+
+    def _phrase_end(self, phrase: str, near: float | None) -> float:
+        """Where the narration finishes saying `phrase`, nearest `near`."""
+        norm = lambda w: re.sub(r"[^\w']", "", w.lower())
+        want = [norm(w) for w in str(phrase).split() if norm(w)]
+        words = self._words()
+        said = [norm(w["word"]) for w in words]
+        ends = [words[i + len(want) - 1]["end"] for i in range(len(said) - len(want) + 1)
+                if want and said[i:i + len(want)] == want]
+        if not ends:
+            raise EditError(f"the narration never says {phrase!r}; quote a few of its words exactly, "
+                            "or give `at` a time instead")
+        return min(ends, key=lambda e: abs(e - near)) if near is not None else ends[0]
 
     # ------------------------------------------------------------- results
 

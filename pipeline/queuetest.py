@@ -77,7 +77,7 @@ def queue_semantics(c: Checks, url: str) -> None:
     print("\n-- schema --")
     c.check("migrations apply", store.migrate() == ["001_init.sql", "002_web.sql", "003_library_style.sql",
                                                   "004_narrative.sql", "005_editing.sql", "006_health.sql",
-                                                  "007_publish.sql"])
+                                                  "007_publish.sql", "008_voice.sql", "009_sounds.sql"])
     c.check("migrations are idempotent", store.migrate() == [])
     payload = seed(store)
     again = seed(store)
@@ -810,6 +810,72 @@ def editing(c: Checks, url: str) -> None:
         outside[y0:y1, x0:x1] = False
         c.check("...and leaves every pixel outside the region exactly as it was",
                 np.array_equal(old_px[outside], new_px[outside]) and not np.array_equal(old_px, new_px))
+
+        picked = [v4["timeline_json"]["shots"][i]["shot_id"] for i in (1, 6)]
+        job = store.enqueue(project, "edit", {"fake": True, "base_version": n + 3,
+                                              "request": "Paint 2 frames again", "repaint": picked})
+        out = run(FAKE_CLAUDE_MODE="limit")  # Claude would refuse: it must not be asked
+        v5 = store.current_timeline(project)
+        before = {s["shot_id"]: s for s in v4["timeline_json"]["shots"]}
+        after = v5["timeline_json"]["shots"] if v5 else []
+        changed = [s["shot_id"] for s in after if s["image"]["hash"] != before[s["shot_id"]]["image"]["hash"]]
+        c.check("frames picked out as wrong are painted again as one cut, and only they change",
+                store.job(job)["state"] == "done" and v5["version"] == n + 4 and changed == picked
+                and all(s["seed"] != before[s["shot_id"]]["seed"] for s in after if s["shot_id"] in picked),
+                f"{changed} {store.job(job)['error']}\n{out[-600:]}")
+        c.check("...without asking Claude, and recorded like any change",
+                [o["tool"] for o in v5["change"]["ops"]] == ["regenerate_shot"] * 2
+                and v5["change"]["shots"] == sorted(picked)
+                and store.conn.execute("SELECT count(*) AS n FROM prompt_log WHERE job_id = %s",
+                                       (job,)).fetchone()["n"] == 0)
+
+        # A sound of the studio's own, put where the studio's upload puts it:
+        # in the store at its content address, in the index, in the library.
+        import hashlib
+        import shutil as _shutil
+        from . import sfx
+        src = sfx.SOUNDS_DIR / "pop.mp3"
+        key = f"sounds/{hashlib.sha256(src.read_bytes()).hexdigest()[:16]}.mp3"
+        (media_dir / key).parent.mkdir(parents=True, exist_ok=True)
+        _shutil.copyfile(src, media_dir / key)
+        store.conn.execute("INSERT INTO media (store, key, size, kind) VALUES (%s, %s, %s, 'sound')",
+                           (f"dir:{media_dir}", key, src.stat().st_size))
+        sid = store.conn.execute("INSERT INTO sounds (name, key, bytes, seconds) VALUES ('Bruh', %s, %s, 0.1) "
+                                 "RETURNING id", (key, src.stat().st_size)).fetchone()["id"]
+        job = store.enqueue(project, "edit", {"fake": True, "base_version": n + 4,
+                                              "request": "Add Fail horn at 0:03, Bruh at 0:05",
+                                              "sounds": {"add": [{"sound": "sad_trombone", "at": 3.0},
+                                                                 {"sound": f"upload:{sid}", "at": 5.0,
+                                                                  "volume": "loud"}], "remove": []}})
+        out = run(FAKE_CLAUDE_MODE="limit")  # placed in the studio: Claude must not be asked
+        v6 = store.current_timeline(project)
+        hls5, hls6 = v5["timeline_json"]["media"]["hls"], v6["timeline_json"]["media"]["hls"]
+        cues = v6["timeline_json"]["sounds"]
+        c.check("sounds placed in the studio make one cut, a stock sound and one of the studio's own",
+                store.job(job)["state"] == "done" and v6["version"] == n + 5
+                and [(q["sound"], q["at"], q.get("key")) for q in cues]
+                == [("sad_trombone", 3.0, None), (f"upload:{sid}", 5.0, key)],
+                f"{cues} {store.job(job)['error']}\n{out[-600:]}")
+        c.check("...re-encoding no picture: the same chunks, a new soundtrack in the store",
+                [ch["key"] for ch in hls6["chunks"]] == [ch["key"] for ch in hls5["chunks"]]
+                and v6["change"]["chunks_encoded"] == 0 and hls6["narration"] != hls5["narration"]
+                and (media_dir / hls6["narration"]).is_file() and v6["change"]["shots"] == [],
+                str(v6["change"]))
+        c.check("...without asking Claude, the change in the studio's words",
+                [o["tool"] for o in v6["change"]["ops"]] == ["add_sound"] * 2
+                and v6["change"]["summary"] == "Added Fail horn at 0:03, Bruh at 0:05 (loud)."
+                and store.conn.execute("SELECT count(*) AS n FROM prompt_log WHERE job_id = %s",
+                                       (job,)).fetchone()["n"] == 0, v6["change"]["summary"])
+        store.conn.execute("DELETE FROM sounds WHERE id = %s", (sid,))
+        job = store.enqueue(project, "edit", {"fake": True, "base_version": n + 5, "request": "Remove Fail horn",
+                                              "sounds": {"add": [], "remove": [cues[0]["id"]]}})
+        out = run(FAKE_CLAUDE_MODE="limit")
+        v7 = store.current_timeline(project)
+        c.check("a sound comes off as its own cut; one deleted from the library still plays in the film",
+                store.job(job)["state"] == "done" and [q["sound"] for q in v7["timeline_json"]["sounds"]]
+                == [f"upload:{sid}"] and v7["timeline_json"]["media"]["hls"]["narration"]
+                not in (hls5["narration"], hls6["narration"]),
+                f"{store.job(job)['error']}\n{out[-600:]}")
 
         job = store.enqueue(project, "export", {"fake": True, "version": n + 3})
         out = run()

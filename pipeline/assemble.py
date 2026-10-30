@@ -74,7 +74,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import captions as captions_mod, config
+from . import captions as captions_mod, config, sfx
 from .timeline import Shot, Timeline, file_sha, sha
 
 
@@ -405,7 +405,10 @@ NARRATION_SLICE_SECONDS = 6
 def narration_stream(timeline: Timeline, wav: Path, paths) -> tuple[Path, Path]:
     """The narration as the film's one audio stream, encoded once per wav,
     and its byte-range index ([[seconds, length, offset], ...]) beside it.
-    Edits never change it, so a film's edits all share these two files."""
+    `wav` is the soundtrack (sfx.soundtrack): the narration itself, or the
+    narration with the film's sounds mixed in. Edits to pictures never
+    change it, so they all share these two files; a sound added or removed
+    makes a new one, and no chunk."""
     dest = paths.cache / "narration" / (
         sha("narr-ts-v2", file_sha(wav), round(timeline.duration, 4), FILM_AUDIO, TS_BASE,
             NARRATION_SLICE_SECONDS) + ".ts")
@@ -443,8 +446,9 @@ def narration_stream(timeline: Timeline, wav: Path, paths) -> tuple[Path, Path]:
 
 
 def film(timeline: Timeline, chunks: list[Path], wav: Path, dest: Path, *, log=print) -> Path:
-    """The chunks as one mp4 by stream copy, the narration encoded beside
-    them, and the length checked against the timeline.
+    """The chunks as one mp4 by stream copy, the soundtrack encoded beside
+    them, and the length checked against the timeline. `wav` is the
+    soundtrack (sfx.soundtrack), as for the narration stream.
 
     The narration is encoded here rather than copied from the HLS stream: an
     mp4 can say how much of the AAC encoder's priming to skip, and a stream
@@ -501,7 +505,7 @@ def build(timeline: Timeline, paths, *, audio: Path | None = None, mp4: bool = T
     ok, msg = preflight()
     if not ok:
         raise RuntimeError(msg)
-    audio = audio or paths.audio
+    audio = sfx.soundtrack(timeline, audio or paths.audio, paths, log=log)
     encoded: list[int] = []
     chunks = render_chunks(timeline, paths, encoded=encoded, log=log)
     narration, narration_index = narration_stream(timeline, audio, paths)

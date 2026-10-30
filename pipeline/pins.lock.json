@@ -75,6 +75,58 @@
         "voices/bm_george.pt": {
           "sha256": "f1bc812213dc59774769e5c80004b13eeb79bd78130b11b2d7f934542dab811b",
           "size": 523430
+        },
+        "voices/am_fenrir.pt": {
+          "sha256": "98e507eca1db08230ae3b6232d59c10aec9630022d19accac4f5d12fcec3c37a",
+          "size": 523430
+        },
+        "voices/am_puck.pt": {
+          "sha256": "dd1d8973f4ce4b7d8ae407c77a435f485dabc052081b80ea75c4f30b84f36223",
+          "size": 523420
+        },
+        "voices/bm_fable.pt": {
+          "sha256": "d44935f3135257a9064df99f007fc1342ff1aa767552b4a4fa4c3b2e6e59079c",
+          "size": 523425
+        },
+        "voices/af_heart.pt": {
+          "sha256": "0ab5709b8ffab19bfd849cd11d98f75b60af7733253ad0d67b12382a102cb4ff",
+          "size": 523425
+        },
+        "voices/af_bella.pt": {
+          "sha256": "8cb64e02fcc8de0327a8e13817e49c76c945ecf0052ceac97d3081480e8e48d6",
+          "size": 523425
+        },
+        "voices/af_nicole.pt": {
+          "sha256": "c5561808bcf5250fe8c5f5de32caf2d94f27e57e95befdb098c5c85991d4c5da",
+          "size": 523430
+        },
+        "voices/af_aoede.pt": {
+          "sha256": "c03bd1a4c3716c2d8eaa3d50022f62d5c31cfbd6e15933a00b17fefe13841cc4",
+          "size": 523425
+        },
+        "voices/af_kore.pt": {
+          "sha256": "8bfbc512321c3db49dff984ac675fa5ac7eaed5a96cc31104d3a9080e179d69d",
+          "size": 523420
+        },
+        "voices/af_sarah.pt": {
+          "sha256": "49bd364ea3be9eb3e9685e8f9a15448c4883112a7c0ff7ab139fa4088b08cef9",
+          "size": 523425
+        },
+        "voices/af_nova.pt": {
+          "sha256": "e0233676ddc21908c37a1f102f6b88a59e4e5c1bd764983616eb9eda629dbcd2",
+          "size": 523420
+        },
+        "voices/af_alloy.pt": {
+          "sha256": "6d877149dd8b348fbad12e5845b7e43d975390e9f3b68a811d1d86168bef5aa3",
+          "size": 523425
+        },
+        "voices/bf_emma.pt": {
+          "sha256": "d0a423deabf4a52b4f49318c51742c54e21bb89bbbe9a12141e7758ddb5da701",
+          "size": 523420
+        },
+        "voices/bf_isabella.pt": {
+          "sha256": "cdd4c37003805104d1d08fb1e05855c8fb2c68de24ca6e71f264a30aaa59eefd",
+          "size": 523440
         }
       }
     },

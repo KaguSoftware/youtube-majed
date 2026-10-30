@@ -67,6 +67,10 @@ class Inputs:
     #: Output frame size override, (width, height). None is the production
     #: 1080p. The weights-free queue test renders small to stay fast.
     render_size: tuple[int, int] | None = None
+    #: The narrator and delivery chosen in the studio (tts.VOICES, tts.PACES).
+    #: None: the script's `voice:` line, at the natural pace.
+    voice: str | None = None
+    pace: str | None = None
 
 
 class Engines:
@@ -174,15 +178,21 @@ def narrate(inputs: Inputs, paths: config.Paths, engines: Engines, *,
             takes: dict[str, int] | None = None, memo: dict | None = None,
             log=print) -> tts.Narration:
     """`takes` re-speaks the beats it names (see `narrate_and_gate`)."""
-    voice_id = inputs.script.meta.get("voice", "narrator_male_low")
+    voice_id = inputs.voice or inputs.script.meta.get("voice", tts.DEFAULT_VOICE)
+    pace = inputs.pace if inputs.pace in tts.PACES else tts.DEFAULT_PACE
     engine = engines.tts
     takes = {b: t for b, t in (takes or {}).items() if t}
+    voice = tts.VOICES.get(voice_id)
     key = sha(
         "narr-v2", engine.name, engine.sample_rate, voice_id, tts.VOICE_MAP.get(voice_id),
         tts.BEAT_GAP_SECONDS, tts.PEAK_TARGET,
         [(b.beat_id, b.narration) for b in inputs.script.beats],
         # Only when there are any, so every first-take narration keeps its key.
         *([sorted(takes.items()), tts.RETAKE_SPEED_STEP, tts.RETAKE_MIN_SPEED] if takes else []),
+        # Likewise only off the defaults: an American voice at the natural
+        # pace is every narration made before voices and paces were chosen.
+        *([("pace", pace, tts.PACES[pace].speed, tts.PACES[pace].gap)] if pace != tts.DEFAULT_PACE else []),
+        *([("lang", voice.lang)] if voice and voice.lang != "a" else []),
     )
     wav = paths.cache / "audio" / f"{key}.wav"
     index_path = wav.with_suffix(".json")
@@ -194,7 +204,7 @@ def narrate(inputs: Inputs, paths: config.Paths, engines: Engines, *,
     if paths.mirror.ensure(wav) and paths.mirror.ensure(index_path):
         log(f"  cached {wav.name}")
     else:
-        made = tts.synthesize(inputs.script.beats, wav, engine=engine, voice_id=voice_id,
+        made = tts.synthesize(inputs.script.beats, wav, engine=engine, voice_id=voice_id, pace=pace,
                               takes=takes, memo=memo, log=log)
         # The index goes last: a wav without its index is not a cache hit.
         sr = made.sample_rate

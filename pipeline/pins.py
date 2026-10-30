@@ -110,11 +110,17 @@ MODELS: dict[str, Model] = {
         keyed_as="mlx-community/flux2-klein-4b-4bit",
         keyed_at="860e87183ceb29e39627c0612ebd66d8ea66e68c",
     ),
-    # Kokoro-82M and the two voices tts.VOICE_MAP names.
+    # Kokoro-82M and every voice tts.VOICES offers. Voices were added at the
+    # same revision, so the identity (and every cached narration) is unchanged.
     "tts": Model(
         role="tts", repo="hexgrad/Kokoro-82M",
         revision="f3ff3571791e39611d31c381e3a41a3af07b4987", licence="apache-2.0",
-        files=("config.json", "kokoro-v1_0.pth", "voices/am_michael.pt", "voices/bm_george.pt"),
+        files=("config.json", "kokoro-v1_0.pth", "voices/am_michael.pt", "voices/bm_george.pt",
+               "voices/am_fenrir.pt", "voices/am_puck.pt", "voices/bm_fable.pt",
+               "voices/af_heart.pt", "voices/af_bella.pt", "voices/af_nicole.pt",
+               "voices/af_aoede.pt", "voices/af_kore.pt", "voices/af_sarah.pt",
+               "voices/af_nova.pt", "voices/af_alloy.pt", "voices/bf_emma.pt",
+               "voices/bf_isabella.pt"),
         keyed_as="kokoro-82m", keyed_at="f3ff3571791e39611d31c381e3a41a3af07b4987",
     ),
     # wav2vec2 for forced alignment and the ASR cross-check (PLAN.md 9.7: not

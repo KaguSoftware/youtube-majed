@@ -43,6 +43,10 @@ export type Change = {
   timings?: Record<string, number>;
 };
 
+/** A sound effect on a cut (pipeline/sfx.py, Timeline.sounds). `sound` is a
+ *  stock id or "upload:<id>"; `volume` is the gain, sfx.VOLUMES. */
+export type Cue = { id: string; sound: string; name: string; at: number; volume: number; key?: string; credit?: string };
+
 export type Cut = {
   version: number;
   parent_version: number | null;
@@ -52,6 +56,7 @@ export type Cut = {
   duration: number;
   hls: Hls | null;
   film: string | null;
+  sounds: Cue[];
   sheet: { key: string; cols: number; rows: number; thumb: [number, number]; shots: string[] } | null;
 };
 
@@ -60,6 +65,7 @@ const SELECT = `
          (t.timeline_json->>'duration')::float AS duration,
          t.timeline_json->'media'->'hls' AS hls,
          t.timeline_json->'media'->>'film' AS film,
+         coalesce(t.timeline_json->'sounds', '[]') AS sounds,
          t.timeline_json->'media'->'sheet' AS sheet
   FROM timelines t LEFT JOIN users u ON u.id = t.created_by`;
 
@@ -129,7 +135,8 @@ function narrationProblem(words: string[]): string {
 
 export type EditJob = {
   id: string; state: string; error: string | null; created_at: Date;
-  payload: { request: string; at: number | null; base_version: number };
+  payload: { request: string; at: number | null; base_version: number; repaint?: string[];
+    sounds?: { add: { sound: string; at: number; volume: string }[]; remove: string[] } };
 };
 
 /** The newest edit request, live or finished. */

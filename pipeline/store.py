@@ -601,6 +601,15 @@ class Store:
             self.conn.execute("UPDATE publications SET youtube = youtube || %s WHERE id = %s",
                               (Jsonb(youtube), pub_id))
 
+    def uploaded_sounds(self) -> list[dict]:
+        """The studio's own sounds (migration 009), for sfx.library. Empty
+        before the migration, so a worker can run ahead of it."""
+        try:
+            with self.conn.transaction():
+                return self._all("SELECT id, name, key FROM sounds ORDER BY id")
+        except psycopg.errors.UndefinedTable:
+            return []
+
     def timeline(self, project_id: str, version: int) -> dict | None:
         return self._one("SELECT * FROM timelines WHERE project_id = %s AND version = %s",
                          (project_id, version))

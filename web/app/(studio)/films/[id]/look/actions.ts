@@ -9,6 +9,7 @@ import { requireUser } from "@/lib/auth";
 import { one, transaction } from "@/lib/db";
 import { latestApproved } from "@/lib/documents";
 import { ring } from "@/lib/doorbell";
+import { isPace, isVoice } from "@/lib/voices";
 
 /** Paint candidate looks: the hero beat on three fresh seeds, on the GPU lane. */
 export async function paintLooks(projectId: string, _prev: ActionState, form: FormData): Promise<ActionState> {
@@ -91,8 +92,11 @@ function targetShots(seconds: number | null): number {
 }
 
 /** Start the render on the pinned research, script and look. */
-export async function renderFilm(projectId: string): Promise<ActionState> {
+export async function renderFilm(projectId: string, _prev: ActionState, form: FormData): Promise<ActionState> {
   const user = await requireUser();
+  const voice = form.get("voice");
+  const pace = form.get("pace");
+  if (!isVoice(voice) || !isPace(pace)) return { error: "Choose a narrator and a pace." };
   const p = await one<{ style_id: string | null; target_duration: number | null }>(
     "SELECT style_id, target_duration FROM projects WHERE id = $1", [projectId]);
   const [research, script] = await Promise.all([latestApproved(projectId, "research"), latestApproved(projectId, "script")]);
@@ -104,11 +108,12 @@ export async function renderFilm(projectId: string): Promise<ActionState> {
     await transaction(async (db) => {
       await db.query("INSERT INTO jobs (project_id, kind, payload) VALUES ($1, 'production', $2)", [projectId, JSON.stringify({
         research_id: Number(research.id), script_id: Number(script.id), style_id: p.style_id,
-        target_shots: targetShots(p.target_duration), requested_by: user.id,
+        target_shots: targetShots(p.target_duration), voice, pace, requested_by: user.id,
       })]);
-      await db.query("UPDATE projects SET state = 'production', updated_at = now() WHERE id = $1", [projectId]);
-      await db.query("INSERT INTO project_events (project_id, kind, to_state, user_id) VALUES ($1, 'render_started', 'production', $2)",
-        [projectId, user.id]);
+      await db.query("UPDATE projects SET state = 'production', voice = $2, pace = $3, updated_at = now() WHERE id = $1",
+        [projectId, voice, pace]);
+      await db.query("INSERT INTO project_events (project_id, kind, to_state, user_id, data) VALUES ($1, 'render_started', 'production', $2, $3)",
+        [projectId, user.id, JSON.stringify({ voice, pace })]);
     });
   } catch (err) {
     if (String(err).includes("jobs_one_live_per_project")) return { error: "This film is already rendering." };

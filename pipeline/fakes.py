@@ -44,11 +44,11 @@ class FakeTTS(TTS):
     def load(self) -> None:
         pass
 
-    def say(self, text: str, voice: str, take: int = 0) -> np.ndarray:
+    def say(self, text: str, voice: str, take: int = 0, speed: float = 1.0) -> np.ndarray:
         from .tts import retake_speed
 
         sr = self.sample_rate
-        n = int(SECONDS_PER_WORD / retake_speed(take) * sr)
+        n = int(SECONDS_PER_WORD / (speed * retake_speed(take)) * sr)
         t = np.arange(n) / sr
         out = []
         for i, word in enumerate(text.split()):

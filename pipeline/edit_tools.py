@@ -31,7 +31,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import config, edits
+from . import config, edits, sfx
 from .timeline import Timeline
 
 #: The stills Claude looks at: full generation size, so a small wrong object
@@ -119,7 +119,40 @@ TOOLS = [
                      "description": "whose picture the merged shot shows"}},
             "required": ["shot_id"]},
     },
+    {
+        "name": "add_sound",
+        "description": "Put a sound effect from the sound list on the film. Give `after`, a few words of "
+                       "the narration quoted exactly, to land it just as they finish (a laugh after the "
+                       "joke, a fail horn after the defeat); or `at`, a time. With both, the occurrence of "
+                       "the words nearest the time. The narration stays as it is; the sound plays over it.",
+        "inputSchema": {"type": "object", "properties": {
+            "sound": {"type": "string", "description": "an id from the sound list"},
+            "at": {"type": "string", "description": "'1:24' or '84'"},
+            "after": {"type": "string", "description": "words of the narration, quoted exactly"},
+            "volume": {"type": "string", "enum": ["quiet", "normal", "loud"],
+                       "description": "quiet sits under the voice; normal is as loud as it"}},
+            "required": ["sound"]},
+    },
+    {
+        "name": "remove_sound",
+        "description": "Take a sound effect off the film, by the id the shot list or resolve_timecode gives it.",
+        "inputSchema": {"type": "object", "properties": {"sound_id": {"type": "string"}},
+                        "required": ["sound_id"]},
+    },
 ]
+
+
+def prompt_builder(ctx: dict):
+    """`prompt_for(visual, mood, framing)` for edits.Session, from the
+    film-wide words in an edit context (worker._edit_context)."""
+    style = config.Style(style_id="edit", preset="", prompt_prefix=ctx["prompt_prefix"], seed=0,
+                         hero_full=Path(), hero_crop=Path(), crop_box=(0, 0, 1, 1))
+    protagonist = tuple(ctx["protagonist"]) if ctx.get("protagonist") else None
+
+    def prompt_for(visual: str, mood: str, framing: str | None) -> str:
+        return style.prompt_for(visual, mood, framing, period=ctx.get("period"),
+                                protagonist=protagonist)
+    return prompt_for
 
 
 class Server:
@@ -128,15 +161,7 @@ class Server:
         ctx = json.loads((session_dir / "context.json").read_text())
         self.ctx = ctx
         timeline = Timeline.from_json(json.loads((session_dir / "timeline.json").read_text()))
-        style = config.Style(style_id="edit", preset="", prompt_prefix=ctx["prompt_prefix"], seed=0,
-                             hero_full=Path(), hero_crop=Path(), crop_box=(0, 0, 1, 1))
-        protagonist = tuple(ctx["protagonist"]) if ctx.get("protagonist") else None
-
-        def prompt_for(visual: str, mood: str, framing: str | None) -> str:
-            return style.prompt_for(visual, mood, framing, period=ctx.get("period"),
-                                    protagonist=protagonist)
-
-        self.session = edits.Session(timeline, prompt_for)
+        self.session = edits.Session(timeline, prompt_builder(ctx), sounds=ctx.get("sounds") or sfx.library())
         self._mirror = None
 
     # ------------------------------------------------------------ images
@@ -191,6 +216,10 @@ class Server:
             out = s.split_shot(args["shot_id"], args.get("at"), args.get("visual"))
         elif name == "merge_shots":
             out = s.merge_shots(args["shot_id"], args.get("keep", "first"))
+        elif name == "add_sound":
+            out = s.add_sound(args["sound"], args.get("at"), args.get("volume", "normal"), args.get("after"))
+        elif name == "remove_sound":
+            out = s.remove_sound(args["sound_id"])
         else:
             raise edits.EditError(f"there is no tool {name}")
         if len(s.ops) > before:

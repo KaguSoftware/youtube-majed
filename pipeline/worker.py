@@ -87,8 +87,8 @@ from datetime import datetime, timezone
 
 import psycopg
 
-from . import (assemble, config, docs, editor, images, media, pins, production, publish, smoke, writer,
-               youtube)
+from . import (assemble, config, docs, editor, images, media, pins, production, publish, sfx, smoke,
+               writer, youtube)
 from .timeline import Timeline, text_sha
 from .store import (GPU_KINDS, LIGHT_KINDS, WRITING_KINDS, Claim, FilmMoved, LeaseLost, MediaIndex,
                     Store, database_url)
@@ -788,7 +788,8 @@ class Worker:
             if script:
                 parsed = docs.parse_script_text(script["markdown_raw"])
                 period, protagonist = parsed.meta.get("period"), list(docs.protagonist(parsed) or []) or None
-        return {"prompt_prefix": st["prompt_prefix"], "period": period, "protagonist": protagonist}
+        return {"prompt_prefix": st["prompt_prefix"], "period": period, "protagonist": protagonist,
+                "sounds": sfx.library(self.store.uploaded_sounds())}
 
     def edit_film(self, claim: Claim, hooks: JobHooks) -> dict:
         """An edit job: Claude changes a draft of the film's timeline, the
@@ -802,15 +803,27 @@ class Worker:
 
         hooks.stage("understanding")
         t = time.monotonic()
-        result = editor.run_agent(
-            timeline, p["request"], at=p.get("at"), context=context, work_root=self.work_root,
-            should_stop=hooks.check, log=self.log,
-            on_op=lambda op: self.store.event(claim, "tool", {
-                "tool": op["tool"], "args": op["args"], "ok": op["ok"], "result": op["result"][:300]}))
+
+        def on_op(op):
+            self.store.event(claim, "tool", {
+                "tool": op["tool"], "args": op["args"], "ok": op["ok"], "result": op["result"][:300]})
+
+        if p.get("repaint"):
+            # Frames picked out in the studio: no request for Claude to read.
+            result = editor.repaint(timeline, list(p["repaint"]), context=context, on_op=on_op)
+        elif p.get("sounds"):
+            # Sounds placed in the studio: likewise, and nothing to paint.
+            result = editor.place_sounds(timeline, add=list(p["sounds"].get("add") or []),
+                                         remove=list(p["sounds"].get("remove") or []),
+                                         context=context, on_op=on_op)
+        else:
+            result = editor.run_agent(
+                timeline, p["request"], at=p.get("at"), context=context, work_root=self.work_root,
+                should_stop=hooks.check, log=self.log, on_op=on_op)
+            self._quietly(lambda: self.store.record_prompt(
+                project_id=claim.project_id, kind="edit", prompt=result.prompt,
+                response_raw=result.response_raw, job_id=claim.job_id, meta=result.meta))
         timings["understanding"] = round(time.monotonic() - t, 2)
-        self._quietly(lambda: self.store.record_prompt(
-            project_id=claim.project_id, kind="edit", prompt=result.prompt,
-            response_raw=result.response_raw, job_id=claim.job_id, meta=result.meta))
         changed = editor.changes(result.ops)
         hooks.check()
         if not changed:
@@ -894,7 +907,7 @@ class Worker:
             rendered = assemble.build(timeline, paths, audio=wav, mp4=False, log=self.log)
             chunks = [path for _, path in rendered.chunks]
         dest = paths.run / f"v{version}.mp4"
-        assemble.film(timeline, chunks, wav, dest, log=self.log)
+        assemble.film(timeline, chunks, sfx.soundtrack(timeline, wav, paths, log=self.log), dest, log=self.log)
         return dest, mirror
 
     # ------------------------------------------------------------ publishing
@@ -1086,6 +1099,8 @@ class Worker:
             force=bool(p.get("force", False)),
             max_wer=float(p.get("max_wer", config.MAX_WER)),
             render_size=tuple(size) if size else None,
+            voice=p.get("voice"),
+            pace=p.get("pace"),
         )
 
 

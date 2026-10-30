@@ -17,6 +17,8 @@ Accuracy is the product's only claim, so the description carries the film's
 sources: every distinct URL the approved research cites, in claim order. A
 viewer who doubts a line can follow it. It also says, in one line, what is
 made by machine, which the person can edit or remove like any other line.
+And it credits any sound effect whose licence asks for it (sfx.credits),
+ahead of the sources so a long source list can never push it out.
 """
 
 from __future__ import annotations
@@ -99,9 +101,10 @@ def sources(research_markdown: str | None) -> list[str]:
     return out
 
 
-def draft(project: dict, research_markdown: str | None = None) -> dict:
+def draft(project: dict, research_markdown: str | None = None, credits: list[str] = ()) -> dict:
     """A first title and description for the form, from the film's own
-    record: its topic, its angle, and the sources its research cites."""
+    record: its topic, its angle, the sources its research cites, and the
+    credits its sound effects ask for."""
     title = _FORBIDDEN.sub("", " ".join(str(project.get("topic") or "").split()))
     if title[:1].islower():
         title = title[0].upper() + title[1:]
@@ -113,6 +116,9 @@ def draft(project: dict, research_markdown: str | None = None) -> dict:
         angle += "."
     urls = sources(research_markdown)
     body = "\n\n".join(h for h in (angle, DISCLOSURE + (" " + SOURCED if urls else "")) if h)
+    credits = [_FORBIDDEN.sub("", " ".join(str(c).split())) for c in credits if str(c).strip()]
+    if credits:
+        body += "\n\nSound effects\n" + "\n".join(credits)
     if urls:
         listing = "Sources\n"
         for i, url in enumerate(urls):

@@ -83,7 +83,8 @@ async function FormArea({ p, cut, channel, from, alreadyPosted, collapsed }: {
     "SELECT markdown_raw FROM artifacts WHERE project_id = $1 AND kind = 'research' AND doc_status = 'approved' " +
     "ORDER BY version DESC LIMIT 1", [p.id]);
   const [draft, stills, sheetUrl] = await Promise.all([
-    from ? null : publishDraft({ topic: p.topic, angle: p.angle }, research?.markdown_raw).catch(() => null),
+    from ? null : publishDraft({ topic: p.topic, angle: p.angle }, research?.markdown_raw,
+      [...new Set(cut.sounds.flatMap((c) => (c.credit ? [c.credit] : [])))]).catch(() => null),
     mediaUrls(shots.flatMap((s) => (s.still ? [stillKey(s.still)] : []))).catch(() => ({} as Record<string, string>)),
     cut.sheet ? mediaUrl(cut.sheet.key).catch(() => null) : Promise.resolve(null),
   ]);

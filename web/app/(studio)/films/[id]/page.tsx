@@ -11,6 +11,7 @@ import { lastWriting, latestApproved, type DocKind, type DocVersion } from "@/li
 import { ago, minutes } from "@/lib/format";
 import { lockedStyle } from "@/lib/looks";
 import { mediaUrl } from "@/lib/media";
+import { DEFAULT_PACE, DEFAULT_VOICE, isPace, isVoice } from "@/lib/voices";
 import { one } from "@/lib/db";
 import { getProject, nextStep, type ProjectRow } from "@/lib/projects";
 
@@ -206,7 +207,8 @@ async function StagePanel({ p, step }: { p: ProjectRow; step: ReturnType<typeof 
         ) : headline}
         {look && lookUrl && <LookSummary url={lookUrl} box={look.preset_json.crop_box} projectId={p.id} />}
         {look
-          ? <RenderButton projectId={p.id} again={job?.state === "failed"} minutes={renderMinutes} />
+          ? <RenderButton projectId={p.id} again={job?.state === "failed"} minutes={renderMinutes}
+              voice={isVoice(p.voice) ? p.voice : DEFAULT_VOICE} pace={isPace(p.pace) ? p.pace : DEFAULT_PACE} />
           : <Link href={`/films/${p.id}/look`} className={`${button.primary} self-start`}>Choose the look</Link>}
       </div>
     );
