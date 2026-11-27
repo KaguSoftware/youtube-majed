@@ -12,7 +12,8 @@
     "typecheck": "tsc -p ."
   },
   "dependencies": {
-    "@studio/schema": "workspace:*"
+    "@studio/schema": "workspace:*",
+    "zod": "4.6.7"
   },
   "devDependencies": {
     "@types/node": "22.20.7",

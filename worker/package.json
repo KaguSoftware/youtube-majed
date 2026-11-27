@@ -5,16 +5,22 @@
   "type": "module",
   "scripts": {
     "voice": "tsx src/voice.ts",
-    "typecheck": "tsc -p ."
+    "typecheck": "tsc -p .",
+    "test": "vitest run",
+    "story": "tsx src/cli.ts",
+    "dev": "tsx watch --disable-warning=ExperimentalWarning src/server.ts",
+    "start": "tsx --disable-warning=ExperimentalWarning src/server.ts"
   },
   "dependencies": {
     "@studio/project": "workspace:*",
     "@studio/schema": "workspace:*",
+    "@studio/story": "workspace:*",
     "zod": "4.6.7"
   },
   "devDependencies": {
     "@types/node": "22.20.7",
     "tsx": "4.23.15",
-    "typescript": "7.0.2"
+    "typescript": "7.0.2",
+    "vitest": "5.1.2"
   }
 }

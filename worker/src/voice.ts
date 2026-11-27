@@ -126,6 +126,9 @@ if (!voice || !voice.ok) fail(`voice.json written by the service is not valid:\n
 syncAudio(id);
 
 const t = voice.data.track;
+// the speaking rate the story engine budgets with (docs/PLAN.md section 3): words over the whole track, pauses included
+const spoken = lines.reduce((n, l) => n + l.text.split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w)).length, 0);
+console.log(`  measured ${Math.round((spoken / t.duration) * 60)} wpm over ${spoken} words (story budgets assume the brief's wpm, default 170)`);
 console.log(
   `\n✓ ${paths.narration}\n  ${t.duration.toFixed(1)} s · ${t.loudness.integratedLufs} LUFS · ${t.loudness.truePeakDbtp} dBTP · ${generated} line(s) generated, ${lines.length - generated} reused, ${retried} needed an automatic retake · ${((Date.now() - started) / 1000).toFixed(0)} s`,
 );

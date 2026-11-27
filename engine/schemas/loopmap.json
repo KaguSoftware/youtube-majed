@@ -1,0 +1,225 @@
+{
+  "type": "object",
+  "properties": {
+    "master": {
+      "type": "object",
+      "properties": {
+        "stakes": {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "character",
+                "at_risk",
+                "urgent"
+              ],
+              "description": "character = someone to root for; at_risk = something could be lost; urgent = a deadline"
+            },
+            "text": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The stakes in one concrete sentence, as the viewer would hear them"
+            }
+          },
+          "required": [
+            "type",
+            "text"
+          ],
+          "additionalProperties": false
+        },
+        "question": {
+          "type": "string",
+          "minLength": 1
+        },
+        "headFake": {
+          "type": "object",
+          "properties": {
+            "expected": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Expectation A: what the viewer is led to predict"
+            },
+            "actual": {
+              "type": "string",
+              "minLength": 1,
+              "description": "What is delivered instead (B)"
+            },
+            "plantIds": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^P\\d+$"
+              },
+              "description": "The earlier plants that make the twist fair"
+            }
+          },
+          "required": [
+            "expected",
+            "actual",
+            "plantIds"
+          ],
+          "additionalProperties": false,
+          "description": "The ending twist"
+        }
+      },
+      "required": [
+        "stakes",
+        "question",
+        "headFake"
+      ],
+      "additionalProperties": false
+    },
+    "loops": {
+      "minItems": 2,
+      "maxItems": 16,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^L\\d+$"
+          },
+          "level": {
+            "type": "string",
+            "enum": [
+              "chapter",
+              "micro"
+            ],
+            "description": "chapter for YouTube (45–90 s each), micro for a Reel (10–25 s each)"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 60,
+            "description": "A 2–5 word label for the tension graph"
+          },
+          "stakes": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "character",
+                  "at_risk",
+                  "urgent"
+                ],
+                "description": "character = someone to root for; at_risk = something could be lost; urgent = a deadline"
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The stakes in one concrete sentence, as the viewer would hear them"
+              }
+            },
+            "required": [
+              "type",
+              "text"
+            ],
+            "additionalProperties": false
+          },
+          "question": {
+            "type": "string",
+            "minLength": 1,
+            "description": "This loop's specific question. Never yes/no"
+          },
+          "headFake": {
+            "type": "object",
+            "properties": {
+              "expected": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Expectation A: what the viewer is led to predict"
+              },
+              "actual": {
+                "type": "string",
+                "minLength": 1,
+                "description": "What is delivered instead (B)"
+              },
+              "plantIds": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^P\\d+$"
+                },
+                "description": "The earlier plants that make the twist fair"
+              }
+            },
+            "required": [
+              "expected",
+              "actual",
+              "plantIds"
+            ],
+            "additionalProperties": false
+          },
+          "rehook": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The line that closes this question and opens the next, bigger one. The last loop's rehook is the final line"
+          },
+          "wordBudget": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "description": "Words of narration this loop gets"
+          }
+        },
+        "required": [
+          "id",
+          "level",
+          "title",
+          "stakes",
+          "question",
+          "headFake",
+          "rehook",
+          "wordBudget"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "plants": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^P\\d+$"
+          },
+          "loopId": {
+            "type": "string",
+            "pattern": "^L\\d+$",
+            "description": "The loop where the plant is shown"
+          },
+          "detail": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The concrete detail the viewer sees or hears, innocently, before it matters"
+          },
+          "paysOffIn": {
+            "type": "string",
+            "pattern": "^L\\d+$",
+            "description": "The loop whose head fake it makes fair"
+          }
+        },
+        "required": [
+          "id",
+          "loopId",
+          "detail",
+          "paysOffIn"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "master",
+    "loops",
+    "plants"
+  ],
+  "additionalProperties": false
+}

@@ -12,6 +12,11 @@
     "render:preview": "pnpm --filter @studio/remotion render:preview",
     "typecheck": "pnpm -r typecheck",
     "voice": "pnpm --filter @studio/worker voice",
-    "sync-check": "pnpm --filter @studio/remotion sync-check"
+    "sync-check": "pnpm --filter @studio/remotion sync-check",
+    "schemas": "pnpm --filter @studio/schema schemas",
+    "test": "pnpm -r --if-present test",
+    "story": "pnpm --silent --filter @studio/worker story",
+    "worker": "pnpm --filter @studio/worker start",
+    "app": "pnpm --filter @studio/app dev"
   }
 }

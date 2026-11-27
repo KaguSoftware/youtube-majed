@@ -1,0 +1,195 @@
+{
+  "type": "object",
+  "properties": {
+    "mode": {
+      "type": "string",
+      "enum": [
+        "facts",
+        "consistency"
+      ]
+    },
+    "claims": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^C\\d+$"
+          },
+          "lineIds": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^L\\d+\\.\\d+$"
+            }
+          },
+          "claim": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The factual claim, restated plainly"
+          },
+          "verdict": {
+            "type": "string",
+            "enum": [
+              "confirmed",
+              "wrong",
+              "unverifiable"
+            ]
+          },
+          "correction": {
+            "type": "string",
+            "description": "What is actually true, for \"wrong\"; \"\" otherwise"
+          },
+          "proposal": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^L\\d+\\.\\d+$"
+                },
+                "text": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "id",
+                "text"
+              ],
+              "additionalProperties": false
+            },
+            "description": "For \"wrong\": the affected lines rewritten to be true (same ids). [] otherwise"
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "title": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "url",
+                "title"
+              ],
+              "additionalProperties": false
+            },
+            "description": "Pages that confirm or correct the claim"
+          },
+          "note": {
+            "type": "string",
+            "description": "Anything the editor should know (disputed figures, rounding); may be empty"
+          }
+        },
+        "required": [
+          "id",
+          "lineIds",
+          "claim",
+          "verdict",
+          "correction",
+          "proposal",
+          "sources",
+          "note"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^K\\d+$"
+          },
+          "lineIds": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^L\\d+\\.\\d+$"
+            }
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "name",
+              "timeline",
+              "world_rule",
+              "logic",
+              "fairness",
+              "other"
+            ]
+          },
+          "severity": {
+            "default": "major",
+            "description": "major = a viewer would notice and trip on it (blocks the lock); minor = style, repetition, a nitpick",
+            "type": "string",
+            "enum": [
+              "major",
+              "minor"
+            ]
+          },
+          "issue": {
+            "type": "string",
+            "minLength": 1,
+            "description": "What contradicts what, naming both lines"
+          },
+          "proposal": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^L\\d+\\.\\d+$"
+                },
+                "text": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "id",
+                "text"
+              ],
+              "additionalProperties": false
+            },
+            "description": "The smallest rewrite that fixes it (same ids)"
+          }
+        },
+        "required": [
+          "id",
+          "lineIds",
+          "kind",
+          "severity",
+          "issue",
+          "proposal"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "mode",
+    "claims",
+    "issues",
+    "summary"
+  ],
+  "additionalProperties": false
+}

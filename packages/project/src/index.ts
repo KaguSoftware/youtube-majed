@@ -1,11 +1,17 @@
 import { VoiceFile, ValidationError, formatIssues, type Result } from "@studio/schema";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import type { z } from "zod";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /** Node-side project layout (docs/PLAN.md section 10), shared by the voice CLI and the Remotion scripts. */
 
 export const REPO_DIR = resolve(fileURLToPath(import.meta.url), "../../../..");
+
+/** projects/ (gitignored). STUDIO_PROJECTS_DIR moves it, so tests never touch real projects. */
+export function projectsDir(): string {
+  return process.env.STUDIO_PROJECTS_DIR ?? join(REPO_DIR, "projects");
+}
 
 export type ProjectPaths = {
   id: string;
@@ -25,7 +31,7 @@ export type ProjectPaths = {
 
 export function projectPaths(id: string): ProjectPaths {
   if (!/^[a-z0-9][a-z0-9_-]*$/i.test(id)) throw new Error(`"${id}" is not a project id (letters, digits, - and _)`);
-  const dir = join(REPO_DIR, "projects", id);
+  const dir = join(projectsDir(), id);
   const audioDir = join(dir, "audio");
   const own = join(dir, "script.json");
   return {
@@ -73,3 +79,72 @@ export function readVoice(id: string): Result<VoiceFile> | undefined {
 }
 
 export { ValidationError };
+
+// ---------------------------------------------------------------- story engine files (Phase 2)
+
+export type StoryPaths = {
+  dir: string;
+  brief: string;
+  /** master loop options (step output) */
+  options: string;
+  pick: string;
+  loopmap: string;
+  /** the working script the editor edits */
+  narration: string;
+  comments: string;
+  reviewHistory: string;
+  /** raw fact-check / critic outputs per round */
+  reviewDir: string;
+  /** finished steps and their input hashes */
+  steps: string;
+  /** one JSON line per `claude -p` call */
+  usage: string;
+  /** prompt and raw CLI result of every call, for tracing */
+  runsDir: string;
+  /** the locked script, in the voice step's format */
+  scriptJson: string;
+};
+
+export function storyPaths(id: string): StoryPaths {
+  const { dir } = projectPaths(id);
+  const story = join(dir, "story");
+  return {
+    dir,
+    brief: join(dir, "brief.json"),
+    options: join(story, "options.json"),
+    pick: join(story, "pick.json"),
+    loopmap: join(story, "loopmap.json"),
+    narration: join(story, "narration.json"),
+    comments: join(dir, "review", "comments.json"),
+    reviewHistory: join(dir, "review", "history.json"),
+    reviewDir: join(dir, "review"),
+    steps: join(dir, "steps.json"),
+    usage: join(dir, "usage.jsonl"),
+    runsDir: join(dir, "runs"),
+    scriptJson: join(dir, "script.json"),
+  };
+}
+
+export const ENGINE_DIR = join(REPO_DIR, "engine");
+
+/** Reads a JSON file and validates it. `undefined` when the file does not exist; throws ValidationError when it is wrong. */
+export function readJson<S extends z.ZodType>(file: string, schema: S): z.output<S> | undefined {
+  if (!existsSync(file)) return undefined;
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(file, "utf8"));
+  } catch (e) {
+    throw new ValidationError(file, [`not valid JSON: ${(e as Error).message}`]);
+  }
+  const r = schema.safeParse(raw);
+  if (!r.success) throw new ValidationError(file, formatIssues(basename(file), raw, r.error.issues));
+  return r.data;
+}
+
+/** Writes JSON atomically (temp file + rename), so a crash never leaves half a file. */
+export function writeJson(file: string, data: unknown): void {
+  mkdirSync(dirname(file), { recursive: true });
+  const tmp = `${file}.${process.pid}.tmp`;
+  writeFileSync(tmp, JSON.stringify(data, null, 2) + "\n");
+  renameSync(tmp, file);
+}

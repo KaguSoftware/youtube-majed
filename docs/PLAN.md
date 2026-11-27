@@ -77,15 +77,15 @@ Every story is a chain of loops: Stakes → Big Question → Head Fake → Rehoo
 }
 ```
 
-**Retention checker (code):** flags any stretch of more than ~20 s of narration with no open question, any loop with no stakes restated, any head fake with no plant. The story page shows a tension graph (one rise/drop per loop, gaps in red).
+**Retention checker (code):** flags any stretch of more than ~20 s of narration with no open question, any loop with no stakes restated, any head fake with no plant, and (added at Gate 2) any master plant paid off before the last loop, since that gives the ending away. The story page shows a tension graph (one rise/drop per loop, gaps in red).
 
-**Length budget:** ~150 words per minute → 8 min ≈ 1,200 words; 75 s Reel ≈ 190 words. The narration step gets a word budget per loop.
+**Length budget:** the narrator's speaking rate × length. Changed 2026-11-27 (Gate 2): the built-in voice measured 165–174 wpm with pauses (scripts budgeted at 150 wpm came out ~15% short), so each brief now stores its rate, default **170 wpm** → 8 min ≈ 1,360 words; 75 s Reel ≈ 210 words. `pnpm voice` prints the measured rate so the default can be re-checked. The narration step gets a word budget per loop.
 
 ## 4. Review and script editing
 
 **Automatic reviewers (parallel, each a separate `claude -p` session, JSON output)**
 
-- Fact-check agent: extracts every factual claim, checks each with web search, marks confirmed / wrong (with correction + source) / unverifiable. Fiction gets an internal consistency check instead (names, timelines, world rules).
+- Fact-check agent: extracts every factual claim, checks each with web search, marks confirmed / wrong (with correction + source) / unverifiable. Fiction gets an internal consistency check instead (names, timelines, world rules). Each consistency issue is major (blocks the lock) or minor (a suggestion), added at Gate 2.
 - Retention critic: scores each loop on stakes, question, surprise and rehook (1–5), names the weakest 3 moments, proposes a rewrite for each.
 - Findings appear as comments pinned to lines in the editor.
 
@@ -204,7 +204,7 @@ H.264 with CRF (quality target), not fixed bitrate. Flat animation compresses fa
 Everything runs on the Mac; only writing goes to Claude.
 
 - **Next.js web app** (TypeScript, Tailwind): stepper pages, script editor, video editor, Remotion Player preview.
-- **SQLite + project folders**: projects, jobs, versions, usage log; story, scene JSON and audio per video; asset index.
+- **SQLite + project folders**: projects, jobs, versions; story, scene JSON and audio per video; asset index. (Phase 2: the job queue is in `projects/studio.sqlite` and resumes after a restart; the Claude usage log is `projects/<id>/usage.jsonl`, append-only, one file per project.)
 - **Job worker (Node)**: takes one job at a time from the queue; logs Claude usage per step.
 - **Claude Code CLI**: `claude -p "<step prompt>" --model sonnet --output-format json --json-schema engine/schemas/<step>.json`, run inside `engine/`. Result in `structured_output`, validated again, saved to the project folder.
 - **Python audio service** (FastAPI): Chatterbox-Turbo, WhisperX alignment, Pedalboard.

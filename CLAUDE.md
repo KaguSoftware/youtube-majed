@@ -45,4 +45,9 @@ pnpm validate          # validate sample scene files
 pnpm render            # final 1080p render of the lighthouse sample
 pnpm render:preview    # fast 720p preview render
 pnpm typecheck
+pnpm test              # all unit tests (story engine tests use a fake claude)
+pnpm schemas           # regenerate engine/schemas/*.json from packages/schema
+pnpm worker            # job worker for the app (127.0.0.1:8766)
+pnpm app               # the Studio website (http://localhost:3100)
+pnpm story <command>   # the story engine without the UI (pnpm story for help)
 ```

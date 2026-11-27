@@ -1,0 +1,96 @@
+{
+  "type": "object",
+  "properties": {
+    "loops": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^L\\d+$"
+          },
+          "lines": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^L\\d+\\.\\d+$"
+                },
+                "text": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Exactly what the narrator says. One breath, usually 4–18 words"
+                },
+                "energy": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 5,
+                  "description": "1 calm/hushed … 3 normal storytelling … 5 peak reveal (use 5 rarely)"
+                },
+                "delivery": {
+                  "type": "string",
+                  "description": "A short performance note, e.g. \"hushed, slow\" or \"deadpan\""
+                },
+                "beats": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "stakes",
+                      "question",
+                      "plant",
+                      "turn",
+                      "headfake",
+                      "rehook"
+                    ]
+                  },
+                  "description": "What this line does in its loop; [] for plain story"
+                },
+                "plants": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^P\\d+$"
+                  },
+                  "description": "Plant ids this line shows; [] if none"
+                },
+                "payoffs": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^P\\d+$"
+                  },
+                  "description": "Plant ids this line pays off; [] if none"
+                }
+              },
+              "required": [
+                "id",
+                "text",
+                "energy",
+                "delivery",
+                "beats",
+                "plants",
+                "payoffs"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "id",
+          "lines"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "loops"
+  ],
+  "additionalProperties": false
+}

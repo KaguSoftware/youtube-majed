@@ -1,0 +1,107 @@
+{
+  "type": "object",
+  "properties": {
+    "options": {
+      "minItems": 3,
+      "maxItems": 3,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "enum": [
+              "A",
+              "B",
+              "C"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Working title. It makes the promise the big question pays off"
+          },
+          "logline": {
+            "type": "string",
+            "minLength": 1,
+            "description": "One or two sentences: who, what they want, what stands in the way"
+          },
+          "stakes": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "character",
+                  "at_risk",
+                  "urgent"
+                ],
+                "description": "character = someone to root for; at_risk = something could be lost; urgent = a deadline"
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The stakes in one concrete sentence, as the viewer would hear them"
+              }
+            },
+            "required": [
+              "type",
+              "text"
+            ],
+            "additionalProperties": false
+          },
+          "question": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The big question the whole video answers. Specific, never yes/no"
+          },
+          "endingTwist": {
+            "type": "object",
+            "properties": {
+              "expected": {
+                "type": "string",
+                "minLength": 1,
+                "description": "What the viewer will predict the answer is"
+              },
+              "actual": {
+                "type": "string",
+                "minLength": 1,
+                "description": "What the answer really is"
+              }
+            },
+            "required": [
+              "expected",
+              "actual"
+            ],
+            "additionalProperties": false
+          },
+          "hook": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The first line of narration, word for word"
+          },
+          "whyItWorks": {
+            "type": "string",
+            "minLength": 1,
+            "description": "One sentence: why a viewer keeps watching"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "logline",
+          "stakes",
+          "question",
+          "endingTwist",
+          "hook",
+          "whyItWorks"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "options"
+  ],
+  "additionalProperties": false
+}

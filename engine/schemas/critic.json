@@ -1,0 +1,120 @@
+{
+  "type": "object",
+  "properties": {
+    "loops": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "loopId": {
+            "type": "string",
+            "pattern": "^L\\d+$"
+          },
+          "stakes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5
+          },
+          "question": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5
+          },
+          "surprise": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5
+          },
+          "rehook": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5
+          },
+          "note": {
+            "type": "string",
+            "description": "One sentence: the main reason for the lowest score"
+          }
+        },
+        "required": [
+          "loopId",
+          "stakes",
+          "question",
+          "surprise",
+          "rehook",
+          "note"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "weakest": {
+      "minItems": 3,
+      "maxItems": 3,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "lineIds": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^L\\d+\\.\\d+$"
+            }
+          },
+          "problem": {
+            "type": "string",
+            "minLength": 1,
+            "description": "What a viewer feels here (bored, confused, ahead of the story)"
+          },
+          "proposal": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^L\\d+\\.\\d+$"
+                },
+                "text": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "id",
+                "text"
+              ],
+              "additionalProperties": false
+            },
+            "description": "The rewrite (same ids)"
+          },
+          "why": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Why the rewrite holds attention better"
+          }
+        },
+        "required": [
+          "lineIds",
+          "problem",
+          "proposal",
+          "why"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "verdict": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Two or three sentences on the whole script's retention"
+    }
+  },
+  "required": [
+    "loops",
+    "weakest",
+    "verdict"
+  ],
+  "additionalProperties": false
+}
