@@ -8,7 +8,7 @@ import { button } from "./ui";
 export const INSTALL_MAC = "curl -fsSL https://raw.githubusercontent.com/KaguSoftware/youtube-majed/main/scripts/install-helper.sh | bash";
 
 /** The page is served from somewhere other than this computer (Vercel), so the helper may simply not be installed here. */
-function useHosted() {
+export function useHosted() {
   const [hosted, setHosted] = useState(false);
   useEffect(() => setHosted(!/^(localhost|127\.0\.0\.1|\[::1\])$/.test(window.location.hostname)), []);
   return hosted;

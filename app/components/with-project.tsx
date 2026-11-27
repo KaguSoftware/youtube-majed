@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { type Loaded, type ProjectDetail, loadProject } from "@/lib/api";
-import { WorkerOffline } from "./offline";
+import { WorkerOffline, useHosted } from "./offline";
 
 const RETRY_MS = 4000;
 
@@ -36,6 +36,7 @@ export function useLoaded<T>(fetcher: () => Promise<Loaded<T>>, deps: unknown[])
 
 /** A quiet placeholder for the first moment of a page. It fades in only if the load takes longer than a blink, so a fast answer doesn't flash. */
 export function PageSkeleton() {
+  const hosted = useHosted();
   return (
     <div className="mx-auto max-w-6xl animate-[appear_200ms_300ms_both] px-6 pb-24 pt-12" role="status" aria-label="Loading">
       <div className="h-3 w-24 rounded bg-lifted motion-safe:animate-pulse" />
@@ -43,6 +44,12 @@ export function PageSkeleton() {
       <div className="mt-12 space-y-3">
         {[0, 1, 2].map((i) => <div key={i} className="h-4 rounded bg-raised motion-safe:animate-pulse" style={{ width: `${88 - i * 14}%` }} />)}
       </div>
+      {hosted && (
+        // a call held by the browser's permission prompt never fails, it just waits: say why after a few seconds
+        <p className="mt-12 max-w-[62ch] animate-[appear_200ms_3s_both] text-sm text-muted">
+          Waiting for your browser. If Chrome or Edge asks whether this site may reach devices on your local network, allow it: that&apos;s how the page reaches the Studio helper on this computer.
+        </p>
+      )}
     </div>
   );
 }
