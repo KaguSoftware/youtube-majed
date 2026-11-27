@@ -241,7 +241,7 @@ export async function runShotCheck(id: string, o: { scene: string; sourceFile: s
   } catch (e) {
     if (timer.aborted) return failedCheck("timeout", `the shot did not finish drawing within ${limit / 1000} s and was stopped`, Date.now() - started);
     if (o.signal?.aborted) throw e;
-    if (!result) return failedCheck("crash", `the checker died: ${e instanceof ChildError ? e.message + " " + (e as { stderr?: string }).stderr?.slice(-300) : (e as Error).message}`, Date.now() - started);
+    if (!result) return failedCheck("crash", `the checker died: ${e instanceof ChildError ? `${e.message} ${e.tail.slice(-300)}` : (e as Error).message}`, Date.now() - started);
   }
   finally {
     rmSync(scratch, { recursive: true, force: true });
