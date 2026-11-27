@@ -26,6 +26,7 @@ import { runMixAsync } from "./mix";
 import { pipelineOf } from "./pipeline";
 import { exportVideo, readExportRecord, readPreviewRecord, renderPaths, renderPreview } from "./render";
 import { voiceProject } from "./voice-run";
+import { editRoutes, editRunners } from "./edit-api";
 
 const PORT = Number(process.env.STUDIO_WORKER_PORT ?? 8766);
 
@@ -65,6 +66,8 @@ const runners: Record<JobKind, Runner> = {
   },
   render: (j, o) => renderPreview(j.project, { signal: o.signal, report: o.report }),
   export: (j, o) => exportVideo(j.project, { signal: o.signal, report: o.report }),
+  // ---- Phase 4: the edit engine (src/edit-api.ts)
+  ...editRunners,
 };
 
 export const queue = new JobQueue(join(projectsDir(), "studio.sqlite"), runners, (job) => {
@@ -327,6 +330,8 @@ const routes: Route[] = [
       return { cast: next.data.cast };
     },
   ],
+  // ---- Phase 4: edits, versions, the timeline (src/edit-api.ts)
+  ...editRoutes(enqueue).map(([method, pattern, handler]): Route => [method, pattern, (req, _res, m) => handler({ body: (schema) => body(req, schema), url: new URL(req.url ?? "/", "http://localhost") }, m)]),
   ["GET", /^\/jobs$/, () => queue.list(30)],
   [
     "POST",
@@ -395,7 +400,8 @@ export const server = createServer(async (req, res) => {
     } catch (e) {
       const err = e as Error;
       if (e instanceof HttpError) send(res, e.status, { error: e.message });
-      else if (e instanceof StoryError) send(res, 409, { error: err.message });
+      else if (e instanceof StoryError || err.name === "EditError" || err.name === "VersionError") send(res, 409, { error: err.message });
+      else if (typeof (e as { status?: unknown }).status === "number") send(res, (e as { status: number }).status, { error: err.message });
       else if (err.name === "ValidationError") send(res, 422, { error: err.message });
       else {
         console.error(err);

@@ -162,6 +162,9 @@ importers:
       '@studio/project':
         specifier: workspace:*
         version: link:../packages/project
+      '@studio/remotion':
+        specifier: workspace:*
+        version: link:../remotion
       '@studio/schema':
         specifier: workspace:*
         version: link:../packages/schema

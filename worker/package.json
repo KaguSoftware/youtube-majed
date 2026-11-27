@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@studio/project": "workspace:*",
+    "@studio/remotion": "workspace:*",
     "@studio/schema": "workspace:*",
     "@studio/story": "workspace:*",
     "zod": "4.6.7"
