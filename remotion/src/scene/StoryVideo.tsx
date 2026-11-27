@@ -7,6 +7,7 @@ import { EASE } from "../rig/pose";
 import { INK } from "../theme";
 import { SceneView } from "./SceneView";
 import { buildTimeline } from "./timeline";
+import { TRANSITION_FRAMES } from "./transitions";
 
 /**
  * Plays a project's scenes back to back, with the narration track underneath
@@ -16,16 +17,7 @@ import { buildTimeline } from "./timeline";
  * outgoing one, which keeps playing underneath for a few extra frames.
  */
 
-export const TRANSITION_FRAMES: Record<TransitionId, number> = {
-  cut: 0,
-  whoosh_wipe: 10,
-  smash_cut: 0,
-  dip_to_black: 0,
-  crossfade: 14,
-  iris: 0,
-  glitch: 0,
-  page_turn: 18,
-};
+export { TRANSITION_FRAMES };
 const DIP = 9; // frames of fade on each side of a dip
 const IRIS = 12; // frames of iris on each side
 const GLITCH = 10; // frames of glitch at the start of the scene

@@ -1,7 +1,8 @@
 import { VoiceFile, ValidationError, formatIssues, type Result } from "@studio/schema";
 import type { z } from "zod";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { createHash } from "node:crypto";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /** Node-side project layout (docs/PLAN.md section 10), shared by the voice CLI and the Remotion scripts. */
@@ -183,6 +184,33 @@ export type StoryboardPaths = {
   /** mixed tracks by plan hash, so an unchanged plan is never mixed twice */
   mixCache: string;
 };
+
+// ---------------------------------------------------------------- partial re-render (Phase 4)
+
+/** Everything Remotion draws with: the animation library, the project entry, the schema (catalogue), fonts, the pinned Remotion version. */
+const RENDER_CODE = ["remotion/src", "remotion/scripts/project-entry.tsx", "remotion/public/fonts", "remotion/package.json", "packages/schema/src"];
+
+function filesUnder(path: string): string[] {
+  if (!existsSync(path)) return [];
+  if (!statSync(path).isDirectory()) return [path];
+  return readdirSync(path, { withFileTypes: true })
+    .filter((d) => !d.name.startsWith(".") && !/\.test\.tsx?$/.test(d.name))
+    .flatMap((d) => filesUnder(join(path, d.name)))
+    .sort();
+}
+
+/**
+ * A hash of the code that turns scene JSON into pixels. It is part of every
+ * render segment's cache key, so changing the library (or the schema it is
+ * checked against) never reuses a segment drawn by the old code.
+ */
+export function renderCodeHash(): string {
+  const h = createHash("sha256");
+  for (const file of RENDER_CODE.flatMap((p) => filesUnder(join(REPO_DIR, p)))) {
+    h.update(relative(REPO_DIR, file)).update("\0").update(readFileSync(file)).update("\0");
+  }
+  return h.digest("hex").slice(0, 16);
+}
 
 export function storyboardPaths(id: string): StoryboardPaths {
   const { dir, audioDir } = projectPaths(id);
