@@ -24,6 +24,12 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # the custom-shot checker draws real frames with Remotion: Chrome's libraries and its headless shell
+      - name: Chrome for Remotion
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq libnss3 libdbus-1-3 libatk1.0-0 libgbm-dev libasound2t64 libxrandr2 libxkbcommon-dev libxfixes3 libxcomposite1 libxdamage1 libatk-bridge2.0-0 libpango-1.0-0 libcairo2 libcups2
+          pnpm --filter @studio/remotion exec remotion browser ensure
       - run: pnpm typecheck
       - run: pnpm test
       - name: Build the app (what Vercel deploys)
