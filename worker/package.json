@@ -1,0 +1,20 @@
+{
+  "name": "@studio/worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "voice": "tsx src/voice.ts",
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "@studio/project": "workspace:*",
+    "@studio/schema": "workspace:*",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.7",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2"
+  }
+}

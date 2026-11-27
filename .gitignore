@@ -31,3 +31,9 @@ __pycache__/
 # os / editor
 .DS_Store
 *.log
+
+# voiced audio is copied into Remotion's public dir by `pnpm voice` / `pnpm render` (local only)
+remotion/public/projects/
+
+# python build metadata
+*.egg-info/

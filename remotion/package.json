@@ -9,11 +9,15 @@
     "render": "tsx scripts/render.ts lighthouse --profile final",
     "render:preview": "tsx scripts/render.ts lighthouse --profile preview",
     "still": "remotion still src/index.ts",
-    "typecheck": "tsc -p ."
+    "typecheck": "tsc -p .",
+    "sync-check": "tsx scripts/sync-check.ts"
   },
   "dependencies": {
+    "@remotion/bundler": "4.0.547",
     "@remotion/cli": "4.0.547",
     "@remotion/fonts": "4.0.547",
+    "@remotion/renderer": "4.0.547",
+    "@studio/project": "workspace:*",
     "@studio/schema": "workspace:*",
     "react": "19.3.1",
     "react-dom": "19.3.1",

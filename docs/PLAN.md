@@ -12,7 +12,7 @@ Core idea: **Claude writes and directs, deterministic code animates.** Claude Co
 **Goals**
 
 - Viewers stay: every 30–90 s the story re-creates stakes and a question (Stakes → Big Question → Head Fake → Rehook loop).
-- Premium sound: a custom narrator voice, not a stock preset, with per-line energy control.
+- Premium sound: a clean narrator voice with per-line energy control. (Changed 2026-11-27: Chatterbox's built-in studio voice, not a clone; see section 5.)
 - Editable at every layer: story text, tone per line, individual scenes, inserted gags and sound effects, without re-running the whole pipeline.
 - Cheap to run: Claude only for writing and judgement; everything mechanical is local code.
 - Light exports: a sharp 1080p 8-minute video in roughly 100–250 MB, not gigabytes.
@@ -33,7 +33,7 @@ The website is a stepper. Each step is its own page with a status (waiting, runn
 | 2 | Story | Claude | Master loop options → loop map → narration |
 | 3 | Review | Claude (2 agents) | Fact-check agent and retention critic, in parallel |
 | 4 | Script editor | You | Edit lines, energy and tone; accept/reject suggestions; lock the script |
-| 5 | Voice | Local | Signature voice line by line, word timestamps |
+| 5 | Voice | Local | Channel voice (Chatterbox built-in studio voice) line by line, word timestamps |
 | 6 | Storyboard | Claude | Scene JSON per group of lines, validated by code |
 | 7 | Render | Local | Remotion draws the scenes; sound is mixed in |
 | 8 | Video editor | You | Swap clips, insert gags and SFX, fix scenes |
@@ -98,15 +98,16 @@ Every story is a chain of loops: Stakes → Big Question → Head Fake → Rehoo
 - Re-run checks; tension graph and word budget update live.
 - Lock the script. Locked lines are never rewritten by later steps.
 
-## 5. Voice (decided: Chatterbox-Turbo, local)
+## 5. Voice (decided: Chatterbox, local; built-in studio voice)
 
-- Signature voice cloned locally with **Chatterbox-Turbo** (MIT licence, zero-shot clone from a 5–10 s reference clip, `exaggeration` and `cfg_weight` controls, paralinguistic tags like `[laugh]`, `[chuckle]`, `[cough]`, inaudible watermark).
+- Generated locally with **Chatterbox** (MIT licence, optional zero-shot clone from a 5–10 s reference clip, `exaggeration` and `cfg_weight` controls, inaudible watermark). Phase 1 finding: **Chatterbox-Turbo ignores `exaggeration` and `cfg_weight`** (its code says they "will be ignored"), so the engine is the original 500M Chatterbox, which has the energy controls this plan needs. Turbo (paralinguistic tags like `[laugh]`, `[chuckle]`, `[cough]`) stays selectable with `--engine turbo`, but there energy only nudges sampling temperature.
 - Runs on the M3 Pro via PyTorch MPS (Apple GPU), with CPU fallback. Some Mac builds report MPS issues, so test both modes first. An MLX fork (`chatterbox-mlx`) is an alternative if speed is a problem.
-- Reference voice: Majed's own voice, or a voice actor with written permission to clone. Record 1–2 min of clean WAV, pick the best 10 s. Optionally keep 2–3 reference clips of the same voice in different moods (calm, tense, excited) and pick per line.
-- Energy mapping: energy 1–5 → exaggeration/cfg_weight presets. Reveals: exaggeration ≥ 0.7 with cfg_weight ≈ 0.3 to stop rushing. Defaults 0.5 / 0.5.
+- **Decision 2026-11-27: the channel voice is Chatterbox's built-in studio voice (`conds.pt`), not a clone.** Three blind listening rounds: clones of Majed's phone recordings (a 32 kbps memo; a 66 kbps recording with background noise ~17 dB down, raw and denoised) scored 1/5 on clean, premium and natural every time. The built-in voice won every round. Kokoro stock voices were clean but unnatural. Mastering changes made no audible difference: the clone quality comes from the reference. Cloning stays available (`pnpm voice <id> --reference clip.wav`), so a voice actor's studio-quality reference can still replace it later.
+- Reference voice (for cloning, if used later): Majed's own voice, or a voice actor with written permission to clone. Record 1–2 min of clean WAV, pick the best 10 s. Optionally keep 2–3 reference clips of the same voice in different moods (calm, tense, excited) and pick per line.
+- Energy mapping: energy 1–5 → exaggeration/cfg_weight presets. Chatterbox's defaults are 0.5 / 0.5, and reveals were planned at exaggeration ≥ 0.7 with cfg_weight ≈ 0.3 to stop rushing. Phase 1 measured that higher exaggeration makes a cloned voice darker and, above ~0.6, garbles words, so the shipped presets run 0.25 / 0.30 / 0.40 / 0.55 / 0.70 (cfg_weight 0.50 down to 0.30), with ≥ 0.7 for energy 5 only (`audio/studio_audio/config.py`). Measured on the clone; re-check by ear on the built-in voice.
 - Lines are generated one at a time → "retake this line" (new seed or new energy) without redoing the rest.
 - Timing: WhisperX forced alignment (wav2vec2) against the **known script text** → word-level timestamps. On macOS run on CPU with `compute_type float32` (WhisperX does not support MPS). Full transcription is not needed.
-- Mastering (Pedalboard): high-pass → compressor → light room reverb → limiter → normalise to about −14 LUFS.
+- Mastering (Pedalboard): high-pass → compressor → light room reverb → limiter → normalise to about −14 LUFS, measured as BS.1770 integrated loudness with the true peak held under −1.5 dBTP. Phase 1 findings: Pedalboard's own `Limiter` does not hold its ceiling, so the limiter is a small true-peak limiter of ours; lines are level- and tone-balanced against each other before mastering. Details in `audio/README.md`.
 
 ## 6. Animation
 
@@ -235,20 +236,22 @@ Each gate is a go/no-go check before the next phase.
 | Phase | Build | Gate |
 | --- | --- | --- |
 | 0. Proof of look | Remotion project, stick-figure rig, 15 actions, 5 backgrounds; render a 60 s video from hand-written scene JSON | Would you post this look? |
-| 1. Voice and timing | Signature voice; Chatterbox + WhisperX service; scenes and captions snap to word timestamps | A 60 s video in perfect sync |
+| 1. Voice and timing | Channel voice (Chatterbox built-in studio voice); Chatterbox + WhisperX service; scenes and captions snap to word timestamps | A 60 s video in perfect sync |
 | 2. Story engine and review | `claude -p` steps with JSON schemas, loop checker, tension graph; fact-check agent, retention critic, script editor | A script you'd happily read aloud |
 | 3. Full 8-minute pipeline | Storyboard step, library to 60+ actions, SFX/music mixing, export profiles, stepper UI end to end (reuse old pages from `legacy/`) | First full video uploaded; usage and render time measured |
 | 4. Video editor and Reels | Timeline, swap/regenerate scenes, insert beats, voice FX, partial re-render, version history, 9:16 re-layout and Reel cut | Any fix lands in minutes |
 | 5. Low poly and custom shots | Low-poly characters with Mixamo in `@remotion/three`; Claude-written custom shots with fallbacks; cross-video variety guard | — |
 
+Phase 3 note: the old voice picker (`legacy/web/components/voice-picker.tsx`, listed in `legacy/INVENTORY.md` as "reference clips of the signature voice") should choose between the built-in voice and any cloned reference clips, with the built-in voice as the default. `legacy/` is read-only, so the correction lives here.
+
 ## 12. Risks
 
 | Risk | What the system does |
 | --- | --- |
-| YouTube "inauthentic content" (mass-produced/template videos lose monetisation channel-wide) | Human approval at story, script, final cut; variety guard; custom shots; signature voice; clear series identity |
+| YouTube "inauthentic content" (mass-produced/template videos lose monetisation channel-wide) | Human approval at story, script, final cut; variety guard; custom shots; clear series identity. The built-in Chatterbox voice is not unique to this channel, which weakens the voice part of this; a voice actor's cloned reference would restore it |
 | Claude usage limits (5-hour windows; `claude -p` accounting may change) | Claude only for writing/judgement (~8–15 calls per video); usage logged per step; scene planning can switch to a local model |
 | Wrong facts in true stories | Fact-check agent with sources + human sign-off before voice |
-| Voice rights | Only own voice or a voice actor with written permission |
+| Voice rights | The default built-in voice ships with Chatterbox's MIT-licensed weights. Cloning is only for own voice or a voice actor with written permission |
 | Asset licences | Remotion free licence; Mixamo royalty-free in videos; SFX from licensed sources only; `licence` field on every asset |
 | Render time / machine load | Single job queue; partial re-renders; measure first 3 videos |
 | Custom shots crashing | Rendered alone first; automatic fallback |

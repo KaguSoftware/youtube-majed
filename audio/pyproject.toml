@@ -1,0 +1,40 @@
+[project]
+name = "studio-audio"
+version = "0.1.0"
+description = "Local voice service for Studio: Chatterbox TTS, WhisperX forced alignment, Pedalboard mastering"
+requires-python = "==3.12.*"
+dependencies = [
+  "torch==2.8.0",
+  "torchaudio==2.8.0",
+  "chatterbox-tts==0.1.7",
+  "whisperx==3.8.6",
+  "pedalboard==0.9.26",
+  "pyloudnorm==0.2.0",
+  "huggingface-hub<1.0.0",
+  "fastapi",
+  "uvicorn",
+  "soundfile",
+  "pyrnnoise",  # RNNoise neural denoiser, for cleaning the reference recording
+  "numpy>=2.1",
+  "setuptools<81",  # resemble-perth (Chatterbox's watermarker) imports pkg_resources
+]
+
+[tool.uv]
+# chatterbox-tts pins torch 2.6 / numpy<2 / transformers 5.2 / a git copy of perth,
+# WhisperX pins torch 2.8 / numpy>=2.1 / huggingface-hub<1. One venv has to satisfy
+# both, so the conflicting pins are overridden (and the result is tested, see README).
+override-dependencies = [
+  "torch==2.8.0",
+  "torchaudio==2.8.0",
+  "numpy>=2.1",
+  "transformers==4.57.6",
+  "resemble-perth==1.0.1",
+  "gradio; sys_platform == 'never'",
+]
+
+[tool.setuptools]
+packages = ["studio_audio"]
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"

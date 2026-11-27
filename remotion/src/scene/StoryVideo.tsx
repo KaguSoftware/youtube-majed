@@ -1,6 +1,6 @@
 import type { Project, TransitionId } from "@studio/schema";
 import { useMemo, type ReactNode } from "react";
-import { AbsoluteFill, Sequence, useCurrentFrame } from "remotion";
+import { AbsoluteFill, Html5Audio, Sequence, useCurrentFrame } from "remotion";
 import { WordPop } from "../library/captions/WordPop";
 import { EASE } from "../rig/pose";
 import { INK } from "../theme";
@@ -8,8 +8,9 @@ import { SceneView } from "./SceneView";
 import { buildTimeline } from "./timeline";
 
 /**
- * Plays a project's scenes back to back. A scene starts exactly on its own
- * first frame (later: its first word), so transitions never shift timing:
+ * Plays a project's scenes back to back, with the narration track underneath
+ * when the project has been voiced. A scene starts exactly on its own first
+ * frame (see timeline.ts: just before its first word), so transitions never shift timing:
  * an overlapping transition (whoosh) draws the incoming scene over the
  * outgoing one, which keeps playing underneath for a few extra frames.
  */
@@ -84,9 +85,9 @@ function Pushed({ from, children }: { from: number; children: ReactNode }) {
   return <AbsoluteFill style={{ transform: `translateX(${-p * 180}px)` }}>{children}</AbsoluteFill>;
 }
 
-export type StoryVideoProps = { project: Project };
+export type StoryVideoProps = { project: Project; audioSrc?: string };
 
-export function StoryVideo({ project }: StoryVideoProps) {
+export function StoryVideo({ project, audioSrc }: StoryVideoProps) {
   const timeline = useMemo(() => buildTimeline(project), [project]);
   const scenes = project.scenes.scenes;
 
@@ -110,6 +111,7 @@ export function StoryVideo({ project }: StoryVideoProps) {
         );
       })}
       <WordPop chunks={timeline.chunks} />
+      {audioSrc && <Html5Audio src={audioSrc} />}
     </AbsoluteFill>
   );
 }

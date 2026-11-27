@@ -6,21 +6,27 @@ import { ActionGallery, BG_GALLERY_FRAMES, BackgroundGallery, ExpressionGallery 
 import { StoryVideo } from "./scene/StoryVideo";
 import { buildTimeline } from "./scene/timeline";
 import { FPS, H, W } from "./theme";
+import { fetchVoice, trackUrl } from "./voice";
 
-type SampleProps = { sample: SampleId; project?: Project };
+type SampleProps = { sample: SampleId; project?: Project; audioSrc?: string };
 
 /**
- * Validates the sample's scene, script and timing files before anything
+ * Loads the sample's scene, script and timing files, plus its voice.json if
+ * the project has been voiced, and validates all of them before anything
  * renders. A bad file fails here with a message naming the scene id and field.
+ * With a voice.json, scene timing and captions come from real word times and
+ * the narration track is played; without one, timing.json is used (silent).
  */
-const loadSample: CalculateMetadataFunction<SampleProps> = ({ props }) => {
-  const project = assertProject(`samples/${props.sample}`, SAMPLES[props.sample]);
-  return { durationInFrames: buildTimeline(project).total, props: { ...props, project } };
+const loadSample: CalculateMetadataFunction<SampleProps> = async ({ props }) => {
+  const voice = await fetchVoice(props.sample);
+  const project = assertProject(`samples/${props.sample}`, { ...SAMPLES[props.sample], voice });
+  const audioSrc = project.voice ? trackUrl(props.sample, project.voice.track.file) : undefined;
+  return { durationInFrames: buildTimeline(project).total, props: { ...props, project, audioSrc } };
 };
 
-function Sample({ project }: SampleProps) {
+function Sample({ project, audioSrc }: SampleProps) {
   if (!project) throw new Error("project was not loaded (calculateMetadata did not run)");
-  return <StoryVideo project={project} />;
+  return <StoryVideo project={project} audioSrc={audioSrc} />;
 }
 
 export function Root() {

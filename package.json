@@ -10,6 +10,8 @@
     "validate": "pnpm --filter @studio/remotion validate",
     "render": "pnpm --filter @studio/remotion render",
     "render:preview": "pnpm --filter @studio/remotion render:preview",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm -r typecheck",
+    "voice": "pnpm --filter @studio/worker voice",
+    "sync-check": "pnpm --filter @studio/remotion sync-check"
   }
 }
