@@ -24,6 +24,7 @@ import { currentInputs, readExportRecord, readPreviewRecord } from "./render";
 import { readHistory } from "./review";
 import { readComments, readNarration, readOptions, readPick } from "./story";
 import { catalogueHash, readScenes, readStoryboard } from "./storyboard";
+import { listVersions, readHead } from "./versions";
 
 type Stage = Omit<StageState, "key">;
 const stage = (status: StageState["status"], note: string, stale = false): Stage => ({ status, note, stale });
@@ -113,8 +114,12 @@ export async function pipelineOf(id: string, jobs: readonly Job[]): Promise<Pipe
   else if (!same(preview)) stages.render = stage("done", "The scenes, voice or sound changed since this preview was drawn.", true);
   else stages.render = stage("done", "The preview is drawn, with the mixed sound.");
 
-  // ---- 8 editor (Phase 4)
-  stages.editor = stage("waiting", "The video editor comes in Phase 4. The preview plays here until then.");
+  // ---- 8 editor (Phase 4): edits are versions (src/versions.ts); the history is optional, so this step never blocks the export
+  const versions = listVersions(id);
+  const edits = versions.filter((v) => v.kind === "edit" || v.kind === "rollback").length;
+  if (active("edit", "rollback", "regenerate", "beat", "fixscenes")) stages.editor = stage("running", "An edit is being applied.");
+  else if (!preview) stages.editor = stage("waiting", "Waiting for the preview.");
+  else stages.editor = stage("done", edits ? `${edits} edit${edits > 1 ? "s" : ""}, now at version ${readHead(id)}.` : "No edits yet. Swap shots, fix lines, add sounds; every change is a version.");
 
   // ---- 9 export
   if (active("export")) stages.export = stage("running", "Encoding the YouTube file.");
