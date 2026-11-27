@@ -60,7 +60,7 @@ import { StoryError, readBrief, readLoopMap, readNarration, readPick, type RunOp
 import { typicalDurationMs } from "./usage";
 
 type SceneIn = z.input<typeof SceneFile>["scenes"][number];
-type Shot = Omit<SceneIn, "id">;
+export type Shot = Omit<SceneIn, "id">;
 
 export const VARIETY_WINDOW_S = 30;
 export const MAX_BATCH_LINES = Number(process.env.STUDIO_STORYBOARD_BATCH_LINES ?? 40);
@@ -313,9 +313,9 @@ export function batchLoops(loops: readonly SLoop[], max: number = MAX_BATCH_LINE
 // ---------------------------------------------------------------- normalising a draft scene
 
 type Flag = Omit<StoryboardFlag, "sceneId">;
-type Slot = { lineIds: string[]; shot?: Shot; problems: string[]; flags: Flag[]; why: string };
+export type Slot = { lineIds: string[]; shot?: Shot; problems: string[]; flags: Flag[]; why: string };
 
-type Ctx = { cast: Set<string>; sfx: Record<string, string>; lineWords: Map<string, number>; protagonist: string };
+export type Ctx = { cast: Set<string>; sfx: Record<string, string>; lineWords: Map<string, number>; protagonist: string };
 
 const NOUN: Partial<Record<CatalogueSection, string>> = { actions: "action", expressions: "expression", backgrounds: "background", props: "prop", cameras: "camera move", transitions: "transition", grades: "grade", captions: "caption style", positions: "position" };
 
@@ -657,7 +657,7 @@ async function draft<S extends "cast" | "storyboard">(project: string, step: S, 
   return output as never;
 }
 
-const compactShot = (s: Shot | undefined) =>
+export const compactShot = (s: Shot | undefined) =>
   s ? { lineIds: s.lineIds, bg: s.bg, grade: s.grade, chars: s.chars.map((c) => `${c.id}:${c.action}/${c.expr}@${c.pos}`), camera: s.camera, transitionIn: s.transitionIn } : null;
 
 export async function storyboard(id: string, o: RunOpts = {}): Promise<StoryboardResult> {
