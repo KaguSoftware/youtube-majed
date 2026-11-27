@@ -96,7 +96,7 @@ def speech_db(x: np.ndarray, sr: int) -> float:
     return float(10 * np.log10(np.mean(sp**2) + 1e-12))
 
 
-def balance_lines(wavs: list[np.ndarray], sr: int) -> list[np.ndarray]:
+def balance_lines(wavs: list[np.ndarray], sr: int, processed: list[np.ndarray | None] | None = None) -> list[np.ndarray]:
     """Give every line the same speech level and the same long-term tone, before mastering.
 
     Chatterbox's energy settings change timbre as well as delivery: measured on
@@ -104,23 +104,31 @@ def balance_lines(wavs: list[np.ndarray], sr: int) -> list[np.ndarray]:
     2-3 lines and loudness varies +-2.5 LU. One static match-EQ cannot fix that
     (it moves every line the same way), and the compressor would then pump. Each
     line is moved toward the median line, by a clamped, smoothed, partial amount.
+
+    `processed[i]`, when given, is line i with a voice effect (fx.py). The
+    correction is still measured on the dry take `wavs[i]` and then applied to
+    the processed one: measured on a phone-call line, it would "fix" the
+    effect back toward the other lines.
     """
+    processed = processed or [None] * len(wavs)
     if len(wavs) < 3:
-        return wavs
+        return [p if p is not None else w for w, p in zip(wavs, processed)]
     levels = np.array([speech_db(w, sr) for w in wavs])
-    wavs = [w * 10 ** (np.clip(np.median(levels) - lv, -LEVEL_CLAMP_DB, LEVEL_CLAMP_DB) / 20) for w, lv in zip(wavs, levels)]
+    gains_db = [float(np.clip(np.median(levels) - lv, -LEVEL_CLAMP_DB, LEVEL_CLAMP_DB)) for lv in levels]
+    wavs = [w * 10 ** (g / 20) for w, g in zip(wavs, gains_db)]
     spectra = [band_levels(w, sr) for w in wavs]
     centres = spectra[0][1]
     lv = np.array([s[0] for s in spectra])
     target = np.median(lv, axis=0)
     out = []
-    for w, mine in zip(wavs, lv):
+    for w, mine, p, g in zip(wavs, lv, processed, gains_db):
         diff = target - mine
         diff = diff - np.median(diff[(centres > 300) & (centres < 2500)])  # level was handled above
         for _ in range(2):
             diff = np.convolve(np.pad(diff, 1, mode="edge"), np.ones(3) / 3, mode="valid")
         gains = np.clip(diff * TONE_STRENGTH, -TONE_CLAMP_DB, TONE_CLAMP_DB)
-        out.append(apply(w, sr, {"hz": [float(c) for c in centres], "gainDb": [float(g) for g in gains]}))
+        curve = {"hz": [float(c) for c in centres], "gainDb": [float(x) for x in gains]}
+        out.append(apply(w if p is None else p * 10 ** (g / 20), sr, curve))
     return out
 
 

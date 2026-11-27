@@ -37,6 +37,23 @@ export const VoiceSettings = z.strictObject({
   temperature: z.number().optional(), // Turbo only
 });
 
+/** Voice effect presets (docs/PLAN.md section 7), applied by audio/studio_audio/fx.py to a whole line or one word. */
+export const FX_PRESETS = {
+  chipmunk: "pitch up 5 semitones: jokes, tiny voices",
+  giant: "pitch down 5, low-pass, reverb: villains, monsters",
+  phone_call: "band-limited with light distortion: calls, radio, flashbacks",
+  echo_thought: "delay and reverb: an inner voice",
+  robot: "bitcrush and chorus: AI and robot characters",
+  underwater: "low-pass and chorus: dreams, muffled scenes",
+} as const;
+export type FxPreset = keyof typeof FX_PRESETS;
+export const FxPreset = z.enum(Object.keys(FX_PRESETS) as [FxPreset, ...FxPreset[]], {
+  error: (i) => `unknown voice effect ${JSON.stringify(i.input)}. Known: ${Object.keys(FX_PRESETS).join(", ")}`,
+});
+/** One effect on a line: the whole line, or only word `word` (0 = first word). */
+export const FxEffect = z.strictObject({ preset: FxPreset, word: z.int().min(0).optional() });
+export type FxEffect = z.infer<typeof FxEffect>;
+
 export const VoiceLine = z.strictObject({
   id: LineId,
   text: z.string().min(1),
@@ -49,6 +66,8 @@ export const VoiceLine = z.strictObject({
   settings: VoiceSettings,
   quality: VoiceQuality,
   words: z.array(VoiceWord).min(1),
+  /** the take with its voice effects, which is what the track plays (relative to voice.json); `file` stays the dry take */
+  fx: z.strictObject({ file: z.string().min(1), effects: z.array(FxEffect).min(1) }).optional(),
 });
 
 export const VoiceFile = z
@@ -64,6 +83,8 @@ export const VoiceFile = z
       byEnding: z.record(z.string(), Seconds),
       continues: Seconds,
       beforeReveal: Seconds,
+      /** every line starts on a frame of this rate (Phase 4), so an edit moves later scenes by whole frames */
+      frameRate: z.int().positive().optional(),
     }),
     track: z.strictObject({
       file: z.string(),
