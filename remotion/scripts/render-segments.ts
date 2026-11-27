@@ -24,6 +24,7 @@ import { validateProject } from "@studio/schema";
 import { bundle } from "@remotion/bundler";
 import { RenderInternals, openBrowser, renderMedia, selectComposition } from "@remotion/renderer";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { cpus } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
@@ -210,8 +211,21 @@ const first = wanted[0]!.start;
 const frames = wanted.reduce((n, s) => n + s.frames, 0);
 const seconds = frames / plan.timeline.fps;
 emit({ event: "stitch", stage: "mux" });
-// the same slice of the soundtrack a full render would play under these frames, encoded as Remotion encodes it (AAC, -cutoff 18000)
-await ff(["-i", video, "-ss", (first / plan.timeline.fps).toFixed(6), "-i", sb.mix, "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "aac", "-b:a", prof.audioBitrate, "-cutoff", "18000", "-ar", "48000", "-ac", "2", "-af", "apad", "-t", seconds.toFixed(6), "-movflags", "+faststart", `${work}.mp4`]);
+// The same slice of the soundtrack a full render would play under these frames, encoded as Remotion encodes it
+// (AAC, -cutoff 18000). Encoding six minutes of audio is most of a stitch (~7-12 s), so the encoded track is cached
+// by the mix it comes from (audio/mix.json names the plan), the bitrate and the frame range: an edit that changes
+// only pictures, and a rollback, reuse it and the stitch is two stream copies.
+const mixId = createHash("sha256").update(readFileSync(join(p.audioDir, "mix.json"))).update(`${prof.audioBitrate}|${first}|${frames}`).digest("hex").slice(0, 20);
+const audioDir = join(p.dir, "renders", "segments", "audio");
+const audio = join(audioDir, `${mixId}.mp4`); // .mp4, not .m4a: Remotion's ffmpeg build has no ipod muxer
+const audioCached = existsSync(audio);
+if (!audioCached) {
+  mkdirSync(audioDir, { recursive: true });
+  const tmp = `${audio}.${process.pid}.partial.mp4`;
+  await ff(["-ss", (first / plan.timeline.fps).toFixed(6), "-i", sb.mix, "-c:a", "aac", "-b:a", prof.audioBitrate, "-cutoff", "18000", "-ar", "48000", "-ac", "2", "-af", "apad", "-t", seconds.toFixed(6), tmp]);
+  renameSync(tmp, audio);
+}
+await ff(["-i", video, "-i", audio, "-map", "0:v:0", "-map", "1:a:0", "-c", "copy", "-t", seconds.toFixed(6), "-movflags", "+faststart", `${work}.mp4`]);
 renameSync(`${work}.mp4`, out);
 rmSync(video, { force: true });
 rmSync(list, { force: true });
@@ -219,6 +233,6 @@ const stitchMs = Date.now() - t2;
 
 const totalMs = Date.now() - t0;
 const bytes = statSync(out).size;
-emit({ event: "done", file: out, bytes, frames, segments: wanted.length, rendered: missing.length, reused: wanted.length - missing.length, framesRendered: missingFrames, bundleMs, renderMs, stitchMs, totalMs, concurrency, profile: profileName, code, keys: wanted.map((s) => s.key) });
+emit({ event: "done", file: out, bytes, frames, audioCached, segments: wanted.length, rendered: missing.length, reused: wanted.length - missing.length, framesRendered: missingFrames, bundleMs, renderMs, stitchMs, totalMs, concurrency, profile: profileName, code, keys: wanted.map((s) => s.key), starts: wanted.map((s) => s.start) });
 say(`\n✓ ${out}\n  ${(bytes / 1024 / 1024).toFixed(1)} MB · drew ${missing.length} of ${wanted.length} segments (${missingFrames} frames) in ${(renderMs / 1000).toFixed(1)} s · stitch ${(stitchMs / 1000).toFixed(1)} s · total ${(totalMs / 1000).toFixed(1)} s`);
 process.exit(0);

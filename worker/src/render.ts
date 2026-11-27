@@ -85,8 +85,8 @@ type Phase = { label: string; from: number; to: number };
 /** A phase of a longer job: maps 0..1 inside the phase to the job's 0..1000 scale. */
 const scaled = (report: (p: JobProgress) => void, ph: Phase) => (fraction: number, detail?: string) => report({ label: ph.label, done: Math.round((ph.from + (ph.to - ph.from) * Math.min(1, Math.max(0, fraction))) * 1000), total: 1000, ...(detail ? { detail } : {}) });
 
-async function remotionRender(id: string, profile: "preview" | "final", out: string, o: { signal: AbortSignal; progress: (stage: "bundle" | "render" | "stills", fraction: number, detail?: string) => void; stills?: { frames: number[]; dir: string }; concurrency?: number }): Promise<Done> {
-  const args = ["scripts/render-project.ts", id, "--profile", profile, "--out", out, "--json", ...(o.concurrency ? ["--concurrency", String(o.concurrency)] : []), ...(o.stills ? ["--stills", o.stills.frames.join(","), "--stills-dir", o.stills.dir] : [])];
+async function remotionRender(id: string, profile: "preview" | "final", out: string, o: { signal: AbortSignal; progress: (stage: "bundle" | "render" | "stills", fraction: number, detail?: string) => void; stills?: { frames: number[]; dir: string }; concurrency?: number; noVideo?: boolean }): Promise<Done> {
+  const args = ["scripts/render-project.ts", id, "--profile", profile, "--out", out, "--json", ...(o.concurrency ? ["--concurrency", String(o.concurrency)] : []), ...(o.stills ? ["--stills", o.stills.frames.join(","), "--stills-dir", o.stills.dir] : []), ...(o.noVideo ? ["--no-video"] : [])];
   let done: Done | undefined;
   let failure: string | undefined;
   try {
@@ -116,6 +116,58 @@ async function remotionRender(id: string, profile: "preview" | "final", out: str
   if (!done) throw new RenderError("Remotion finished without saying it was done");
   return done;
 }
+
+// ---------------------------------------------------------------- segments (Phase 4)
+
+const SegEvent = z.discriminatedUnion("event", [
+  z.object({ event: z.literal("plan"), segments: z.number(), cached: z.number(), toRender: z.number(), framesToRender: z.number(), dirty: z.array(z.string()) }),
+  z.object({ event: z.literal("bundle"), progress: z.number() }),
+  z.object({ event: z.literal("render"), rendered: z.number(), total: z.number() }),
+  z.object({ event: z.literal("stitch"), stage: z.string() }),
+  z.object({ event: z.literal("done"), file: z.string(), bytes: z.number(), frames: z.number(), segments: z.number(), rendered: z.number(), reused: z.number(), framesRendered: z.number(), bundleMs: z.number(), renderMs: z.number(), stitchMs: z.number(), totalMs: z.number(), concurrency: z.number(), keys: z.array(z.string()), starts: z.array(z.number()) }),
+  z.object({ event: z.literal("error"), message: z.string() }),
+]);
+type SegDone = Extract<z.infer<typeof SegEvent>, { event: "done" }>;
+
+/** Segmented rendering is the default; STUDIO_RENDER_SEGMENTS=0 draws the whole video in one call as before. */
+export const segmented = () => process.env.STUDIO_RENDER_SEGMENTS !== "0";
+
+/** Draws only the segments missing from the cache, then joins them and muxes the mix (remotion/scripts/render-segments.ts). */
+async function segmentRender(id: string, profile: "preview" | "final", out: string, o: { signal: AbortSignal; progress: (stage: "plan" | "bundle" | "render" | "stitch", fraction: number, detail?: string) => void; concurrency?: number }): Promise<{ done: Done; seg: SegDone }> {
+  const args = ["scripts/render-segments.ts", id, "--profile", profile, "--out", out, "--json", ...(o.concurrency ? ["--concurrency", String(o.concurrency)] : [])];
+  let done: SegDone | undefined;
+  let failure: string | undefined;
+  try {
+    await runChild(join(REMOTION_DIR, "node_modules/.bin/tsx"), args, {
+      cwd: REMOTION_DIR,
+      signal: o.signal,
+      onLine: (line) => {
+        let parsed;
+        try {
+          parsed = SegEvent.safeParse(JSON.parse(line));
+        } catch {
+          return;
+        }
+        if (!parsed.success) return;
+        const e = parsed.data;
+        if (e.event === "plan") o.progress("plan", 1, e.toRender ? `${e.toRender} of ${e.segments} segments to draw (${e.framesToRender.toLocaleString("en-GB")} frames)` : `all ${e.segments} segments are drawn already`);
+        else if (e.event === "bundle") o.progress("bundle", e.progress);
+        else if (e.event === "render") o.progress("render", e.total ? e.rendered / e.total : 1, `${e.rendered.toLocaleString("en-GB")} of ${e.total.toLocaleString("en-GB")} frames`);
+        else if (e.event === "stitch") o.progress("stitch", e.stage === "join" ? 0.3 : 0.7, e.stage === "join" ? "joining the segments" : "laying in the sound");
+        else if (e.event === "done") done = e;
+        else failure = e.message;
+      },
+    });
+  } catch (e) {
+    if (e instanceof ChildError && e.message !== "cancelled") throw new RenderError(failure ?? `Remotion failed:\n${e.tail}`);
+    throw e;
+  }
+  if (!done) throw new RenderError("the segment renderer finished without saying it was done");
+  const d = done;
+  return { seg: d, done: { event: "done", file: d.file, bytes: d.bytes, bundleMs: d.bundleMs, renderMs: d.renderMs, encodeMs: d.stitchMs, totalMs: d.totalMs, concurrency: d.concurrency, frames: d.framesRendered, fps: 30 } };
+}
+
+const segmentsOf = (s: SegDone) => ({ total: s.segments, drawn: s.rendered, reused: s.reused, framesDrawn: s.framesRendered, stitchMs: s.stitchMs });
 
 /** Mixes the soundtrack for the project (cached by plan hash), reporting as the first phase of a job. */
 async function ensureMix(id: string, o: { signal: AbortSignal; report: (p: JobProgress) => void; phase: Phase }): Promise<{ cached: boolean; seconds: number }> {
@@ -154,7 +206,13 @@ export async function renderPreview(id: string, o: RunOpts): Promise<RenderRecor
   const bundle = scaled(o.report, { label: "Preparing the scenes", from: 0.04, to: 0.1 });
   const draw = scaled(o.report, { label: "Drawing the video", from: 0.1, to: 1 });
   const tmp = `${paths.previewMp4}.partial.mp4`;
-  const done = await remotionRender(id, "preview", tmp, { signal: o.signal, concurrency: o.concurrency, progress: (stage, f, d) => (stage === "bundle" ? bundle(f) : draw(f, d)) });
+  let segments: ReturnType<typeof segmentsOf> | undefined;
+  let done: Done;
+  if (segmented()) {
+    const r = await segmentRender(id, "preview", tmp, { signal: o.signal, concurrency: o.concurrency, progress: (stage, f, d) => (stage === "plan" || stage === "bundle" ? bundle(stage === "plan" ? 0 : f, d) : stage === "render" ? draw(f * 0.95, d) : draw(0.95 + 0.05 * f, d)) });
+    done = r.done;
+    segments = segmentsOf(r.seg);
+  } else done = await remotionRender(id, "preview", tmp, { signal: o.signal, concurrency: o.concurrency, progress: (stage, f, d) => (stage === "bundle" ? bundle(f) : draw(f, d)) });
   renameSync(tmp, paths.previewMp4);
   const media = await probe(paths.previewMp4);
   const record = RenderRecord.parse({
@@ -165,6 +223,7 @@ export async function renderPreview(id: string, o: RunOpts): Promise<RenderRecor
     inputs: await currentInputs(id),
     timings: timingsOf(done, Date.now() - t0),
     encode: { crf: profile.crf, preset: profile.preset, reencoded: false, capMB: 0, firstPassMB: round1(media.sizeBytes / 1_048_576) },
+    ...(segments ? { segments } : {}),
     media,
     sidecars: null,
   });
@@ -212,12 +271,35 @@ export async function exportVideo(id: string, o: RunOpts & { profile?: ExportPro
   const bundle = scaled(o.report, phases.bundle);
   const draw = scaled(o.report, phases.draw);
   const pass1 = join(paths.exportDir, `${id}.pass1.mp4`);
-  const done = await remotionRender(id, "final", pass1, {
-    signal: o.signal,
-    concurrency: o.concurrency,
-    ...(frames.length ? { stills: { frames, dir: paths.thumbs } } : {}),
-    progress: (stage, f, d) => (stage === "bundle" ? bundle(f) : stage === "render" ? draw(f * 0.98, d) : draw(0.98 + 0.02 * f, d)),
-  });
+  let segments: ReturnType<typeof segmentsOf> | undefined;
+  let done: Done;
+  if (segmented()) {
+    const r = await segmentRender(id, "final", pass1, { signal: o.signal, concurrency: o.concurrency, progress: (stage, f, d) => (stage === "plan" || stage === "bundle" ? bundle(stage === "plan" ? 0 : f, d) : stage === "render" ? draw(f * 0.95, d) : draw(0.95 + 0.02 * f, d)) });
+    done = r.done;
+    segments = segmentsOf(r.seg);
+    // The thumbnail stills, without captions, from the same composition. A still is cached by the segment it falls in
+    // and its offset there (renders/segments/stills/<key>-<offset>.jpg): the segment key covers everything drawn.
+    const stillsCache = join(paths.dir, "segments", "stills");
+    const cachedAs = frames.map((f) => {
+      const k = r.seg.starts.findLastIndex((s) => s <= f);
+      return join(stillsCache, `${r.seg.keys[k]}-${f - r.seg.starts[k]!}.jpg`);
+    });
+    const todo = frames.filter((_, i) => !existsSync(cachedAs[i]!));
+    if (todo.length) {
+      const tmpDir = join(stillsCache, `tmp-${process.pid}`);
+      await remotionRender(id, "final", pass1, { signal: o.signal, stills: { frames: todo, dir: tmpDir }, noVideo: true, progress: (stage, f, d) => (stage === "stills" ? draw(0.97 + 0.03 * f, d) : undefined) });
+      todo.forEach((f, j) => renameSync(join(tmpDir, `thumb-${j + 1}.jpg`), cachedAs[frames.indexOf(f)]!));
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+    cachedAs.forEach((file, i) => copyFileSync(file, join(paths.thumbs, `thumb-${i + 1}.jpg`)));
+  } else {
+    done = await remotionRender(id, "final", pass1, {
+      signal: o.signal,
+      concurrency: o.concurrency,
+      ...(frames.length ? { stills: { frames, dir: paths.thumbs } } : {}),
+      progress: (stage, f, d) => (stage === "bundle" ? bundle(f) : stage === "render" ? draw(f * 0.98, d) : draw(0.98 + 0.02 * f, d)),
+    });
+  }
 
   // size check: one re-encode at CRF + 2 if the file is over the cap (docs/PLAN.md section 9), then fast start
   const check = scaled(o.report, phases.check);
@@ -256,6 +338,7 @@ export async function exportVideo(id: string, o: RunOpts & { profile?: ExportPro
     inputs: await currentInputs(id),
     timings: timingsOf(done, Date.now() - t0),
     encode: { crf, preset: profile.preset, reencoded: over, capMB, firstPassMB: round1(firstPassMB) },
+    ...(segments ? { segments } : {}),
     media,
     sidecars: { srt: paths.srt, captions: cues.length, chapters: paths.chapters, chapterList, thumbnails },
   });

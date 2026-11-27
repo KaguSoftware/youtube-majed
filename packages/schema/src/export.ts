@@ -113,6 +113,8 @@ export const RenderRecord = z.strictObject({
     frames: z.int(),
     framesPerSecond: z.number(),
   }),
+  /** Phase 4: drawn in segments (remotion/scripts/render-segments.ts): how many were drawn again, how many came from the cache */
+  segments: z.strictObject({ total: z.int(), drawn: z.int(), reused: z.int(), framesDrawn: z.int(), stitchMs: z.number() }).optional(),
   encode: z.strictObject({
     crf: z.int(),
     preset: z.string(),
