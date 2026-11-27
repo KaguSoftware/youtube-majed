@@ -29,7 +29,7 @@ const prompt = readFileSync(0, "utf8");
 const argv = process.argv.slice(2);
 const mode = process.env.FAKE_CLAUDE_MODE ?? "ok";
 const first = prompt.split("\n", 1)[0].trim();
-const step = /^\/(write-story|plan-scenes) step:/.test(first) ? first.replace(/^\/[a-z-]+ step:\s*/, "") : first.slice(1);
+const step = /^\/(write-story|plan-scenes|edit-scenes) step:/.test(first) ? first.replace(/^\/[a-z-]+ step:\s*/, "") : first.slice(1);
 const inputText = prompt.slice(prompt.indexOf("Input:\n") + 7).split("\n\nYour previous answer")[0];
 const input = JSON.parse(inputText);
 const isRetry = prompt.includes("Your previous answer to this step was rejected");
@@ -207,7 +207,41 @@ function storyboard() {
   return { scenes, reveals };
 }
 
-const builders = { options, loopmap, narration, rewrite, "fact-check": factcheck, critic, cast, storyboard };
+
+// --- edit-scenes: built from the scene(s) in the input, with another action and camera per option
+function draftOf(scene, k) {
+  const lib = input.library;
+  const actions = Object.keys(lib.actions).filter((a) => !/^(walk|run|sneak|sleepwalk|drive|sit|lie|sit_think)$/.test(a) && !lib.actions[a].includes("needs"));
+  const cams = Object.keys(lib.cameras);
+  const hero = scene?.chars?.[0]?.id ?? Object.keys(input.cast)[0];
+  return {
+    lineIds: scene.lineIds,
+    bg: scene.bg ?? Object.keys(lib.backgrounds)[0],
+    grade: scene.grade ?? Object.keys(lib.grades)[0],
+    chars: [{ id: hero, action: actions[(k * 5 + 3) % actions.length], expr: "shock", pos: "center", to: "", facing: "auto", look: "normal" }],
+    props: [],
+    camera: cams[(k + 2) % cams.length],
+    transitionIn: "cut",
+    caption: "word_pop",
+    sfx: [],
+    why: `option ${k + 1}: ${input.note ?? input.beat ?? "fix"}`,
+  };
+}
+function regenerate() {
+  return { options: Array.from({ length: input.count ?? 3 }, (_, k) => draftOf(input.scene, k)) };
+}
+function beat() {
+  const add = !/no line/.test(input.beat);
+  const first = add ? [input.newLineId] : [input.canCover[0]];
+  const scenes = [draftOf({ ...input.around.before?.[0], lineIds: first }, 0)];
+  if (add && input.canCover.length) scenes.push(draftOf({ ...input.around.after?.[0], lineIds: [input.canCover[0]] }, 1));
+  return { line: { add, text: add ? "A dog barks at him and he jumps." : "", energy: 4, delivery: "punchy" }, scenes, why: "a reaction beat" };
+}
+function fixscenes() {
+  return { scenes: input.fix.map((f, k) => ({ sceneId: f.sceneId, scene: draftOf(f.scene, k) })) };
+}
+
+const builders = { options, loopmap, narration, rewrite, "fact-check": factcheck, critic, cast, storyboard, regenerate, beat, fixscenes };
 
 // --- behaviour
 

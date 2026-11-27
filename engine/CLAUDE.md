@@ -7,7 +7,7 @@ return one JSON object that matches the step's schema. Nobody can answer a
 question mid-run, so don't ask one: make the best call and move on.
 
 The step instructions are in the skills (`write-story`, `fact-check`,
-`critic`, `plan-scenes`). This file holds the rules every step shares.
+`critic`, `plan-scenes`, `edit-scenes`). This file holds the rules every step shares.
 
 ## The medium
 
