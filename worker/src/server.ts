@@ -31,6 +31,7 @@ import { reelRoutes, reelRunners } from "./reel-api";
 import { varietyRoutes } from "./variety-api";
 import { shotRoutes, shotRunners } from "./custom-shots-api";
 import { editorRequest } from "./editor-api";
+import { guard } from "./access";
 
 const PORT = Number(process.env.STUDIO_WORKER_PORT ?? 8766);
 
@@ -389,6 +390,7 @@ function serveFile(req: IncomingMessage, res: ServerResponse, id: string, rel: s
 }
 
 export const server = createServer(async (req, res) => {
+  if (!guard(req, res)) return; // only the Studio's own pages (src/access.ts)
   if (editorRequest(req, res)) return; // the editor UI's reads (src/editor-api.ts)
   const fileMatch = req.method === "GET" ? /^\/projects\/([\w-]+)\/file\/(.+)$/.exec(new URL(req.url ?? "/", "http://localhost").pathname) : null;
   if (fileMatch) return serveFile(req, res, fileMatch[1]!, decodeURIComponent(fileMatch[2]!));
