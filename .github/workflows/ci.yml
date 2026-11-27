@@ -1,6 +1,6 @@
 # Typecheck and unit tests on every push and pull request. The story engine
 # tests use the fake claude (worker/fake/claude.mjs), so CI never needs a
-# Claude account, the voice models or ffmpeg.
+# Claude account or the voice models.
 name: CI
 
 on:
@@ -24,11 +24,11 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      # the custom-shot checker draws real frames with Remotion: Chrome's libraries and its headless shell
-      - name: Chrome for Remotion
+      # the custom-shot checker draws real frames with Remotion (Chrome's libraries and its headless shell) and measures them with ffmpeg
+      - name: Chrome and ffmpeg for Remotion
         run: |
           sudo apt-get update -q
-          sudo apt-get install -yq libnss3 libdbus-1-3 libatk1.0-0 libgbm-dev libasound2t64 libxrandr2 libxkbcommon-dev libxfixes3 libxcomposite1 libxdamage1 libatk-bridge2.0-0 libpango-1.0-0 libcairo2 libcups2
+          sudo apt-get install -yq libnss3 libdbus-1-3 libatk1.0-0 libgbm-dev libasound2t64 libxrandr2 libxkbcommon-dev libxfixes3 libxcomposite1 libxdamage1 libatk-bridge2.0-0 libpango-1.0-0 libcairo2 libcups2 ffmpeg
           pnpm --filter @studio/remotion exec remotion browser ensure
       - run: pnpm typecheck
       - run: pnpm test
