@@ -30,7 +30,7 @@ Environment variables (names only):
 | Variable | Default | |
 | --- | --- | --- |
 | `STUDIO_CLAUDE_MODEL` | `sonnet` | model for every step |
-| `STUDIO_CLAUDE_MODEL_<STEP>` | | per step, e.g. `STUDIO_CLAUDE_MODEL_FACTCHECK=opus` |
+| `STUDIO_CLAUDE_MODEL_<STEP>` | | per step, e.g. `STUDIO_CLAUDE_MODEL_FACTCHECK=opus`. `customshot` defaults to `opus` (below), ahead of `STUDIO_CLAUDE_MODEL` |
 | `STUDIO_CLAUDE_EFFORT` | (CLI default) | `--effort` for every step |
 | `STUDIO_CLAUDE_EFFORT_<STEP>` | | per step. An option, unset by default: `STUDIO_CLAUDE_EFFORT_NARRATION=medium` cuts the narration step's thinking (most of its ~41k output tokens for an 8-minute script at Gate 2) |
 | `STUDIO_CLAUDE_BIN` | `claude` | tests point it at `fake/claude.mjs` |
@@ -97,6 +97,83 @@ camera.
 A project without a story-engine narration (the lighthouse sample: only a
 script.json) is storyboarded from its script, with its energy-5 lines as the
 head fakes.
+
+## Variety across videos (Phase 5, Part B)
+
+docs/PLAN.md sections 6 and 12: YouTube demotes channels whose videos look
+mass-produced, so every video is scored against the last few. Code only, no
+Claude call (`src/variety.ts`, schemas in `packages/schema/src/variety.ts`).
+
+```bash
+pnpm variety <id> [--against N] [--json]     # one project against the N videos before it (default 4, 1 to 6)
+pnpm variety all [--against N] [--out f.json]  # every storyboarded project against the videos before it; also writes f.txt
+```
+
+**What is read** (tolerantly, so a project without a mix or a brief still has
+features): per scene the background, the sorted set of its characters' actions
+(a lone `idle` is the default and is left out), camera, grade, transition,
+framing, weather, overlay styles and caption; music moods (`storyboard.json`)
+and beds (the mix plan's music cues); live custom shots by the slug of their
+title (`custom/shots.json`); the first and last three shots as `background |
+actions | camera` signatures; the thumbnail moments (the ending twist's shot
+and the first head fake's, plus the title card). "Earlier video" means another
+storyboarded project with an older storyboard, newest first. A Reel cut and its
+long video are one story and are never compared.
+
+**The score, in two sentences.** Each dimension gets a similarity from 0 to 1
+against the recent videos: for a mix of items (backgrounds, action pairs,
+cameras, grades, shot types, caption styles, music moods) it is the overlap of
+the video's usage mix with the recent videos' pooled mix; for a pattern
+(opening, ending, thumbnail framing, music beds, custom shot types) it is the
+best Jaccard match with any single recent video (shot signatures count by
+place, actions and camera separately, so a shared place and camera is partly
+alike). The distinctness score is 100 × the weighted mean of (1 − similarity)
+over the dimensions that both sides have data for.
+
+| Dimension | Weight | | Dimension | Weight |
+| --- | --- | --- | --- | --- |
+| Backgrounds | 18 | | Music beds | 5 |
+| Action pairs | 14 | | Custom shot types | 5 |
+| Camera moves | 10 | | Opening | 10 |
+| Colour grades | 7 | | Ending | 10 |
+| Shot types | 6 | | Title and thumbnail framing | 8 |
+| Caption styles | 2 | | Music moods | 5 |
+
+Verdicts (`VARIETY_BANDS`, one place): **distinct** from 60, **similar** from
+40, **too similar** below; "first video" has nothing to compare with.
+Dimensions with no data (no mix yet, no custom shots) are left out, not scored.
+The caption style is the channel's look (`word_pop` on every scene), so it is
+reported but never flagged or steered. The bands were set from the first four
+storyboards (two lighthouse stories scored 52 and 54, the elevator story 67)
+and are a starting point to tune as the library and the channel grow.
+
+**Repeats** are the specific findings: an item this video leans on (at least
+5% and two scenes) that at least two of the recent videos used too ("background
+lighthouse_stairs: 26% of this video's scenes, and in 2 of the last 2 videos"),
+an opening or ending that starts or ends on the same picture or is at least
+half the same, a thumbnail framing, music bed or custom shot type that matches.
+Library defaults (the static camera, `word_pop`) are never listed.
+
+**Feeding the storyboard.** Before the `cast` step the worker derives
+avoid-lists from the same history (`avoidFrom`): backgrounds, action pairs,
+cameras, grades and music moods that at least two recent videos leaned on
+(capped, so a small library is never emptied), and the recent videos' first
+pictures, last pictures and thumbnail moments. They go in the input of the
+`cast`, `storyboard` and repair calls as `avoid` (left out entirely for the
+first video, so its input is unchanged) with the `plan-scenes` wording that they
+are strong preferences, never above the plan or the script. After the repair
+call code takes a snapshot ("Claude's draft"), runs the within-video camera
+guard, the recent-combo guard, then `avoidOverused`: a camera the lists name is
+swapped on every other scene that uses it, for one the lists do not name and the
+30-second rule allows (reveal cameras only for another reveal camera).
+`projects/<id>/storyboard/variety.json` (strict `VarietyFile`) records the lists,
+the report of Claude's draft, the final report, the report of this project's
+previous storyboard (a rerun) and every swap.
+
+| Route | |
+| --- | --- |
+| `GET /projects/:id/variety[?against=N]` | `{report, storyboard}`: the report as the project is now, and `variety.json` |
+| `GET /variety[?against=N]` | every storyboarded project against the videos before it |
 
 ## Local jobs, pipeline status, export (Phase 3)
 
@@ -292,6 +369,76 @@ preview and both exports work on it unchanged. A name is never reused:
 | `GET /projects/:id/reel` | the Reel export, whether it is out of date, the cuts made from this video (or where this one came from) |
 | `POST /projects/:id/reel/export` / `reel/cut` | jobs `reelexport` and `reelcut`; a cut is refused for a Reel and for a Reel cut |
 | `POST /projects/:id/reveal` `{file}` | shows a file of `renders/` in the Finder |
+
+## Custom shots (Phase 5, Part B)
+
+docs/PLAN.md section 6: up to three per video, a one-off Remotion component Claude writes for a moment the library
+cannot show well (a head-fake reveal that must land on a spoken word), with the library scene as the fallback. Code:
+`src/custom-shots.ts`, skill `engine/.claude/skills/custom-shot`, step `customshot`; the renderer side is in
+`remotion/README.md` ("Custom shots").
+
+```bash
+pnpm shots <id> suggest                      # the moments worth one: the ending twist, then head fakes, spread >= 25 s apart
+pnpm shots <id> add <scene> ["note"] [--model sonnet|opus] [--no-repair]
+pnpm shots <id> add <scene> --source shot.tsx    # a hand-written (or compared) source, through the same checks
+pnpm shots <id> auto                         # a shot for each suggested moment that has none, up to the limit
+pnpm shots <id> regenerate C1 "<note>"       # a new version; if it fails, the shot you have stays
+pnpm shots <id> accept|reject|recheck C1     # reject = revert to the library scene (accept brings it back)
+pnpm shots <id> list | log
+pnpm shots <id> compare S93,S71 --models sonnet,opus   # same moments on two models; nothing saved to the manifest
+```
+
+Where things live (`projects/<id>/custom/`, never in the scene JSON): `shots.json` (the manifest, `CustomShotsFile`:
+shot → scene id, status, source hash, the words it reacts to, the last check, a history), `src/<hash>.tsx` (every
+source ever written, by content hash: a regenerate never overwrites), `stills/<shot>/<hash>/` (what the check drew),
+`log.jsonl` (why a shot fell back, and each verdict).
+
+**What Claude sees.** The scene's library JSON, its frames, every line with each word's frame (relative to the scene),
+the cast looks, the neighbouring scenes, the library's ids and the note. It has no tools: the kit's API is in the
+skill, and a test fails when `remotion/src/custom/kit.ts` and the skill's table disagree.
+
+**The checks, in order** (the first failure puts the library scene back: status `failed`, the reason in the manifest
+and the log; the video still renders):
+
+1. **import rule** (`packages/project/src/shot-lint.ts`): esbuild strips the types, acorn parses, a tree walk allows
+   only `remotion` (a named allowlist: no `staticFile`, `Img`, audio or video), `react` and `../kit`; no URL strings,
+   `fetch`, `window`, `process`, `require`, dynamic `import()`, `<img>`, `Date`, `Math.random()` (a frame must depend
+   only on its number, because segments are cached by source). A guard against a model's accidents, not a sandbox.
+2. **typecheck**: `tsc` on the staged file (errors in other files are only a warning).
+3. **alone**: `remotion/scripts/check-shot.ts` draws it in a browser of its own in 16:9 and 9:16 at frames spread over
+   the scene and at the words it reacts to, under a time limit (`STUDIO_SHOT_TIMEOUT_S`, default 120; the process
+   group, Chrome included, is killed). A crash, a hang or frames that are one flat colour fail it.
+
+A failed typecheck, import or crash gets **one repair call** (the problems go back to Claude with the failed source);
+`--no-repair` skips it. The validator's own retry (zod, import rule, word references that do not exist) comes first
+and costs nothing extra to wire.
+
+**Verdicts.** `verified` shots are drawn and wait for your look; `accepted` are kept; `rejected` is the revert (the
+source stays; accept brings it back if its check still passes); a regenerate that fails leaves the shot you have
+untouched and only logs the failure. At most three live, one per scene.
+
+**Render and Export.** Both go out of date when a shot goes live or falls back (`inputs.shots`). Every render first
+re-checks live shots whose check is stale (the render code changed, or the scene's frames, words or library scene did)
+and falls back for any that now fail (`remotion/scripts/shots.ts`), so a library change cannot crash a render.
+
+**Model: opus by default** (`STUDIO_CLAUDE_MODEL_CUSTOMSHOT=sonnet` for drafts and note-by-note iteration; `--model` per
+call). Tried on three moments of elevator-13 (the ending twist, two head fakes), each model once, every shot checked:
+both passed every check first try; sonnet averaged 24 s, 3.2k output tokens and $0.12 (API-equivalent) a shot, opus 77 s
+(45 to 110 s), 8.5k output tokens and $0.39. Opus drew the clearer picture on two moments (the van that "isn't there"
+as a dashed outline, the floodlight that snaps on and shows it) and tied on the third; sonnet's tendency was a tidy
+layout over the library scene with a less legible idea (a frame outline over a manhole). Three samples is a small
+test; `pnpm shots <id> compare` reruns it.
+
+| Route | |
+| --- | --- |
+| `GET /projects/:id/custom-shots` | shots (with `live`, `stale`), suggestions, the log |
+| `POST /projects/:id/custom-shots` `{scene, note?}` / `…/auto` | job `customshot` (write) |
+| `POST …/custom-shots/:shot/regenerate` `{note}` / `…/recheck` | job `customshot` |
+| `POST …/custom-shots/:shot/accept` / `…/reject` `{reason?}` | at once |
+| `GET /projects/:id/file/custom/stills/…` | the stills (jpg only) |
+
+Not versioned: the manifest is not part of the edit engine's version history (a rollback of scenes leaves shots as
+they are; a shot whose scene is gone or changed is checked again, or ignored, by the render).
 
 ## Usage log
 

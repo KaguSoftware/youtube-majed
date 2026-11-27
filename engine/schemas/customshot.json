@@ -1,0 +1,56 @@
+{
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 60,
+      "description": "A short name for the shot, e.g. \"The elevator light stutters\""
+    },
+    "idea": {
+      "type": "string",
+      "minLength": 10,
+      "maxLength": 400,
+      "description": "One or two sentences: what the viewer sees, and why the library cannot show it"
+    },
+    "timing": {
+      "minItems": 1,
+      "maxItems": 8,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "at": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9]*\\.\\d+:\\d+$",
+            "description": "A word in this scene, \"<lineId>:<wordIndex>\" with the index from the input"
+          },
+          "does": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 120
+          }
+        },
+        "required": [
+          "at",
+          "does"
+        ],
+        "additionalProperties": false
+      },
+      "description": "The words the shot reacts to and what happens on each"
+    },
+    "source": {
+      "type": "string",
+      "minLength": 120,
+      "maxLength": 30000,
+      "description": "The complete TSX file: the default export is the component"
+    }
+  },
+  "required": [
+    "title",
+    "idea",
+    "timing",
+    "source"
+  ],
+  "additionalProperties": false
+}

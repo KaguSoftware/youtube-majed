@@ -123,7 +123,7 @@ export const RenderRecord = z.strictObject({
   profile: ExportProfileId,
   file: z.string(),
   createdAt: z.iso.datetime(),
-  inputs: z.strictObject({ scenes: z.string(), voice: z.string(), soundtrack: z.string() }),
+  inputs: z.strictObject({ scenes: z.string(), voice: z.string(), soundtrack: z.string(), /** the custom shots drawn instead of library scenes (a hash; "" for none, and for records made before Phase 5) */ shots: z.string().default("") }),
   timings: z.strictObject({
     bundleMs: z.number(),
     renderMs: z.number(),

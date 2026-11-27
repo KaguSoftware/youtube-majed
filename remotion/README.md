@@ -120,6 +120,29 @@ Transitions, Weather, Travel, Neon) with the safe zone drawn over each frame
 (`SafeGuides`), and `Samples-9x16` the samples. Segments of the 9:16 render are
 cached under `renders/segments/reel/`, beside the 16:9 ones.
 
+## Custom shots (Phase 5, Part B)
+
+```bash
+tsx scripts/check-shot.ts <project> --scene S93 --source shot.tsx --stills-sub S93/test   # normally run by the worker (pnpm shots)
+```
+
+A scene may be drawn by a one-off component instead of its library scene (docs/PLAN.md section 6; the worker side, the
+checks and the manifest are in `worker/README.md`). Nothing about it is in the scene JSON.
+
+- **Kit** (`src/custom/kit.ts`): the only library module a shot imports, besides `remotion` and `react`: the theme, easing,
+  `useView`, `LibraryScene` (a library scene inside the shot), `Backdrop`, `Actor`, `useShot`, `wordFrame`.
+- **Props** (`ShotProps`): the library scene it stands in for, the cast, the scene's frames, and every word and line
+  with frames relative to the scene's first frame, so a shot lands on a word. `useCurrentFrame()` is that same clock.
+- **In a video**: `StoryVideo` takes `customShots` (scene id → component) and draws it where `SceneView` would be, inside
+  the same transition and caption layers. `scripts/project-entry.tsx` reads `public/projects/<id>/custom.json` and looks
+  the components up in `src/custom/registry.ts` (webpack `require.context` over `src/custom/.staged/`, which a render
+  fills with exactly the project's live shots; gitignored, and invisible to the render code hash and the typecheck).
+- **Segments**: a scene with a shot is keyed by the hash of its source plus what it is given (frames, word and line
+  frames, the library scene, cast looks), so only that segment (and the next while its tail runs under a transition)
+  is drawn again when a shot is added, changed, reverted or falls back.
+- **Not in the editor's player**: the Player draws the library scene; the stills (`projects/<id>/custom/stills/`) and the
+  next render show the shot.
+
 ## Concurrency (measured on the M3 Pro, 36 GB, 6 performance + 6 efficiency cores)
 
 300 frames of elevator-13 (frames 4500 to 4799) at the 1080p profile:
@@ -154,3 +177,113 @@ frames/s, the draw is faster than the encode), the 1080p export in about
   `selectComposition` call (`scripts/render-project.ts`).
 - The app imports `src/gallery/Preview.tsx` for the Cast page's live preview, and
   plays the rendered MP4 in a `@remotion/player` on the Editor step.
+
+## Low poly (Phase 5)
+
+```bash
+pnpm render --style low_poly                                   # the lighthouse sample in 3D, 1080p
+pnpm render:segments <id> --style low_poly [--profile reel]     # any project in 3D, segment-cached
+pnpm render:project <id> --style low_poly | compare-renders <id> --style low_poly
+pnpm assets3d check | convert                                   # 3D sources (Mixamo clips) and their licences
+```
+
+**One scene format, two art styles.** A scene file may say `"artStyle": "low_poly"` (default `stick`), and
+a scene may override it (`packages/schema/src/style.ts`). `--style` overrides the whole project at render
+time without touching its files. A low-poly scene that uses an action, background, prop or weather with no
+3D version yet (catalogue `LOW_POLY`) is drawn as stick instead, and the scripts report it
+(`low poly: 18 of 18 scenes in 3D`, a `style` JSON event for the worker). A render never fails for a
+missing 3D item. Expressions, cameras, transitions, grades, captions, overlays, framings, both frames and
+every cast look work in 3D.
+
+**How it is drawn** (`src/three/`, `@remotion/three`, Three.js 0.187):
+
+- *Staging and camera are the stick style's.* `SceneView3D` calls the same `placeAll` (positions, travel
+  matched to the legs, seats, beds, cars, the 9:16 re-layout) and the same camera moves; `camera3d.tsx`
+  turns a 2D zoom-around-a-point into a real camera that shows exactly what the 2D frame shows at the
+  stage. A push or pan therefore has true parallax, and a scene keeps its staging between styles.
+- *Figures* (`Figure3D.tsx`, `rig3d.ts`) are faceted shapes on a skeleton with Mixamo's bone names. The
+  motion is the stick action's keyframes: each 2D joint angle becomes a rotation in the figure's
+  sagittal plane, so timing, loops and travel are unchanged. `actions3d.ts` adds what a side view cannot
+  say (hands meeting in front of the face, folded arms, arms out, how far the figure turns to the
+  camera), and back-arm elbows that bend "backward" in 2D become a forward bend turned inward. Faces are
+  the 2D face sprites, beards and face features painted onto a canvas texture (`face.ts`), so all 17
+  expressions carry over. Cast looks (`looks3d.tsx`): accent → shirt and hat bands, line → trousers and
+  shoes, fill → skin; all 12 hats, 8 hair styles, the full beard and 5 outfits as shapes; builds and
+  height from the same body maths; neon glows; silhouettes are black.
+- *Ink lines.* As in 2D, characters and props have an ink outline and sets do not (`Ink` in `kit.tsx`, a
+  back-face hull of constant width), which keeps figures readable on any set.
+- *Sets* (`sets/`): office, city, house_interior, lighthouse_exterior, lighthouse_stairs, street,
+  hospital, built from cached flat-shaded primitives. *Props* (`props3d/`): 24, held and placed, with
+  the 2D seat and surface heights. *Light* (`lighting.tsx`): a sun or moon with shadows, a sky/ground
+  fill and fog per time of day, grade-specific light (memory, horror, noir, neon), practical lamps,
+  windows, screens, fire and lanterns that are real lights at dusk and night, and a soft camera-side
+  fill. The grade's wash, vignette and filter still go on top (`GradeOverlay`).
+
+**Rendering.** Remotion recommends the `angle` GL backend for Three.js on a desktop; the scripts pass it
+as soon as one scene is drawn in 3D (stick-only projects keep Chrome's default). Measured on the M3 Pro,
+900 frames of elevator-13-reel at the 1080p profile:
+
+| style | concurrency | frames/s |
+| --- | --- | --- |
+| stick | 8 | 51.5 |
+| low poly | 3 | 38.1 |
+| low poly | 4 | 45.1 |
+| **low poly** | **5** | **47.4** |
+| low poly | 6 | 45.8 |
+
+5 is the default for projects with 3D scenes (`defaultConcurrency` in `scripts/art-style.ts`): the GPU
+is shared by every tab, and x264 `slow` is the limit for both styles. Whole videos: the lighthouse
+sample (55 s, 1080p) renders in 34 s in low poly (15.6 MB) against 33 s in stick (12.0 MB);
+elevator-13-reel (9:16, 1,936 frames) in 37.5 s (11.3 MB) against 30.1 s (9.3 MB).
+
+**Segments.** A segment's key holds the style each of its scenes is drawn in, so the two styles never
+share a cached file, and partial re-render works as in 2D: on elevator-13-reel in low poly, a second run
+reuses all 18 segments (0.3 s), and swapping one scene's camera redraws only that segment.
+`compare-renders --style low_poly` (preview): PSNR min 40.5 dB, median 45.6, SSIM min 0.984 (the same
+encoder floor as stick), sound lag 0 ms.
+
+**Galleries.** Studio folders `Library-3D` and `Library-3D-9x16`: Sets3D (every set by day, dusk and
+night), Actions3D, Cast3D (hats, hair, beards, builds, outfits, face features, neon, silhouette),
+Cameras3D, Props3D. `tsx scripts/stills.ts Sets3D --per-scene --sheet sheet.jpg` makes contact sheets.
+
+### Mixamo (optional): mocap clips on the same skeleton
+
+The plan named Mixamo clips. The figures are built so that Mixamo clips can drive them: bone names and
+hierarchy follow Mixamo's, and `pnpm assets3d convert` turns the FBX files into GLB clips and indexes
+them with their licence. What is not built yet is the retargeting that plays a GLB clip on `rig3d.ts`
+instead of the keyframes; it needs real clips to tune against. The licence: royalty-free in videos, but
+the raw files may not be redistributed. So they live in `assets/3d/` (gitignored), with an entry each in
+`assets/sources-3d.json`.
+
+Download from mixamo.com (Adobe login). For every clip use the default character **Y Bot**, then
+Download with: Format **FBX Binary (.fbx)**, Skin **Without Skin**, Frames per Second **30**, Keyframe
+Reduction **none**, and tick **In Place** where the list says so (the code moves the figure). Save each
+as `assets/3d/mixamo/fbx/<action>.fbx`, then run `pnpm assets3d convert`.
+
+The 20 most used actions in the storyboards so far (count in brackets), with the Mixamo search term to use:
+
+| file | search Mixamo for | in place |
+| --- | --- | --- |
+| idle.fbx (43) | Breathing Idle | |
+| walk.fbx (14) | Walking | yes |
+| think.fbx (14) | Thinking | |
+| sleep.fbx (11) | Sleeping (lying down, looping) | |
+| peek.fbx (11) | Peeking / Look Around Corner | |
+| sit_chair.fbx (8) | Sitting Idle | |
+| gasp.fbx (8) | Surprised | |
+| sigh.fbx (7) | Defeated / Sigh | |
+| shrug.fbx (7) | Shrugging | |
+| nod.fbx (7) | Head Nod Yes | |
+| look_around.fbx (7) | Looking Around | |
+| point.fbx (6) | Pointing | |
+| cross_arms.fbx (6) | Standing Arms Crossed | |
+| push.fbx (5) | Pushing | yes |
+| drive.fbx (4) | Driving (sitting) | |
+| tremble.fbx (3) | Terrified / Scared | |
+| throw.fbx (3) | Throw (one hand) | |
+| scratch_head.fbx (3) | Head Scratch / Thinking | |
+| pull.fbx (3) | Pulling (rope) | yes |
+| listen.fbx (3) | Listening / Hand To Ear | |
+
+Mixamo's titles change, so treat the middle column as search terms, and pick the result that loops
+cleanly and matches the action's description in `packages/schema/src/catalogue.ts`.

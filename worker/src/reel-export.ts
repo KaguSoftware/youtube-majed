@@ -31,7 +31,7 @@ export async function reelStatus(id: string): Promise<{ record: ReelRecord | nul
   if (!record) return { record, stale: false };
   try {
     const now = await currentInputs(id);
-    return { record, stale: record.inputs.scenes !== now.scenes || record.inputs.voice !== now.voice || record.inputs.soundtrack !== now.soundtrack };
+    return { record, stale: record.inputs.scenes !== now.scenes || record.inputs.voice !== now.voice || record.inputs.soundtrack !== now.soundtrack || (record.inputs.shots ?? "") !== now.shots };
   } catch {
     return { record, stale: false };
   }

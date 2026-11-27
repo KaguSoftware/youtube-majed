@@ -62,7 +62,8 @@ step's checklist, fix, then return.
 story), `loops` (each with its question, head fake and lines), `plants`, the
 `library` (backgrounds, grades, props and every cast look section: hats,
 hair, beards, outfits and so on), `castLook` (the JSON Schema of a cast
-member's look) and the music `moods`.
+member's look), the music `moods` and, when earlier videos exist, `avoid`
+(see "Avoid-lists" below).
 
 **Return:** `cast`, `loops` (one look per loop), `plants` (how each is
 shown), `style`.
@@ -196,6 +197,22 @@ and `reveals`, one per head-fake line in the batch.
   fake. The video's first shot comes in on a `cut` and establishes the place
   and the main character.
 - Any further cameras and transitions in `library` follow their descriptions.
+
+### Avoid-lists (variety across videos)
+
+When earlier videos exist, the input has `avoid`: what the last few videos
+leaned on (`backgrounds`, `actionPairs`, `cameras`, `grades`, `musicMoods`,
+and the `openings`, `endings` and `thumbnails` pictures they used, written
+`background|actions|camera`). YouTube demotes channels whose videos look
+mass-produced, so treat every list as a **strong preference**: where the story
+leaves a choice, pick something not on the list: another place for a scene
+that is only a place, a different action for a beat that any action would
+carry, another camera, another opening picture and another last picture. When
+the story demands it (the place it happens in, a grade for its time of day, a
+mood for its feel), use it anyway and make everything around it different.
+Never invent an id to avoid one, and never let an avoid-list override the plan
+or the script. The caption style is the series identity: keep `word_pop`. Code
+checks the result against the same lists.
 
 ### Variety (code checks it)
 

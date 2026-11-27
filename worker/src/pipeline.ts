@@ -106,12 +106,12 @@ export async function pipelineOf(id: string, jobs: readonly Job[]): Promise<Pipe
 
   // ---- 7 render
   const inputs = scenes && voiced ? await currentInputs(id) : undefined;
-  const same = (r: { inputs: { scenes: string; voice: string; soundtrack: string } } | undefined) => Boolean(r && inputs && r.inputs.scenes === inputs.scenes && r.inputs.voice === inputs.voice && r.inputs.soundtrack === inputs.soundtrack);
+  const same = (r: { inputs: { scenes: string; voice: string; soundtrack: string; shots?: string } } | undefined) => Boolean(r && inputs && r.inputs.scenes === inputs.scenes && r.inputs.voice === inputs.voice && r.inputs.soundtrack === inputs.soundtrack && (r.inputs.shots ?? "") === inputs.shots);
   const hasMix = existsSync(storyboardPaths(id).mix);
   if (active("render", "mix")) stages.render = stage("running", "Mixing the sound and drawing the preview.");
   else if (!scenes || !voiced) stages.render = stage("waiting", "Waiting for the scenes.");
   else if (!preview) stages.render = stage("needs_you", hasMix ? "Render the preview." : "Mix the sound and render the preview.");
-  else if (!same(preview)) stages.render = stage("done", "The scenes, voice or sound changed since this preview was drawn.", true);
+  else if (!same(preview)) stages.render = stage("done", "The scenes, voice, sound or custom shots changed since this preview was drawn.", true);
   else stages.render = stage("done", "The preview is drawn, with the mixed sound.");
 
   // ---- 8 editor (Phase 4): edits are versions (src/versions.ts); the history is optional, so this step never blocks the export

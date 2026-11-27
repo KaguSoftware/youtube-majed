@@ -24,6 +24,9 @@ for scale or multi-tenancy.
 - The library catalogue (`packages/schema/src/catalogue.ts`) is the only list
   of ids that scene JSON may use. Adding a library item means adding it there
   and implementing it in `remotion/`; TypeScript enforces that the two match.
+- Art style: `stick` or `low_poly` per scene file, overridable per scene (`packages/schema/src/style.ts`).
+  `LOW_POLY` in catalogue.ts lists what has a 3D version (`remotion/src/three/`); anything else falls back
+  to stick for that scene. Never commit licensed 3D sources (`assets/3d/` is gitignored).
 - Scenes carry no timing. Timing comes from word timestamps (Phase 1+), or
   from a separate `timing.json` in Phase 0.
 - All frontend/UI work goes through the `/impeccable` skill.
@@ -58,6 +61,9 @@ pnpm story storyboard <id>   # scene JSON for a locked script (Phase 3)
 pnpm assets seed|index # the sound library: assets/sources.json -> assets/index.sqlite
 pnpm mix <id>          # sound design: SFX, risers, ambience, music, -14 LUFS (cached)
 pnpm render:project <id>     # preview render of a storyboarded project with its mix
+pnpm render:segments <id> --style low_poly   # any render script: draw the project in the low-poly 3D style (remotion/README.md)
+pnpm assets3d check|convert  # 3D sources: Mixamo FBX in assets/3d/ (gitignored) -> GLB, licences in assets/sources-3d.json
+pnpm shots <id> <command>    # custom shots (Phase 5): suggest, add, auto, regenerate, accept, reject, recheck, list, log, compare
 pnpm reel <id> export     # the 9:16 Reel (1080x1920, CRF 21, captions burned in) and its .srt
 pnpm reel <id> cut        # Claude cuts a 60-90 s Reel from a long video into the project <id>-reel
 ```

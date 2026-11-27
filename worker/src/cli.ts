@@ -40,7 +40,7 @@ function fail(message: string): never {
   process.exit(1);
 }
 
-const LABEL: Record<StepName, string> = { options: "master loop options", loopmap: "loop map", narration: "narration", rewrite: "rewrite", factcheck: "fact-check", critic: "retention critic", cast: "cast and locations", storyboard: "storyboard", regenerate: "scene options", beat: "inserted beat", fixscenes: "flagged scenes", reelcut: "Reel cut" };
+const LABEL: Record<StepName, string> = { options: "master loop options", loopmap: "loop map", narration: "narration", rewrite: "rewrite", factcheck: "fact-check", critic: "retention critic", cast: "cast and locations", storyboard: "storyboard", regenerate: "scene options", beat: "inserted beat", fixscenes: "flagged scenes", reelcut: "Reel cut", customshot: "custom shot" };
 const secs = (ms: number) => `${Math.round(ms / 1000)} s`;
 
 /** Prints step progress; on a terminal, a ticking elapsed time. */

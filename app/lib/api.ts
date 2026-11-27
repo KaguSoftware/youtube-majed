@@ -3,13 +3,13 @@
  * crosses a process boundary). Shared by server components (which call the
  * worker directly) and client components (which go through /api/worker).
  */
-import { Brief, CastId, CastMember, Comment, FactCheckOutput, LoopMapOutput, MasterOptionsOutput, MixResult, NarrationFile, PickFile, PipelineState, ReelCutFile, ReelRecord, RenderRecord, ReviewRound, SceneFile, StepName, StoryboardFile } from "@studio/schema";
+import { Brief, CastId, CastMember, Comment, FactCheckOutput, LoopMapOutput, MasterOptionsOutput, MixResult, NarrationFile, PickFile, PipelineState, ReelCutFile, ReelRecord, RenderRecord, ReviewRound, SceneFile, StepName, StoryboardFile, VarietyFile, VarietyReport } from "@studio/schema";
 import { z } from "zod";
 
 export const Job = z.object({
   id: z.string(),
   project: z.string(),
-  kind: z.enum(["options", "write", "review", "fix", "rewrite", "storyboard", "voice", "mix", "render", "export", "edit", "rollback", "regenerate", "beat", "fixscenes", "reelcut", "reelexport"]),
+  kind: z.enum(["options", "write", "review", "fix", "rewrite", "storyboard", "voice", "mix", "render", "export", "edit", "rollback", "regenerate", "beat", "fixscenes", "reelcut", "reelexport", "customshot"]),
   label: z.string(),
   status: z.enum(["queued", "waiting", "running", "done", "failed", "cancelled"]),
   createdAt: z.number(),
@@ -107,6 +107,9 @@ export type VoiceState = z.infer<typeof VoiceState>;
 
 export const StoryboardState = z.object({ storyboard: StoryboardFile.nullable() });
 export const ScenesState = z.object({ scenes: SceneFile.nullable() });
+/** The variety guard: the report as the project is now, and what its last storyboard run asked for and changed. */
+export const VarietyState = z.object({ report: VarietyReport.nullable(), storyboard: VarietyFile.nullable() });
+export type VarietyState = z.infer<typeof VarietyState>;
 export const CastState = z.object({ cast: z.record(CastId, CastMember).nullable() });
 export const MixState = z.object({ mix: MixResult.nullable() });
 export const RendersState = z.object({ preview: RenderRecord.nullable(), export: RenderRecord.nullable() });

@@ -38,4 +38,10 @@ writing stories).
   line. Code checks the result and builds the child project
   (`worker/src/reel-cut.ts`).
 
-`custom-shot` arrives in Phase 5 (docs/PLAN.md).
+- `.claude/skills/custom-shot`: a one-off Remotion component for one moment the library cannot show (Phase 5).
+  One call per shot, no tools, the kit's API in the skill. Code lints its imports, typechecks it and draws it alone
+  in both frames before it is used; a failure falls back to the library scene (`worker/src/custom-shots.ts`).
+
+- Variety across videos (Phase 5): `plan-scenes` reads an `avoid` input (what the
+  last videos leaned on) as a strong preference. The lists and the score are
+  code, in `worker/src/variety.ts` (`pnpm variety`).

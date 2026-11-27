@@ -19,7 +19,7 @@ import { z } from "zod";
 import { BusyError, acquire } from "./lock";
 import type { Progress } from "./story";
 
-export const JobKind = z.enum(["options", "write", "review", "fix", "rewrite", "storyboard", "voice", "mix", "render", "export", "edit", "rollback", "regenerate", "beat", "fixscenes", "reelcut", "reelexport"]);
+export const JobKind = z.enum(["options", "write", "review", "fix", "rewrite", "storyboard", "voice", "mix", "render", "export", "edit", "rollback", "regenerate", "beat", "fixscenes", "reelcut", "reelexport", "customshot"]);
 export type JobKind = z.infer<typeof JobKind>;
 
 const StepState = z.object({ phase: z.enum(["running", "done", "skipped"]), startedAt: z.number(), finishedAt: z.number().optional(), estimateMs: z.number().optional(), attempt: z.number() });

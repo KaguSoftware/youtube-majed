@@ -16,7 +16,7 @@ renders/
 node_modules/
 .pnpm-store/
 dist/
-.next/
+.next*/
 *.tsbuildinfo
 
 # python
@@ -40,3 +40,10 @@ remotion/public/projects/
 
 # asset index, rebuilt from assets/sources.json by `pnpm assets index` (local only)
 assets/index.sqlite*
+
+# custom shot sources are staged here for a render or a check (remotion/src/custom/registry.ts)
+remotion/src/custom/.staged/*
+!remotion/src/custom/.staged/.gitkeep
+
+# low-poly 3D sources (Mixamo FBX, their GLB conversions): licensed, never committed; listed with licences in assets/sources-3d.json
+assets/3d/

@@ -9,6 +9,7 @@
  */
 import { assertProject, type Project } from "@studio/schema";
 import { Composition, registerRoot, staticFile, type CalculateMetadataFunction } from "remotion";
+import { shotComponent } from "../src/custom/registry";
 import "../src/fonts";
 import { StoryVideo } from "../src/scene/StoryVideo";
 import { buildTimeline } from "../src/scene/timeline";
@@ -16,7 +17,7 @@ import { PORTRAIT } from "../src/scene/view";
 import { FPS, H, W } from "../src/theme";
 import { fetchVoice, trackUrl } from "../src/voice";
 
-type Props = { project: string; loaded?: Project; audioSrc?: string; captions?: boolean; portrait?: boolean };
+type Props = { project: string; loaded?: Project; audioSrc?: string; captions?: boolean; portrait?: boolean; /** scene id → custom shot source hash, from public/projects/<id>/custom.json (scripts/shots.ts) */ custom?: Record<string, string> };
 
 async function fetchJson(project: string, file: string): Promise<unknown> {
   const res = await fetch(staticFile(`projects/${project}/${file}`));
@@ -25,16 +26,25 @@ async function fetchJson(project: string, file: string): Promise<unknown> {
   return JSON.parse(text);
 }
 
+/** The custom shots the render drew this project with; none when the file is not there. */
+async function fetchCustom(project: string): Promise<Record<string, string>> {
+  const res = await fetch(staticFile(`projects/${project}/custom.json`));
+  const text = await res.text();
+  if (!res.ok || text.trimStart().startsWith("<")) return {};
+  return (JSON.parse(text) as { scenes?: Record<string, string> }).scenes ?? {};
+}
+
 const load: CalculateMetadataFunction<Props> = async ({ props }) => {
-  const [scenes, script, voice] = await Promise.all([fetchJson(props.project, "scenes.json"), fetchJson(props.project, "script.json"), fetchVoice(props.project)]);
+  const [scenes, script, voice, custom] = await Promise.all([fetchJson(props.project, "scenes.json"), fetchJson(props.project, "script.json"), fetchVoice(props.project), fetchCustom(props.project)]);
   const loaded = assertProject(`projects/${props.project}`, { scenes, script, voice });
   const audioSrc = loaded.voice ? trackUrl(props.project, loaded.voice.track.file) : undefined;
-  return { durationInFrames: buildTimeline(loaded, { portrait: props.portrait }).total, props: { ...props, loaded, audioSrc } };
+  return { durationInFrames: buildTimeline(loaded, { portrait: props.portrait }).total, props: { ...props, loaded, audioSrc, custom } };
 };
 
-function ProjectVideo({ loaded, audioSrc, captions, portrait }: Props) {
+function ProjectVideo({ loaded, audioSrc, captions, portrait, custom }: Props) {
   if (!loaded) throw new Error("project was not loaded (calculateMetadata did not run)");
-  return <StoryVideo project={loaded} audioSrc={audioSrc} captions={captions} view={portrait ? PORTRAIT : undefined} />;
+  const customShots = custom && Object.keys(custom).length ? Object.fromEntries(Object.entries(custom).map(([scene, hash]) => [scene, shotComponent(hash)])) : undefined;
+  return <StoryVideo project={loaded} audioSrc={audioSrc} captions={captions} view={portrait ? PORTRAIT : undefined} customShots={customShots} />;
 }
 
 /**

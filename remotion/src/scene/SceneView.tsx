@@ -95,7 +95,7 @@ function place(char: CharInScene, cast: CastMember, scene: Scene, frame: number,
 }
 
 /** World-space position of a placed character's head and body centre. */
-function anchors(p: Placed): { head: Vec; body: Vec } {
+export function anchors(p: Placed): { head: Vec; body: Vec } {
   const j = solve(p.pose, p.breath, bodyOf(p.cast));
   const s = sizeOf(p.cast);
   const wx = (v: Vec) => p.x + p.facing * s * v.x;
@@ -186,7 +186,7 @@ export function placeAll(scene: Scene, cast: Record<string, CastMember>, frame: 
  * The base view before the camera move: the whole frame (wide), or a
  * waist-up medium shot that fits every character (it follows them if they move).
  */
-function baseView(framing: Scene["framing"], placed: Placed[], groundY: number): Base {
+export function baseView(framing: Scene["framing"], placed: Placed[], groundY: number): Base {
   if (framing !== "medium" || placed.length === 0) return WIDE;
   const xs = placed.map((p) => p.x);
   const tops = placed.map((p) => p.groundY - sizeOf(p.cast) * 300 * p.cast.height - 70);

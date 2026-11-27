@@ -31,6 +31,8 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import { planSegments } from "../src/scene/segments";
 import { SEGMENT_PROFILES, compositionOf, compositionWidth, encodeOptions, isProfileName, segmentProfile, type SegmentProfileName } from "./encode";
 import { REMOTION_DIR, REPO_DIR } from "./load";
+import { defaultConcurrency, glFor, removeOnExit, reportStyle, stageScenes, styleArg, styledRaw } from "./art-style";
+import { prepareShots } from "./shots";
 
 const args = process.argv.slice(2);
 const arg = (name: string) => (args.includes(`--${name}`) ? args[args.indexOf(`--${name}`) + 1] : undefined);
@@ -46,9 +48,9 @@ const die = (m: string): never => {
 };
 
 
-const VALUE_FLAGS = ["profile", "out", "concurrency", "frames"].map((f) => `--${f}`);
+const VALUE_FLAGS = ["profile", "out", "concurrency", "frames", "style"].map((f) => `--${f}`);
 const id = args.find((a, i) => !a.startsWith("--") && !VALUE_FLAGS.includes(args[i - 1] ?? ""));
-if (!id) die("usage: pnpm render:segments <id> [--profile preview|final|reel|lossless] [--out file.mp4] [--concurrency N] [--frames a-b] [--plan] [--json]");
+if (!id) die("usage: pnpm render:segments <id> [--profile preview|final|reel|lossless] [--out file.mp4] [--concurrency N] [--frames a-b] [--plan] [--style stick|low_poly] [--json]");
 const projectId = id!;
 const profileArg = arg("profile") ?? "preview";
 if (!isProfileName(profileArg)) die(`Unknown profile "${profileArg}". Use: ${Object.keys(SEGMENT_PROFILES).join(", ")}`);
@@ -59,7 +61,9 @@ const segProfile = segmentProfile(profileName);
 const p = projectPaths(projectId);
 const sb = storyboardPaths(projectId);
 const read = (f: string) => (existsSync(f) ? JSON.parse(readFileSync(f, "utf8")) : undefined);
-const check = validateProject({ scenes: read(sb.scenes), script: read(p.scriptJson), voice: read(p.voiceJson) });
+const style = styleArg(args);
+const rawScenes = styledRaw(read(sb.scenes), style);
+const check = validateProject({ scenes: rawScenes, script: read(p.scriptJson), voice: read(p.voiceJson) });
 if (!check.ok) die(`✗ ${projectId} is not valid, nothing rendered:\n  - ${check.errors.join("\n  - ")}`);
 const project = check.ok ? check.data : die("unreachable");
 if (!project.voice) die(`✗ ${projectId} has no voice.json`);
@@ -67,7 +71,9 @@ if (!existsSync(sb.mix)) die(`✗ ${projectId} has no mix: run \`pnpm mix ${proj
 
 const t0 = Date.now();
 const code = renderCodeHash();
-const plan = planSegments(project, { code, profile: segProfile });
+// custom shots: stale ones are checked again (a failure puts the library scene back), the rest staged for the bundle
+const custom = await prepareShots(projectId, project, say);
+const plan = planSegments(project, { code, profile: segProfile, custom });
 const frameRange = arg("frames")?.split("-").map(Number) as [number, number] | undefined;
 const wanted = frameRange ? plan.segments.filter((s) => s.start <= frameRange[1] && s.start + s.frames - 1 >= frameRange[0]) : plan.segments;
 const cacheDir = join(p.dir, "renders", "segments", profileName);
@@ -77,6 +83,8 @@ const missing = wanted.filter((s) => !existsSync(fileOf(s.key)));
 const missingFrames = missing.reduce((n, s) => n + s.frames, 0);
 emit({ event: "plan", code, segments: wanted.length, cached: wanted.length - missing.length, toRender: missing.length, frames: wanted.reduce((n, s) => n + s.frames, 0), framesToRender: missingFrames, dirty: missing.map((s) => s.sceneId) });
 say(`${projectId}: ${wanted.length} segments, ${wanted.length - missing.length} cached, ${missing.length} to draw (${missingFrames} of ${wanted.reduce((n, s) => n + s.frames, 0)} frames) · ${prof.label}`);
+reportStyle(project, say, emit);
+const gl = glFor(project);
 if (args.includes("--plan")) {
   if (!json) for (const s of wanted) say(`  ${existsSync(fileOf(s.key)) ? "·" : "▲"} ${s.sceneId.padEnd(5)} ${String(s.start).padStart(6)} +${String(s.frames).padEnd(4)} ${s.key}${s.layers.length > 1 ? `  (under ${s.layers.slice(0, -1).join(", ")})` : ""}`);
   process.exit(0);
@@ -85,7 +93,7 @@ if (args.includes("--plan")) {
 const outArg = arg("out");
 const out = outArg && isAbsolute(outArg) ? outArg : resolve(process.env.INIT_CWD ?? process.cwd(), outArg ?? join(REPO_DIR, "renders", `${projectId}-segments-${profileName}.mp4`));
 mkdirSync(dirname(out), { recursive: true });
-const concurrency = Number(arg("concurrency") ?? process.env.STUDIO_RENDER_CONCURRENCY ?? Math.max(2, Math.min(8, Math.floor(cpus().length * 0.67))));
+const concurrency = Number(arg("concurrency") ?? process.env.STUDIO_RENDER_CONCURRENCY ?? defaultConcurrency(glFor(project), cpus().length));
 
 // Remotion's own ffmpeg build (the one a full render encodes its audio with), so the AAC is the same encoder:
 // measured on elevator-13 at 128 kbps, Homebrew's ffmpeg 9 left -24.8 dB of residual against the mix, Remotion's -29.5 dB.
@@ -122,7 +130,7 @@ let renderMs = 0;
 if (missing.length) {
   // the composition reads the project from public/projects/<id>/, as a full render does
   syncAudio(projectId, { track: "mix" });
-  copyFileSync(sb.scenes, join(p.publicDir, "scenes.json"));
+  stageScenes(rawScenes, join(p.publicDir, "scenes.json"));
   copyFileSync(p.scriptJson, join(p.publicDir, "script.json"));
   let lastBundle = 0;
   const serveUrl = await bundle({
@@ -135,13 +143,14 @@ if (missing.length) {
       }
     },
   });
+  removeOnExit(serveUrl);
   bundleMs = Date.now() - t0;
   const inputProps = { project: projectId };
-  const composition = await selectComposition({ serveUrl, id: compositionOf(prof), inputProps });
+  const composition = await selectComposition({ serveUrl, id: compositionOf(prof), inputProps, chromiumOptions: { gl } });
   if (composition.durationInFrames !== plan.total) die(`the composition has ${composition.durationInFrames} frames but the plan has ${plan.total}; was a file changed during the render?`);
   // the scale factor must match the render scale, as when renderMedia opens its own browser: without it Chrome draws
   // every frame at 1080p and the screenshot is scaled down (measured 72 instead of 103 frames/s at 720p)
-  const browser = await openBrowser("chrome", { chromiumOptions: {}, forceDeviceScaleFactor: prof.width / compositionWidth(prof) });
+  const browser = await openBrowser("chrome", { chromiumOptions: { gl }, forceDeviceScaleFactor: prof.width / compositionWidth(prof) });
   const t1 = Date.now();
   let done = 0;
   let lastEmit = 0;

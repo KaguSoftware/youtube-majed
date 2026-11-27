@@ -13,23 +13,28 @@
     "sync-check": "tsx scripts/sync-check.ts",
     "render:project": "tsx scripts/render-project.ts",
     "render:segments": "tsx scripts/render-segments.ts",
-    "compare-renders": "tsx scripts/compare-renders.ts"
+    "compare-renders": "tsx scripts/compare-renders.ts",
+    "assets3d": "tsx scripts/assets3d.ts"
   },
   "dependencies": {
+    "@react-three/fiber": "9.8.2",
     "@remotion/bundler": "4.0.547",
     "@remotion/cli": "4.0.547",
     "@remotion/fonts": "4.0.547",
     "@remotion/renderer": "4.0.547",
+    "@remotion/three": "4.0.547",
     "@studio/project": "workspace:*",
     "@studio/schema": "workspace:*",
     "react": "19.3.1",
     "react-dom": "19.3.1",
-    "remotion": "4.0.547"
+    "remotion": "4.0.547",
+    "three": "0.187.0"
   },
   "devDependencies": {
     "@types/node": "22.20.7",
     "@types/react": "19.3.3",
     "@types/react-dom": "19.3.0",
+    "@types/three": "0.187.0",
     "tsx": "4.23.15",
     "typescript": "7.0.2"
   }

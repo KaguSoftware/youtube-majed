@@ -2,7 +2,7 @@
  * Renders a sample with one of the export profiles from docs/PLAN.md section 9.
  *   pnpm render                      # lighthouse, final 1080p → renders/lighthouse-v1.mp4
  *   pnpm render:preview              # lighthouse, 720p preview → renders/lighthouse-preview.mp4
- *   tsx scripts/render.ts <sample> --profile final|preview [--out name.mp4]
+ *   tsx scripts/render.ts <sample> --profile final|preview [--out name.mp4] [--style stick|low_poly]
  *
  * Validates first and stops with readable errors if a scene file is wrong.
  */
@@ -13,6 +13,9 @@ import { join } from "node:path";
 import { compositionId } from "../samples";
 import { PROFILES } from "./profiles";
 import { REMOTION_DIR, REPO_DIR, loadProject, sampleDir } from "./load";
+import { cpus } from "node:os";
+import { defaultConcurrency, glFor, reportStyle, styleArg } from "./art-style";
+import { withArtStyle } from "@studio/schema";
 
 
 function arg(name: string): string | undefined {
@@ -40,9 +43,14 @@ const voiced = Boolean(check.data.voice);
 if (voiced) syncAudio(sample);
 else console.log(`! ${sample} has no voice.json: rendering silent, scene timing from timing.json. Run \`pnpm voice ${sample}\` first for sound.`);
 
+const style = styleArg(process.argv);
+const styled = style ? { ...check.data, scenes: withArtStyle(check.data.scenes, style) } : check.data;
+reportStyle(styled, console.log, () => {});
+const gl = glFor(styled);
+
 const outDir = join(REPO_DIR, "renders");
 mkdirSync(outDir, { recursive: true });
-const out = join(outDir, arg("out") ?? `${sample}-${profile.suffix}${voiced ? "-voiced" : ""}.mp4`);
+const out = join(outDir, arg("out") ?? `${sample}-${profile.suffix}${voiced ? "-voiced" : ""}${style && style !== "stick" ? `-${style}` : ""}.mp4`);
 
 console.log(`Rendering ${sample} → ${out}\n  ${profile.label}`);
 const started = Date.now();
@@ -58,6 +66,8 @@ const r = spawnSync(
     `--jpeg-quality=${profile.jpegQuality}`,
     "--pixel-format=yuv420p",
     ...(voiced ? ["--audio-codec=aac", `--audio-bitrate=${profile.audioBitrate}`, "--enforce-audio-track"] : []),
+    ...(style ? [`--props=${JSON.stringify({ sample, artStyle: style })}`] : []),
+    ...(gl ? [`--gl=${gl}`, `--concurrency=${defaultConcurrency(gl, cpus().length)}`] : []),
   ],
   { cwd: REMOTION_DIR, stdio: "inherit" },
 );

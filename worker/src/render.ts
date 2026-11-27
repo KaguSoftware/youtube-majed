@@ -16,7 +16,7 @@
  * (scenes.json, voice.json, the soundtrack): when any of them changes, the
  * step is out of date (src/pipeline.ts).
  */
-import { REPO_DIR, projectPaths, readJson, readVoice, storyboardPaths, writeJson } from "@studio/project";
+import { REPO_DIR, customShotsHash, projectPaths, readJson, readVoice, storyboardPaths, writeJson } from "@studio/project";
 import { EXPORT_PROFILES, RenderRecord, sizeCapMB, type ExportProfile, type ExportProfileId } from "@studio/schema";
 import { copyFileSync, existsSync, mkdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -67,7 +67,7 @@ export const readExportRecord = (id: string) => readJson(renderPaths(id).exportJ
 /** Content hashes of what a render is made from. The soundtrack is the mix when there is one. */
 export async function currentInputs(id: string): Promise<RenderRecord["inputs"]> {
   const sb = storyboardPaths(id);
-  return { scenes: await fileHash(sb.scenes), voice: await fileHash(projectPaths(id).voiceJson), soundtrack: await fileHash(sb.mix) };
+  return { scenes: await fileHash(sb.scenes), voice: await fileHash(projectPaths(id).voiceJson), soundtrack: await fileHash(sb.mix), shots: customShotsHash(id) };
 }
 
 // ---------------------------------------------------------------- the remotion child

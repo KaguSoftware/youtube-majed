@@ -17,10 +17,12 @@ import { LinePanel, SfxPanel } from "./line-panel";
 import { LivePlayer, type Source } from "./live-player";
 import { dirtyOf, estimateS, lineAt, sceneFrame, sceneIndexAt, sceneSetOp, withScene, wordAt, wordRef, type Selection } from "./model";
 import { ScenePanel } from "./scene-panel";
+import { ShotsPanel } from "./shots-panel";
 import { Timeline, ZOOMS } from "./timeline";
 import { VersionsPanel } from "./versions-panel";
+import { VerdictResponse, useShots } from "@/lib/custom-shots";
 
-type Tab = "edit" | "flags" | "versions";
+type Tab = "edit" | "flags" | "shots" | "versions";
 type Waiting = { job: string; label: string; t0: number; kind: "edit" | "render" | "export" | "claude" };
 
 const label80 = (s: string) => (s.length > 80 ? `${s.slice(0, 79)}…` : s);
@@ -85,6 +87,7 @@ export function EditorView({ initial }: { initial: ProjectDetail }) {
   const [error, setError] = useState<string | null>(null);
   const [landed, setLanded] = useState<string | null>(null);
   const [flags, saveFlags] = useFlags(id);
+  const { state: shots, load: loadShots } = useShots(id, lastFinished?.id);
   const [frame, setFrame] = useState(0);
   const playerRef = useRef<PlayerRef>(null);
   const frameRef = useRef(0);
@@ -120,7 +123,7 @@ export function EditorView({ initial }: { initial: ProjectDetail }) {
       waiting.current = waiting.current.filter((x) => x !== w);
       if (lastFinished.status !== "done") return;
       const s = ((performance.now() - w.t0) / 1000).toFixed(1);
-      setLanded(w.kind === "render" ? `The preview is up to date, ${s} s after you asked.` : w.kind === "export" ? `The 1080p export is up to date, ${s} s after you asked.` : lastFinished.kind === "regenerate" ? `${w.label}: ready to compare, ${s} s after you asked.` : `${w.label}: in the player ${s} s after you asked.`);
+      setLanded(w.kind === "render" ? `The preview is up to date, ${s} s after you asked.` : w.kind === "export" ? `The 1080p export is up to date, ${s} s after you asked.` : lastFinished.kind === "customshot" ? `${w.label}: checked in both frames, see the Shots tab (${s} s after you asked). Update video draws it.` : lastFinished.kind === "regenerate" ? `${w.label}: ready to compare, ${s} s after you asked.` : `${w.label}: in the player ${s} s after you asked.`);
       if (w.kind === "render") setSource("render");
       if (w.kind === "claude" && lastFinished.kind === "fixscenes") saveFlags({});
     });
@@ -437,16 +440,16 @@ export function EditorView({ initial }: { initial: ProjectDetail }) {
         <aside data-inspector aria-label="Inspector" className="relative min-h-[28rem] rounded-lg bg-raised ring-1 ring-hairline">
           <div className="flex flex-col lg:absolute lg:inset-0">
             <div role="tablist" aria-label="Inspector" className="flex shrink-0 gap-1 border-b border-hairline px-3 pt-2" onKeyDown={(e: ReactKeyboardEvent) => {
-              const order: Tab[] = ["edit", "flags", "versions"];
+              const order: Tab[] = ["edit", "flags", "shots", "versions"];
               if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
               e.preventDefault();
-              const next = order[(order.indexOf(tab) + (e.key === "ArrowRight" ? 1 : 2)) % 3]!;
+              const next = order[(order.indexOf(tab) + (e.key === "ArrowRight" ? 1 : 3)) % 4]!;
               setTab(next);
               document.getElementById(`tab-${next}`)?.focus();
             }}>
-              {(["edit", "flags", "versions"] as const).map((k) => (
+              {(["edit", "flags", "shots", "versions"] as const).map((k) => (
                 <button key={k} id={`tab-${k}`} type="button" role="tab" aria-selected={tab === k} aria-controls={`panel-${k}`} tabIndex={tab === k ? 0 : -1} onClick={() => setTab(k)} className={`-mb-px border-b-2 px-2.5 pb-2 pt-1.5 text-sm font-semibold transition-colors duration-150 ${tab === k ? "border-accent text-text" : "border-transparent text-muted hover:text-text"}`}>
-                  {k === "edit" ? "Edit" : k === "flags" ? `Flags${flagCount ? ` · ${flagCount}` : ""}` : `Versions${versions.head ? ` · ${versions.head}` : ""}`}
+                  {k === "edit" ? "Edit" : k === "flags" ? `Flags${flagCount ? ` · ${flagCount}` : ""}` : k === "shots" ? `Shots${shots?.live ? ` · ${shots.live}` : ""}` : `Versions${versions.head ? ` · ${versions.head}` : ""}`}
                 </button>
               ))}
             </div>
@@ -457,6 +460,29 @@ export function EditorView({ initial }: { initial: ProjectDetail }) {
                 </div>
               ) : tab === "versions" ? (
                 <div className="pb-5"><VersionsPanel id={id} head={versions.head} versions={versions.versions} busy={busy} rollback={rollback} /></div>
+              ) : tab === "shots" ? (
+                <div className="pb-5">
+                  <ShotsPanel
+                    id={id}
+                    state={shots}
+                    selected={selScene ? { id: selScene, seconds: (t.scenes.find((x) => x.id === selScene)?.frames ?? 0) / fps } : null}
+                    busy={busy}
+                    jump={(sid) => { const s = t.scenes.find((x) => x.id === sid); if (s) select({ kind: "scene", id: sid }, sceneFrame(s)); }}
+                    write={(scene, note) => post(`/projects/${id}/custom-shots`, { scene, ...(note ? { note } : {}) }, `Custom shot for ${scene}`, "claude")}
+                    regenerate={(shot, note) => post(`/projects/${id}/custom-shots/${shot}/regenerate`, { note }, `New version of ${shot}`, "claude")}
+                    recheck={(shot) => post(`/projects/${id}/custom-shots/${shot}/recheck`, {}, `Check of ${shot}`, "claude")}
+                    verdict={async (shot, v) => {
+                      setError(null);
+                      try {
+                        await call(`/projects/${id}/custom-shots/${shot}/${v === "accept" ? "accept" : "reject"}`, VerdictResponse, { body: {} });
+                        await loadShots();
+                        window.dispatchEvent(new Event("studio:changed"));
+                      } catch (e) {
+                        setError((e as Error).message);
+                      }
+                    }}
+                  />
+                </div>
               ) : tab === "flags" ? (
                 <div className="pb-5"><FlagsPanel flags={flags} setFlag={setFlag} busy={busy} onJump={(sid) => { const s = t.scenes.find((x) => x.id === sid); if (s) select({ kind: "scene", id: sid }, sceneFrame(s)); }} onSend={() => void post(`/projects/${id}/edits/fix`, { scenes: Object.entries(flags).map(([scene, note]) => ({ scene, note: note || "This shot is wrong: make it match the narration." })) }, `Fixed ${Object.keys(flags).join(", ")}`, "claude")} /></div>
               ) : (

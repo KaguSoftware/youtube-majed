@@ -6,6 +6,8 @@ const config: NextConfig = {
   // type checking is `pnpm typecheck` (tsc 7), like the rest of the repo
   typescript: { ignoreBuildErrors: true },
   devIndicators: false,
+  // a second dev server (another port, another worker) needs its own build folder
+  distDir: process.env.STUDIO_NEXT_DIST ?? ".next",
 };
 
 export default config;

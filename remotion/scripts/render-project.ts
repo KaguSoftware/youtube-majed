@@ -26,6 +26,8 @@ import { cpus } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { PROFILES } from "./profiles";
 import { REMOTION_DIR, REPO_DIR } from "./load";
+import { defaultConcurrency, glFor, removeOnExit, reportStyle, stageScenes, styleArg, styledRaw } from "./art-style";
+import { prepareShots } from "./shots";
 
 const args = process.argv.slice(2);
 const arg = (name: string) => (args.includes(`--${name}`) ? args[args.indexOf(`--${name}`) + 1] : undefined);
@@ -40,9 +42,9 @@ const die = (m: string): never => {
   process.exit(1);
 };
 
-const VALUE_FLAGS = ["profile", "track", "scenes", "out", "concurrency", "frames", "stills", "stills-dir"].map((f) => `--${f}`);
+const VALUE_FLAGS = ["profile", "track", "scenes", "out", "concurrency", "frames", "stills", "stills-dir", "style"].map((f) => `--${f}`);
 const id = args.find((a, i) => !a.startsWith("--") && !VALUE_FLAGS.includes(args[i - 1] ?? ""));
-if (!id) die("usage: pnpm render:project <id> [--profile preview|final|reel] [--track mix|narration] [--scenes <file>] [--out name.mp4] [--concurrency N] [--frames a-b] [--stills f,f --stills-dir dir] [--no-video] [--json]");
+if (!id) die("usage: pnpm render:project <id> [--profile preview|final|reel] [--track mix|narration] [--scenes <file>] [--out name.mp4] [--concurrency N] [--frames a-b] [--stills f,f --stills-dir dir] [--no-video] [--style stick|low_poly] [--json]");
 const projectId = id!;
 const profileName = arg("profile") ?? "preview";
 const profile = PROFILES[profileName];
@@ -53,13 +55,17 @@ const p = projectPaths(projectId);
 const scenesFile = arg("scenes") ? resolve(arg("scenes")!) : storyboardPaths(projectId).scenes;
 const read = (f: string) => (existsSync(f) ? JSON.parse(readFileSync(f, "utf8")) : undefined);
 
-const check = validateProject({ scenes: read(scenesFile), script: read(p.scriptJson), voice: read(p.voiceJson) });
+const style = styleArg(args);
+const rawScenes = styledRaw(read(scenesFile), style);
+const check = validateProject({ scenes: rawScenes, script: read(p.scriptJson), voice: read(p.voiceJson) });
 if (!check.ok) die(`✗ ${projectId} is not valid, nothing rendered:\n  - ${check.errors.join("\n  - ")}`);
 if (check.ok && !check.data.voice) die(`✗ ${projectId} has no voice.json: run \`pnpm voice ${projectId}\` first`);
 
 syncAudio(projectId, { track });
 mkdirSync(p.publicDir, { recursive: true });
-copyFileSync(scenesFile, join(p.publicDir, "scenes.json"));
+// custom shots: stale ones are checked again (a failure puts the library scene back), the rest staged for the bundle
+if (check.ok) await prepareShots(projectId, check.data, say);
+stageScenes(rawScenes, join(p.publicDir, "scenes.json"));
 copyFileSync(p.scriptJson, join(p.publicDir, "script.json"));
 
 const outArg = arg("out");
@@ -68,7 +74,7 @@ mkdirSync(join(out, ".."), { recursive: true });
 
 // Tuned on the M3 Pro (6 performance + 6 efficiency cores, 36 GB): 4, 6, 8, 10 and 12 all land within 10% of each other
 // (40 to 44 frames/s at 1080p); 8 was fastest and leaves four cores for the rest of the machine. See remotion/README.md.
-const concurrency = Number(arg("concurrency") ?? process.env.STUDIO_RENDER_CONCURRENCY ?? Math.max(2, Math.min(8, Math.floor(cpus().length * 0.67))));
+const concurrency = Number(arg("concurrency") ?? process.env.STUDIO_RENDER_CONCURRENCY ?? defaultConcurrency(check.ok ? glFor(check.data) : null, cpus().length));
 const frameRange = arg("frames")?.split("-").map(Number) as [number, number] | undefined;
 const stills = (arg("stills") ?? "").split(",").filter(Boolean).map(Number);
 // pnpm runs scripts in this folder; INIT_CWD is where it was typed
@@ -77,6 +83,8 @@ const wantVideo = !args.includes("--no-video");
 
 const t0 = Date.now();
 say(`Rendering ${projectId} (${scenesFile.replace(REPO_DIR + "/", "")}, ${track}) → ${out}\n  ${prof.label} · concurrency ${concurrency}`);
+const gl = check.ok ? glFor(check.data) : null;
+if (check.ok) reportStyle(check.data, say, emit);
 let lastBundle = 0;
 const serveUrl = await bundle({
   entryPoint: join(REMOTION_DIR, "scripts/project-entry.tsx"),
@@ -88,9 +96,11 @@ const serveUrl = await bundle({
     }
   },
 });
+removeOnExit(serveUrl);
 const bundleMs = Date.now() - t0;
 const inputProps = { project: projectId };
-const composition = await selectComposition({ serveUrl, id: profileName === "reel" ? "ProjectVertical" : "Project", inputProps });
+const chromiumOptions = { gl };
+const composition = await selectComposition({ serveUrl, id: profileName === "reel" ? "ProjectVertical" : "Project", inputProps, chromiumOptions });
 const frames = frameRange ? frameRange[1] - frameRange[0] + 1 : composition.durationInFrames;
 
 let renderMs = 0;
@@ -116,6 +126,7 @@ if (wantVideo) {
     enforceAudioTrack: true,
     overwrite: true,
     concurrency,
+    chromiumOptions,
     ...(frameRange ? { frameRange } : {}),
     onProgress: (e) => {
       if (!allRenderedAt && e.renderedFrames >= frames) allRenderedAt = Date.now();
@@ -137,10 +148,10 @@ if (stills.length) {
   const files: string[] = [];
   // the composition's props are resolved from its input props, so the caption-free stills need their own resolution
   const stillProps = { ...inputProps, captions: false };
-  const stillComposition = await selectComposition({ serveUrl, id: profileName === "reel" ? "ProjectVertical" : "Project", inputProps: stillProps });
+  const stillComposition = await selectComposition({ serveUrl, id: profileName === "reel" ? "ProjectVertical" : "Project", inputProps: stillProps, chromiumOptions });
   for (const [i, frame] of stills.entries()) {
     const output = join(stillsDir!, `thumb-${i + 1}.jpg`);
-    await renderStill({ composition: stillComposition, serveUrl, inputProps: stillProps, output, frame, imageFormat: "jpeg", jpegQuality: 95, overwrite: true });
+    await renderStill({ composition: stillComposition, serveUrl, inputProps: stillProps, output, frame, imageFormat: "jpeg", jpegQuality: 95, overwrite: true, chromiumOptions });
     files.push(output);
     emit({ event: "stills", done: i + 1, total: stills.length, file: output });
   }

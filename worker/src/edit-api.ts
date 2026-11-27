@@ -20,7 +20,7 @@
  * `render`: "none" (default), "preview", "final" or "both": the job draws the
  * updated video after committing (only the segments that changed).
  */
-import { projectPaths, readJson, readVoice, renderCodeHash, storyboardPaths } from "@studio/project";
+import { customHashes, projectPaths, readJson, readVoice, renderCodeHash, storyboardPaths } from "@studio/project";
 import { EXPORT_PROFILES, MixPlan, validateProject } from "@studio/schema";
 import { planSegments } from "@studio/remotion/src/scene/segments";
 import { existsSync, readFileSync } from "node:fs";
@@ -88,7 +88,7 @@ export function timelineOf(id: string) {
   const code = renderCodeHash();
   const profiles = { preview: EXPORT_PROFILES.preview, final: EXPORT_PROFILES.youtube } as const;
   const plans = Object.fromEntries(
-    Object.entries(profiles).map(([name, p]) => [name, planSegments(check.data, { code, profile: { width: p.width, height: p.height, crf: p.crf, preset: p.preset, jpegQuality: p.jpegQuality, pixelFormat: "yuv420p", codec: "h264" } })]),
+    Object.entries(profiles).map(([name, p]) => [name, planSegments(check.data, { code, custom: customHashes(id, new Set(check.data.scenes.scenes.map((s) => s.id))), profile: { width: p.width, height: p.height, crf: p.crf, preset: p.preset, jpegQuality: p.jpegQuality, pixelFormat: "yuv420p", codec: "h264" } })]),
   ) as Record<keyof typeof profiles, ReturnType<typeof planSegments>>;
   const cached = (name: string, key: string) => existsSync(join(projectPaths(id).dir, "renders", "segments", name, `${key}.mp4`));
   const voice = readVoice(id);

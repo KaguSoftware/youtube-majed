@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CustomShotOutput } from "./custom-shot";
 import { BeatOutput, FixScenesOutput, RegenerateOutput } from "./edit";
 import { ReelCutOutput } from "./reel";
 import { CastOutput, StoryboardOutput } from "./storyboard";
@@ -18,6 +19,7 @@ export const STEP_OUTPUTS = {
   beat: BeatOutput,
   fixscenes: FixScenesOutput,
   reelcut: ReelCutOutput,
+  customshot: CustomShotOutput,
 } as const satisfies Record<StepName, z.ZodType>;
 
 /**

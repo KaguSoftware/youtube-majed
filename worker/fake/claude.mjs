@@ -20,6 +20,7 @@
  *   break         that broken rewrite every time
  *   messy         storyboard drafts with a misspelt id ("sneek"), an id with no match ("teleport"),
  *                 a skipped line, a held prop with no hand and repeated cameras (repair runs answer cleanly)
+ *   FAKE_CLAUDE_SHOT=<flaw> picks what the custom-shot step writes: ok (default), imports, types, crash, blank, hang, imports-once
  * FAKE_CLAUDE_FAIL_STEP=<step> makes only that step answer with the usage-limit error.
  * FAKE_CLAUDE_LOG=<file> appends {argv, cwd, env keys, step, input} per call, for tests.
  */
@@ -260,7 +261,48 @@ function reelCut() {
   return { loopId: best.id, why: `Loop ${best.id} has the best critic scores (${score(best)} of 20) and a fair head fake; the cut starts at its first line.`, title: "The part nobody believed", lineIds: kept, hook, ending: null };
 }
 
-const builders = { options, loopmap, narration, rewrite, "fact-check": factcheck, critic, cast, storyboard, regenerate, beat, fixscenes, "reel-cut": reelCut };
+// --- custom-shot: a small valid component that reacts to one word. FAKE_CLAUDE_SHOT picks a flaw:
+//     imports (reads a file), types (a type error), crash (throws mid-scene), blank (draws nothing),
+//     hang (never returns a frame), imports-once (flawed first, clean when the prompt carries the validator's errors)
+function customShot() {
+  const words = input.lines.flatMap((l) => l.words);
+  const cue = (words[Math.min(2, words.length - 1)] ?? { at: `${input.lines[0].id}:0` }).at;
+  const flaw = process.env.FAKE_CLAUDE_SHOT ?? "ok";
+  const bad = flaw === "imports-once" ? (isRetry ? "ok" : "imports") : flaw;
+  const head = `import { AbsoluteFill, interpolate, useCurrentFrame } from "remotion";\nimport { ACCENT, FONT, INK, LibraryScene, PAPER, useShot, useView, wordFrame, type ShotProps } from "../kit";\n`;
+  const imp = bad === "imports" ? `import { readFileSync } from "node:fs";\n` : "";
+  const body = {
+    ok: `  const lit = interpolate(frame, [at, at + 6], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+  return (
+    <AbsoluteFill>
+      <LibraryScene bg={scene.bg} grade={scene.grade} chars={scene.chars} />
+      <AbsoluteFill style={{ background: INK, opacity: 0.6 * lit }} />
+      <svg viewBox={\`0 0 \${view.width} \${view.height}\`} width={view.width} height={view.height} style={{ position: "absolute", inset: 0 }}>
+        <circle cx={view.width / 2} cy={view.height / 2} r={140 + 40 * lit} fill={ACCENT} opacity={0.5 + 0.5 * lit} />
+        <text x={view.width / 2} y={view.height / 2 + 30} textAnchor="middle" fontFamily={FONT} fontSize={90} fill={lit > 0.5 ? INK : PAPER}>{frames}</text>
+      </svg>
+    </AbsoluteFill>
+  );`,
+    imports: `  const text = readFileSync("/etc/hosts", "utf8");\n  return <AbsoluteFill style={{ background: INK }}>{text.length + at}</AbsoluteFill>;`,
+    types: `  const n: number = "nope";\n  return <AbsoluteFill style={{ background: INK }}>{n + at + frames}</AbsoluteFill>;`,
+    crash: `  if (frame > frames / 2) throw new Error("the reveal blew up at frame " + frame);\n  return <AbsoluteFill style={{ background: INK }}><div style={{ color: PAPER, fontSize: 80 }}>{view.width}</div></AbsoluteFill>;`,
+    blank: `  return <AbsoluteFill style={{ background: INK }} data-at={at + frames + view.width} />;`,
+    hang: `  if (frame > 5) { for (;;) { frame * 2; } }\n  return <AbsoluteFill style={{ background: INK }}>{at + frames + view.width}</AbsoluteFill>;`,
+  }[bad];
+  const source = `${head}${imp}
+// ${input.scene.id}: reacts to ${cue}
+export default function Shot({ scene, frames }: ShotProps) {
+  let frame = useCurrentFrame();
+  const shot = useShot();
+  const view = useView();
+  const at = wordFrame(shot, "${cue}") ?? 0;
+${body}
+}
+`;
+  return { title: `Custom shot for ${input.scene.id}`, idea: `A ${input.moment.why} shot that lights up on ${cue}, which the library cannot time to a word.`, timing: [{ at: cue, does: "the light comes up" }], source };
+}
+
+const builders = { options, loopmap, narration, rewrite, "fact-check": factcheck, critic, cast, storyboard, regenerate, beat, fixscenes, "reel-cut": reelCut, "custom-shot": customShot };
 
 // --- behaviour
 

@@ -28,14 +28,16 @@ import { join } from "node:path";
 import { planSegments } from "../src/scene/segments";
 import { encodeOptions, isProfileName, segmentProfile, type SegmentProfileName } from "./encode";
 import { REMOTION_DIR, REPO_DIR } from "./load";
+import { glFor, removeOnExit, stageScenes, styleArg, styledRaw } from "./art-style";
 import { renderCodeHash } from "@studio/project";
 
 const args = process.argv.slice(2);
 const arg = (name: string) => (args.includes(`--${name}`) ? args[args.indexOf(`--${name}`) + 1] : undefined);
 const json = args.includes("--json");
 const say = (m: string) => (json ? process.stderr.write(m + "\n") : console.log(m));
-const id = args.find((a, i) => !a.startsWith("--") && !["--profile", "--frames"].includes(args[i - 1] ?? ""));
-if (!id) throw new Error("usage: pnpm compare-renders <id> [--profile preview|final|lossless] [--frames a-b] [--json]");
+const id = args.find((a, i) => !a.startsWith("--") && !["--profile", "--frames", "--style"].includes(args[i - 1] ?? ""));
+if (!id) throw new Error("usage: pnpm compare-renders <id> [--profile preview|final|lossless] [--frames a-b] [--style stick|low_poly] [--json]");
+const style = styleArg(args);
 const profileArg = arg("profile") ?? "preview";
 if (!isProfileName(profileArg)) throw new Error(`unknown profile ${profileArg}`);
 const profile = profileArg as SegmentProfileName;
@@ -48,7 +50,8 @@ mkdirSync(dir, { recursive: true });
 const stitched = join(dir, `${profile}-stitched.mp4`);
 const full = join(dir, `${profile}-full.mp4`);
 const read = (f: string) => JSON.parse(readFileSync(f, "utf8"));
-const check = validateProject({ scenes: read(sb.scenes), script: read(p.scriptJson), voice: read(p.voiceJson) });
+const rawScenes = styledRaw(read(sb.scenes), style);
+const check = validateProject({ scenes: rawScenes, script: read(p.scriptJson), voice: read(p.voiceJson) });
 if (!check.ok) throw new Error(check.errors.join("\n"));
 const plan = planSegments(check.data, { code: renderCodeHash(), profile: segmentProfile(profile) });
 const range: [number, number] = frameArg ? (frameArg.split("-").map(Number) as [number, number]) : [0, plan.total - 1];
@@ -58,7 +61,7 @@ const last = segs.at(-1)!.start + segs.at(-1)!.frames - 1;
 
 // ---- 1. stitched
 const t0 = Date.now();
-const seg = spawnSync(join(REMOTION_DIR, "node_modules/.bin/tsx"), ["scripts/render-segments.ts", id, "--profile", profile, "--out", stitched, "--json", ...(frameArg ? ["--frames", frameArg] : [])], { cwd: REMOTION_DIR, encoding: "utf8", maxBuffer: 64 << 20 });
+const seg = spawnSync(join(REMOTION_DIR, "node_modules/.bin/tsx"), ["scripts/render-segments.ts", id, "--profile", profile, "--out", stitched, "--json", ...(frameArg ? ["--frames", frameArg] : []), ...(style ? ["--style", style] : [])], { cwd: REMOTION_DIR, encoding: "utf8", maxBuffer: 64 << 20 });
 const events = seg.stdout.split("\n").filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown>);
 const segDone = events.find((e) => e.event === "done");
 if (seg.status !== 0 || !segDone) throw new Error(`render-segments failed:\n${seg.stderr.slice(-2000)}`);
@@ -67,20 +70,22 @@ say(`stitched: drew ${segDone.rendered} of ${segDone.segments} segments (${segDo
 
 // ---- 2. full reference, one call
 syncAudio(id, { track: "mix" });
-copyFileSync(sb.scenes, join(p.publicDir, "scenes.json"));
+stageScenes(rawScenes, join(p.publicDir, "scenes.json"));
 copyFileSync(p.scriptJson, join(p.publicDir, "script.json"));
 const t1 = Date.now();
 const serveUrl = await bundle({ entryPoint: join(REMOTION_DIR, "scripts/project-entry.tsx"), publicDir: join(REMOTION_DIR, "public") });
+removeOnExit(serveUrl);
 const inputProps = { project: id };
-const composition = await selectComposition({ serveUrl, id: "Project", inputProps });
-await renderMedia({ composition, serveUrl, inputProps, outputLocation: full, ...encodeOptions(profile), enforceAudioTrack: true, overwrite: true, concurrency: 8, frameRange: [first, last] });
+const chromiumOptions = { gl: glFor(check.data) };
+const composition = await selectComposition({ serveUrl, id: "Project", inputProps, chromiumOptions });
+await renderMedia({ composition, serveUrl, inputProps, outputLocation: full, ...encodeOptions(profile), enforceAudioTrack: true, overwrite: true, concurrency: 8, frameRange: [first, last], chromiumOptions });
 const fullMs = Date.now() - t1;
 say(`full:     ${last - first + 1} frames in one call in ${(fullMs / 1000).toFixed(1)} s`);
 
 // ---- 2b. with --baseline, a second full render: how much two full renders of the same frames differ (Chrome's
 // rasteriser is not bit-exact from run to run on a few frames), the noise floor a stitched render is judged against
 const baselineFile = join(dir, `${profile}-full2.mp4`);
-if (args.includes("--baseline")) await renderMedia({ composition, serveUrl, inputProps, outputLocation: baselineFile, ...encodeOptions(profile), enforceAudioTrack: true, overwrite: true, concurrency: 8, frameRange: [first, last] });
+if (args.includes("--baseline")) await renderMedia({ composition, serveUrl, inputProps, outputLocation: baselineFile, ...encodeOptions(profile), enforceAudioTrack: true, overwrite: true, concurrency: 8, frameRange: [first, last], chromiumOptions });
 
 // ---- 3. pictures
 const frames = (f: string) => Number(spawnSync("ffprobe", ["-v", "error", "-count_packets", "-select_streams", "v:0", "-show_entries", "stream=nb_read_packets", "-of", "csv=p=0", f], { encoding: "utf8" }).stdout.trim());

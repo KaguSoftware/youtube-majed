@@ -421,3 +421,53 @@ export type CatalogueSection = keyof typeof CATALOGUE;
 export function idsOf<S extends CatalogueSection>(section: S): (keyof (typeof CATALOGUE)[S] & string)[] {
   return Object.keys(CATALOGUE[section]) as (keyof (typeof CATALOGUE)[S] & string)[];
 }
+
+/**
+ * Art styles (docs/PLAN.md section 6, "one scene format"): how a scene is
+ * drawn. A project picks one (scene file `artStyle`), a scene may override it.
+ * The same scene JSON drives both. This is a human choice, not Claude's, so it
+ * is not a CATALOGUE section (Claude never sees it).
+ */
+export const ART_STYLES = {
+  stick: { description: "2D stick figures on flat vector scenery. The default." },
+  low_poly: { description: "3D low-poly figures and sets (Three.js). A scene using anything without a 3D version is drawn as stick instead, and flagged." },
+} as const satisfies Record<string, Entry>;
+
+export type ArtStyleId = keyof typeof ART_STYLES;
+
+/**
+ * What the low-poly style can draw. A scene in `low_poly` that uses an id not
+ * listed here falls back to `stick` for that whole scene (see style.ts), so a
+ * render never fails for a missing 3D item. `remotion/src/three/` implements
+ * exactly these ids; TypeScript enforces that the two lists match.
+ *
+ * Not listed because every id works in 3D: expressions (face textures drawn
+ * from the 2D faces), cameras, transitions, grades, captions, framings,
+ * overlays, positions and attach points, and every cast look (hats, hair,
+ * beards, face features, builds, outfits, ink and neon).
+ */
+export const LOW_POLY = {
+  actions: [
+    "idle", "talk", "think", "walk", "run", "sneak", "sleepwalk", "look_around", "point", "shrug", "facepalm", "panic",
+    "sit", "sleep", "nod", "head_shake", "wave", "cross_arms", "scratch_head", "double_take", "listen", "gasp",
+    "tremble", "sigh", "yawn", "peek", "sit_chair", "push", "pull", "throw", "drive", "trudge", "text_phone",
+    "phone_call", "read", "dodge", "hands_on_hips", "knock", "cower", "type", "jump", "tap_foot", "bow", "salute",
+    "stop_hand", "fists_up",
+  ],
+  backgrounds: ["office", "city", "house_interior", "lighthouse_exterior", "lighthouse_stairs", "street", "hospital"],
+  props: [
+    "lantern", "oil_can", "flour_sack", "footprints", "small_footprints", "bed", "ship", "clock", "phone", "book",
+    "newspaper", "money", "food", "door", "car", "table", "desk", "chair", "bench", "calendar", "wanted_poster",
+    "fire", "box", "suitcase",
+  ],
+  weather: [],
+} as const satisfies {
+  actions: readonly ActionId[];
+  backgrounds: readonly BackgroundId[];
+  props: readonly PropId[];
+  weather: readonly WeatherId[];
+};
+
+export type LowPolyActionId = (typeof LOW_POLY.actions)[number];
+export type LowPolyBackgroundId = (typeof LOW_POLY.backgrounds)[number];
+export type LowPolyPropId = (typeof LOW_POLY.props)[number];

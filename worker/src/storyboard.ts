@@ -38,6 +38,9 @@ import {
   ScriptFile,
   StoryboardFile,
   TRANSITIONS,
+  VarietyFile,
+  type AvoidLists,
+  type VarietyReport,
   ValidationError,
   closest,
   formatIssues,
@@ -56,6 +59,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { sfxVocabulary } from "./assets";
 import { callStep } from "./call";
+import { allFeatures, avoidFrom, avoidInput, featuresFromScenes, historyOf, scoreFeatures, type LooseScene } from "./variety";
 import { StoryError, readBrief, readLoopMap, readNarration, readPick, type RunOpts } from "./story";
 import { typicalDurationMs } from "./usage";
 
@@ -590,6 +594,37 @@ export function avoidRecent(slots: Slot[], recent: ReadonlySet<string>, headfake
   });
 }
 
+/** The scenes of a draft, in the shape the variety guard reads. */
+const looseOf = (slots: readonly Slot[]): LooseScene[] =>
+  slots.flatMap((s, i) => (s.shot ? [{ ...s.shot, id: `S${i + 1}`, chars: s.shot.chars, overlays: s.shot.overlays ?? [] } as LooseScene] : []));
+
+/**
+ * Cross-video avoid-list pass (docs/PLAN.md section 6): a camera that recent videos leaned on is swapped on every other
+ * scene that uses it, for one the lists do not name and the 30-second rule allows. A strong preference, not a ban:
+ * "slow_push" builds tension and some scenes keep it. Head-fake reveal cameras only trade for another reveal camera.
+ * Backgrounds, action pairs, grades and music are Claude's to choose (the lists are in its input); code never moves a
+ * scene to another place.
+ */
+export function avoidOverused(slots: Slot[], avoid: AvoidLists | null, headfakes: ReadonlySet<string>, startOf: (s: Slot) => number, recent: ReadonlySet<string> = new Set(), window = VARIETY_WINDOW_S): void {
+  if (!avoid?.cameras.length) return;
+  const seen = new Map<string, number>();
+  slots.forEach((slot, i) => {
+    const shot = slot.shot;
+    if (!shot || !avoid.cameras.includes(shot.camera)) return;
+    const n = (seen.get(shot.camera) ?? 0) + 1;
+    seen.set(shot.camera, n);
+    if (n % 2 === 0) return; // every other one stays
+    const was = shot.camera;
+    const isReveal = headfakes.has(slot.lineIds[0]!) && !revealTransitions().includes(shot.transitionIn);
+    const pool = isReveal ? revealCameras() : idsOf("cameras").filter((c) => revealCameras().includes(c) === revealCameras().includes(was) || c === STILL_CAMERA);
+    const pick = pool.find((c) => c !== was && !avoid.cameras.includes(c) && !recent.has(`${pictureOf(shot)}|${c}`) && cameraFree(slots, i, c, startOf, window) && freeAhead(slots, i, c, startOf, window));
+    if (pick) {
+      shot.camera = pick as never;
+      slot.flags.push({ kind: "variety", message: `avoid-list: camera "${was}" is overused in ${avoid.against.join(", ")} → "${pick}"`, fixed: true });
+    }
+  });
+}
+
 /** A plain shot for lines Claude could not storyboard twice: the neighbour's place, the main character idle. */
 function fallbackShot(slots: readonly Slot[], i: number, protagonist: string, look?: { bg?: string; grade?: string }): Shot {
   const near = slots.slice(0, i).reverse().find((s) => s.shot)?.shot ?? slots.slice(i + 1).find((s) => s.shot)?.shot;
@@ -668,6 +703,14 @@ export async function storyboard(id: string, o: RunOpts = {}): Promise<Storyboar
   const sfx = sfxVocabulary();
   const library = libraryForClaude();
 
+  // the last videos' habits: the avoid-lists Claude is asked to steer clear of, and this project's previous storyboard to compare with
+  const featurePool = allFeatures();
+  const history = historyOf(id, { pool: featurePool });
+  const avoid = avoidFrom(history);
+  const avoidIn = avoidInput(avoid);
+  const before = featurePool.find((f) => f.id === id);
+  const previous: VarietyReport | null = before ? scoreFeatures(id, before, history, { avoid: null }) : null;
+
   // 1. cast, locations, moods, plant shots
   const castInput = {
     video: story.video,
@@ -676,6 +719,7 @@ export async function storyboard(id: string, o: RunOpts = {}): Promise<Storyboar
     library: libraryForClaude((Object.keys(CATALOGUE) as CatalogueSection[]).filter((k) => !["actions", "expressions", "cameras", "transitions", "captions", "positions", "attachPoints"].includes(k))),
     castLook: castLookSchema(),
     moods: MUSIC_MOODS,
+    ...(avoidIn ? { avoid: avoidIn } : {}),
   };
   const plan = await draft(id, "cast", "cast", castInput, o);
 
@@ -715,7 +759,7 @@ export async function storyboard(id: string, o: RunOpts = {}): Promise<Storyboar
   // 2. scenes, batch by batch
   const batches = batchLoops(story.loops);
   const outputs = await pool(batches, CONCURRENCY, (loops, i) =>
-    draft(id, "storyboard", `batch-${i + 1}`, { video: story.video, plan: planFor(loops), story: storyText, batch: { loops: loops.map(loopView) }, library, sfx }, o),
+    draft(id, "storyboard", `batch-${i + 1}`, { video: story.video, plan: planFor(loops), story: storyText, batch: { loops: loops.map(loopView) }, library, sfx, ...(avoidIn ? { avoid: avoidIn } : {}) }, o),
   );
 
   // 3. assemble and check
@@ -752,6 +796,7 @@ export async function storyboard(id: string, o: RunOpts = {}): Promise<Storyboar
       around: todo.map((t) => ({ lineIds: slots[t.i]!.lineIds, before: compactShot(slots[t.i - 1]?.shot), after: compactShot(slots[t.i + 1]?.shot) })),
       library,
       sfx,
+      ...(avoidIn ? { avoid: avoidIn } : {}),
     };
     const out = await draft(id, "storyboard", "repair", input, o);
     const replaced = new Map<number, Slot[]>();
@@ -777,11 +822,17 @@ export async function storyboard(id: string, o: RunOpts = {}): Promise<Storyboar
     s.problems = [];
   });
 
+  // the draft as Claude (and the repair call) left it, before the code passes below: what the avoid-lists achieved on their own
+  const stamp = now();
+  const extras = (r: Iterable<string>) => ({ at: stamp, format: story.video.format as "youtube" | "reel", moods: music.map((m) => m.mood), reveals: [...r] });
+  const firstPass = scoreFeatures(id, featuresFromScenes(id, looseOf(slots), extras(headfakes)), history, { avoid });
+
   // 5. deterministic passes
   ensurePayoffs(slots, headfakes);
   fixCameras(slots, headfakes, startOf);
   const recent = recentCombos(id);
   avoidRecent(slots, recent.combos, headfakes, startOf);
+  avoidOverused(slots, avoid, headfakes, startOf, recent.combos);
   for (const [i, j] of pictureRepeats(slots, startOf)) {
     slots[i]!.flags.push({ kind: "variety", message: `same background and actions as the shot on ${slots[j]!.lineIds[0]} within ${VARIETY_WINDOW_S} s`, fixed: false });
   }
@@ -821,8 +872,25 @@ export async function storyboard(id: string, o: RunOpts = {}): Promise<Storyboar
   };
   writeJson(paths.scenes, parsed.data);
   writeJson(paths.report, StoryboardFile.parse(report));
+  const finalFeatures = featuresFromScenes(id, looseOf(slots), { ...extras(report.reveals.map((r) => r.lineId)), at: report.createdAt });
+  writeJson(
+    varietyPath(id),
+    VarietyFile.parse({
+      version: 1,
+      createdAt: report.createdAt,
+      against: history.map((h) => h.id),
+      avoid,
+      firstPass,
+      final: scoreFeatures(id, finalFeatures, history, { avoid }),
+      previous,
+      swaps: flags.filter((f) => f.kind === "variety" && f.fixed).map((f) => ({ sceneId: f.sceneId, what: f.message })),
+    }),
+  );
   return { scenes: parsed.data, report };
 }
 
+/** projects/<id>/storyboard/variety.json: what the variety guard asked for and what changed (VarietyFile). */
+export const varietyPath = (id: string) => join(storyboardPaths(id).dir, "variety.json");
+export const readVarietyFile = (id: string) => readJson(varietyPath(id), VarietyFile);
 export const readStoryboard = (id: string) => readJson(storyboardPaths(id).report, StoryboardFile);
 export const readScenes = (id: string) => readJson(storyboardPaths(id).scenes, SceneFile);

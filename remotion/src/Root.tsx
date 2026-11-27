@@ -1,4 +1,4 @@
-import { assertProject, type Project } from "@studio/schema";
+import { assertProject, withArtStyle, type ArtStyleId, type Project } from "@studio/schema";
 import { Composition, Folder, type CalculateMetadataFunction } from "remotion";
 import { SAMPLES, compositionId, type SampleId } from "../samples";
 import "./fonts";
@@ -10,12 +10,13 @@ import { PropsGallery } from "./gallery/PropsGallery";
 import { GALLERY_PROJECTS, GalleryVideo, galleryFrames, type GalleryProjectId } from "./gallery/projects";
 import { ScenePreview, type PreviewProps } from "./gallery/Preview";
 import { StoryVideo } from "./scene/StoryVideo";
+import { LOW_POLY_GALLERIES, LowPolyGallery, lowPolyGalleryFrames, type LowPolyGalleryId } from "./three/gallery";
 import { buildTimeline } from "./scene/timeline";
 import { PORTRAIT, type View } from "./scene/view";
 import { FPS, H, W } from "./theme";
 import { fetchVoice, trackUrl } from "./voice";
 
-type SampleProps = { sample: SampleId; project?: Project; audioSrc?: string; view?: View };
+type SampleProps = { sample: SampleId; project?: Project; audioSrc?: string; view?: View; /** draw the sample in another art style than its scene file asks for (`pnpm render --style low_poly`) */ artStyle?: ArtStyleId };
 
 /**
  * Loads the sample's scene, script and timing files, plus its voice.json if
@@ -26,7 +27,8 @@ type SampleProps = { sample: SampleId; project?: Project; audioSrc?: string; vie
  */
 const loadSample: CalculateMetadataFunction<SampleProps> = async ({ props }) => {
   const voice = await fetchVoice(props.sample);
-  const project = assertProject(`samples/${props.sample}`, { ...SAMPLES[props.sample], voice });
+  const raw = { ...SAMPLES[props.sample], voice };
+  const project = assertProject(`samples/${props.sample}`, props.artStyle ? { ...raw, scenes: withArtStyle(raw.scenes as never, props.artStyle) } : raw);
   const audioSrc = project.voice ? trackUrl(props.sample, project.voice.track.file) : undefined;
   return { durationInFrames: buildTimeline(project, { portrait: props.view?.kind === "portrait" }).total, props: { ...props, project, audioSrc } };
 };
@@ -87,6 +89,16 @@ export function Root() {
         <Composition id="Grades" component={GradesGallery} width={W} height={H} fps={FPS} durationInFrames={FPS * 4} />
         <Composition id="Cast" component={CastGallery} width={W} height={H} fps={FPS} durationInFrames={FPS * 6} />
         <Composition id="Backgrounds" component={BackgroundGallery} width={W} height={H} fps={FPS} durationInFrames={BG_GALLERY_FRAMES} />
+      </Folder>
+      <Folder name="Library-3D">
+        {(Object.keys(LOW_POLY_GALLERIES) as LowPolyGalleryId[]).map((id) => (
+          <Composition key={id} id={id} component={LowPolyGallery} width={W} height={H} fps={FPS} durationInFrames={lowPolyGalleryFrames(id)} defaultProps={{ id }} />
+        ))}
+      </Folder>
+      <Folder name="Library-3D-9x16">
+        {(Object.keys(LOW_POLY_GALLERIES) as LowPolyGalleryId[]).map((id) => (
+          <Composition key={id} id={`${id}Vertical`} component={LowPolyGallery} width={PORTRAIT.width} height={PORTRAIT.height} fps={FPS} durationInFrames={lowPolyGalleryFrames(id, PORTRAIT)} defaultProps={{ id, view: PORTRAIT }} />
+        ))}
       </Folder>
       <Folder name="Dev">
         <Composition id="ScenePreview" component={ScenePreview} width={W} height={H} fps={FPS} durationInFrames={FPS * 3} defaultProps={{} as PreviewProps} />

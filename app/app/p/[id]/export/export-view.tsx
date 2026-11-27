@@ -4,6 +4,7 @@ import { Download } from "lucide-react";
 import Link from "next/link";
 import { CopyButton } from "@/components/copy-button";
 import { StepHead } from "@/components/step-head";
+import { VarietyPanel } from "@/components/variety-panel";
 import { button } from "@/components/ui";
 import { fileUrl, type ProjectDetail } from "@/lib/api";
 import { clock } from "@/lib/format";
@@ -90,6 +91,8 @@ export function ExportView({ initial }: { initial: ProjectDetail }) {
           }
         />
       </div>
+
+      <VarietyPanel project={p.id} trigger={lastFinished?.id} compact />
 
       {reel && !unavailable && (
         <div className="mt-12">

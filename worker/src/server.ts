@@ -28,6 +28,8 @@ import { exportVideo, readExportRecord, readPreviewRecord, renderPaths, renderPr
 import { voiceProject } from "./voice-run";
 import { editRoutes, editRunners } from "./edit-api";
 import { reelRoutes, reelRunners } from "./reel-api";
+import { varietyRoutes } from "./variety-api";
+import { shotRoutes, shotRunners } from "./custom-shots-api";
 import { editorRequest } from "./editor-api";
 
 const PORT = Number(process.env.STUDIO_WORKER_PORT ?? 8766);
@@ -72,6 +74,8 @@ const runners: Record<JobKind, Runner> = {
   ...editRunners,
   // ---- Phase 4, Part C: the Reel cut and the Reel export (src/reel-api.ts)
   ...reelRunners,
+  // ---- Phase 5, Part B: custom shots (src/custom-shots-api.ts)
+  ...shotRunners,
 };
 
 export const queue = new JobQueue(join(projectsDir(), "studio.sqlite"), runners, (job) => {
@@ -337,6 +341,8 @@ const routes: Route[] = [
   // ---- Phase 4: edits, versions, the timeline (src/edit-api.ts)
   ...editRoutes(enqueue).map(([method, pattern, handler]): Route => [method, pattern, (req, _res, m) => handler({ body: (schema) => body(req, schema), url: new URL(req.url ?? "/", "http://localhost") }, m)]),
   ...reelRoutes(enqueue).map(([method, pattern, handler]): Route => [method, pattern, (req, _res, m) => handler({ body: (schema) => body(req, schema), url: new URL(req.url ?? "/", "http://localhost") }, m)]),
+  ...shotRoutes(enqueue).map(([method, pattern, handler]): Route => [method, pattern, (req, _res, m) => handler({ body: (schema) => body(req, schema), url: new URL(req.url ?? "/", "http://localhost") }, m)]),
+  ...varietyRoutes().map(([method, pattern, handler]): Route => [method, pattern, (req, _res, m) => handler({ url: new URL(req.url ?? "/", "http://localhost") }, m)]),
   ["GET", /^\/jobs$/, () => queue.list(30)],
   [
     "POST",
@@ -354,7 +360,7 @@ const routes: Route[] = [
 
 const MIME: Record<string, string> = { ".mp4": "video/mp4", ".wav": "audio/wav", ".jpg": "image/jpeg", ".srt": "text/plain; charset=utf-8", ".txt": "text/plain; charset=utf-8", ".json": "application/json" };
 /** Only what the app plays or downloads: renders, takes and the mixed track. */
-const SERVED = [/^renders\//, /^audio\/lines\/[^/]+\.wav$/, /^audio\/(mix|narration)\.wav$/];
+const SERVED = [/^renders\//, /^custom\/stills\/.+\.jpg$/, /^audio\/lines\/[^/]+\.wav$/, /^audio\/(mix|narration)\.wav$/];
 
 /** GET /projects/<id>/file/<path>: a file of the project with Range support (the video player seeks). */
 function serveFile(req: IncomingMessage, res: ServerResponse, id: string, rel: string): void {

@@ -1,5 +1,6 @@
-import type { CastMember, Project, Scene } from "@studio/schema";
+import { sceneStyle, type CastMember, type Project, type Scene, type SceneFile } from "@studio/schema";
 import { createHash } from "node:crypto";
+import { shotInputFor } from "../custom/shot-input";
 import { buildTimeline, type Timeline } from "./timeline";
 import { TRANSITION_FRAMES } from "./transitions";
 
@@ -17,7 +18,9 @@ import { TRANSITION_FRAMES } from "./transitions";
  *   previous scene while its tail runs under scene i's transition
  *   (TRANSITION_FRAMES), or further back if scenes are shorter than a
  *   transition. Each with its whole scene object (the id seeds idle motion),
- *   the cast looks it uses, its length, and the next scene's transition
+ *   the cast looks it uses, the art style it is drawn in when that is not
+ *   stick (style.ts: the project's style or the scene's own, after the
+ *   low-poly fallback), its length, and the next scene's transition
  *   (it shapes the outro: dip, iris, wipe push);
  * - caption chunks and overlays that overlap the range.
  *
@@ -63,12 +66,21 @@ export function stableStringify(v: unknown): string {
 const sha = (v: unknown) => createHash("sha256").update(stableStringify(v)).digest("hex");
 
 /** What a scene's Sequence draws, minus what is never drawn (sound effects). */
-function drawn(scene: Scene, cast: Record<string, CastMember>) {
+function drawn(scene: Scene, cast: Record<string, CastMember>, file: Pick<SceneFile, "artStyle">) {
   const { sfx: _sfx, ...rest } = scene;
-  return { scene: rest, cast: Object.fromEntries(scene.chars.map((c) => [c.id, cast[c.id]])) };
+  // the art style the scene is drawn in (the project's style is not in the scene object); absent for stick, so stick keys are unchanged
+  const style = sceneStyle(file, scene).drawn;
+  return { scene: rest, cast: Object.fromEntries(scene.chars.map((c) => [c.id, cast[c.id]])), ...(style === "stick" ? {} : { style }) };
 }
 
-export function planSegments(project: Project, o: { code: string; profile: SegmentProfile }): SegmentPlan {
+export type PlanOptions = {
+  code: string;
+  profile: SegmentProfile;
+  /** Custom shots drawn in place of a scene: scene id → the source hash (docs/PLAN.md section 6, custom-shots.ts in @studio/project) */
+  custom?: Readonly<Record<string, string>>;
+};
+
+export function planSegments(project: Project, o: PlanOptions): SegmentPlan {
   // the tall frame lays scenes out and cuts captions differently (scene/portrait.ts), so it draws different pixels
   const portrait = o.profile.height > o.profile.width;
   const timeline = buildTimeline(project, { portrait });
@@ -88,7 +100,14 @@ export function planSegments(project: Project, o: { code: string; profile: Segme
     const spec = {
       format: SEGMENT_FORMAT,
       frames: t.frames,
-      layers: layers.map((s) => ({ from: s.from - a, length: s.end - s.from, frames: s.frames, next: s.next, ...drawn(scenes[s.i]!, cast) })),
+      layers: layers.map((s) => {
+        const scene = scenes[s.i]!;
+        const source = o.custom?.[scene.id];
+        // a shot is keyed by its source and by what it is given (frames, word and line frames, the scene it stands in for),
+        // so editing the words it reacts to redraws it and nothing else does
+        const shot = source ? { source, input: shotInputFor(project, timeline, s.i) } : undefined;
+        return { from: s.from - a, length: s.end - s.from, frames: s.frames, next: s.next, ...drawn(scene, cast, project.scenes), ...(shot ? { shot } : {}) };
+      }),
       overlays: timeline.overlays.filter(over).map((x) => ({ overlay: x.overlay, start: x.start - a, end: x.end - a })),
       chunks: timeline.chunks.filter(over).map((c) => ({ style: c.style, start: c.start - a, end: c.end - a, words: c.words.map((w) => ({ text: w.text, start: w.start - a, end: w.end - a })) })),
     };
@@ -96,4 +115,13 @@ export function planSegments(project: Project, o: { code: string; profile: Segme
     return { index, sceneId: scenes[index]!.id, start: a, frames: t.frames, key, layers: layers.map((s) => scenes[s.i]!.id) };
   });
   return { timeline, segments, total: timeline.total };
+}
+
+/**
+ * What a custom shot was checked with: its scene's frames, word and line frames and the library scene it stands in for.
+ * A scene that is trimmed or re-voiced changes it, and the shot is checked again before the next render.
+ */
+export function shotInputsHash(project: Project, timeline: Timeline, index: number): string {
+  const scene = project.scenes.scenes[index]!;
+  return sha({ input: shotInputFor(project, timeline, index), ...drawn(scene, project.scenes.cast, project.scenes) }).slice(0, 16);
 }

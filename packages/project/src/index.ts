@@ -225,3 +225,5 @@ export function storyboardPaths(id: string): StoryboardPaths {
     mixCache: join(audioDir, "mix"),
   };
 }
+
+export * from "./custom-shots";

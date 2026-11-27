@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ACTIONS, BACKGROUNDS, OVERLAYS, PROPS, type OverlayId } from "./catalogue";
+import { ACTIONS, ART_STYLES, BACKGROUNDS, OVERLAYS, PROPS, type ArtStyleId, type OverlayId } from "./catalogue";
 import { libraryId } from "./ids";
 
 /**
@@ -19,6 +19,7 @@ import { libraryId } from "./ids";
  * - `overlays`: on-screen text and graphics (title card, time card, lower third,
  *   map pin, counter). Like sfx cues, an overlay may start on a word with `at`
  *   ("L3.4:2"); without it, it starts with the scene. It never changes timing.
+ * - `artStyle` (file and scene): stick or low_poly, see style.ts.
  */
 
 export const LINE_ID = /^[A-Za-z][A-Za-z0-9]*\.\d+$/;
@@ -27,6 +28,11 @@ export const CastId = z.string().regex(/^[a-z][a-z0-9_]*$/, 'cast ids are lower_
 export const SceneId = z.string().regex(/^S\d+$/, 'scene ids look like "S41"');
 
 export const Position = libraryId("positions", "position");
+
+/** stick | low_poly (catalogue ART_STYLES). Not a CATALOGUE section, so it has its own enum. */
+export const ArtStyle = z.enum(Object.keys(ART_STYLES) as [ArtStyleId, ...ArtStyleId[]], {
+  error: (issue) => `unknown art style ${JSON.stringify(issue.input)}. Known: ${Object.keys(ART_STYLES).join(", ")}`,
+});
 
 export const SfxCue = z.strictObject({
   tag: z.string().regex(/^[a-z0-9_]+$/, 'sfx tags are lower_snake_case, e.g. "footsteps_wood"'),
@@ -99,6 +105,8 @@ export const Scene = z.strictObject({
   weather: libraryId("weather", "weather").optional(),
   framing: libraryId("framings", "framing").optional(),
   overlays: z.array(OverlayInScene).max(3, "at most 3 overlays per scene").default([]),
+  /** Draws this scene in another art style than the project's (style.ts). */
+  artStyle: ArtStyle.optional(),
 });
 
 export const Hex = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'colours are hex, e.g. "#d0473d"');
@@ -142,6 +150,8 @@ export const SceneFile = z
   .strictObject({
     version: z.literal(1),
     title: z.string().min(1),
+    /** The project's art style (default stick); a scene's own `artStyle` overrides it. */
+    artStyle: ArtStyle.optional(),
     cast: z.record(CastId, CastMember),
     scenes: z.array(Scene).min(1),
   })

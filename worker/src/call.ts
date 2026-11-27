@@ -27,6 +27,7 @@ const SKILL: Record<StepName, string> = {
   beat: "edit-scenes",
   fixscenes: "edit-scenes",
   reelcut: "reel-cut",
+  customshot: "custom-shot",
 };
 
 export type StepOutput<S extends StepName> = z.output<(typeof STEP_OUTPUTS)[S]>;

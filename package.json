@@ -25,6 +25,9 @@
     "compare-renders": "pnpm --filter @studio/remotion compare-renders",
     "edit": "pnpm --silent --filter @studio/worker edit",
     "versions": "pnpm --silent --filter @studio/worker versions",
-    "reel": "pnpm --silent --filter @studio/worker reel"
+    "reel": "pnpm --silent --filter @studio/worker reel",
+    "variety": "pnpm --silent --filter @studio/worker variety",
+    "shots": "pnpm --silent --filter @studio/worker shots",
+    "assets3d": "pnpm --silent --filter @studio/remotion assets3d"
   }
 }

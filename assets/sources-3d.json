@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "note": "3D sources for the low-poly style, with their licences. The files live in assets/3d/ (gitignored: licensed sources never go into git). Empty while the low-poly figures, sets and props are all drawn in code (remotion/src/three); `pnpm assets3d convert` adds a Mixamo clip here as it converts it.",
+  "assets": []
+}

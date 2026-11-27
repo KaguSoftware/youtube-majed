@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { JobError, JobProgress } from "@/components/job-progress";
 import { JobBar, StepHead } from "@/components/step-head";
+import { VarietyPanel } from "@/components/variety-panel";
 import { button } from "@/components/ui";
 import { call, ScenesState, StoryboardState, type ProjectDetail } from "@/lib/api";
 import { clock } from "@/lib/format";
@@ -99,6 +100,8 @@ export function StoryboardView({ initial }: { initial: ProjectDetail }) {
           </dl>
           {report.stats.timedBy === "estimate" && <p className="mt-4 max-w-2xl text-sm text-caution">These scenes were planned before the script was voiced, so their timing is an estimate. Plan them again to follow the voice.</p>}
           {report.style && <p className="mt-6 max-w-2xl text-muted"><span className="eyebrow mr-2 text-faint">Look</span>{report.style}</p>}
+
+          <VarietyPanel project={p.id} trigger={lastFinished?.id} />
 
           {open.length > 0 && (
             <section aria-labelledby="open-h" className="mt-10 max-w-3xl">

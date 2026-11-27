@@ -45,9 +45,16 @@ export class OutputError extends Error {
 /** The CLI to run. Tests point this at worker/fake/claude.mjs. */
 export const claudeBin = () => process.env.STUDIO_CLAUDE_BIN ?? "claude";
 
-/** Model per step: STUDIO_CLAUDE_MODEL_<STEP> overrides STUDIO_CLAUDE_MODEL, which defaults to sonnet. */
+/**
+ * Steps that run on another model by default. A custom shot is the one step whose output nobody edits afterwards and
+ * that is written at most three times a video: on three moments of elevator-13 opus drew the clearer picture on two and
+ * tied the third, at about 3× the cost (worker/README.md, "Custom shots").
+ */
+const STEP_DEFAULT: Partial<Record<StepName, string>> = { customshot: "opus" };
+
+/** Model per step: STUDIO_CLAUDE_MODEL_<STEP>, else the step's own default, else STUDIO_CLAUDE_MODEL, else sonnet. */
 export function modelFor(step: StepName): string {
-  return process.env[`STUDIO_CLAUDE_MODEL_${step.toUpperCase()}`] ?? process.env.STUDIO_CLAUDE_MODEL ?? "sonnet";
+  return process.env[`STUDIO_CLAUDE_MODEL_${step.toUpperCase()}`] ?? STEP_DEFAULT[step] ?? process.env.STUDIO_CLAUDE_MODEL ?? "sonnet";
 }
 
 /**
@@ -73,6 +80,7 @@ export const TIMEOUT_MS: Record<StepName, number> = {
   beat: 6 * 60_000,
   fixscenes: 10 * 60_000,
   reelcut: 10 * 60_000,
+  customshot: 12 * 60_000,
 };
 
 /** The fields of `--output-format json` we use. Everything else passes through. */

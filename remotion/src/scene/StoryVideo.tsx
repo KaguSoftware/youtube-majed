@@ -5,7 +5,8 @@ import { Captions } from "../library/captions/Captions";
 import { Overlays } from "../library/overlays";
 import { EASE } from "../rig/pose";
 import { INK } from "../theme";
-import { SceneView } from "./SceneView";
+import { CustomScene, type CustomShots } from "../custom/host";
+import { StyledScene } from "../three/StyledScene";
 import { LANDSCAPE, ViewContext, isPortrait, useView, type View } from "./view";
 import { buildTimeline } from "./timeline";
 import { TRANSITION_FRAMES } from "./transitions";
@@ -150,9 +151,9 @@ function Pushed({ from, children }: { from: number; children: ReactNode }) {
   return <AbsoluteFill style={{ transform: `translateX(${p * 180}px)` }}>{children}</AbsoluteFill>;
 }
 
-export type StoryVideoProps = { project: Project; audioSrc?: string; /** false for thumbnail stills: the picture without its burned-in captions */ captions?: boolean; /** the frame: 16:9 (default) or 9:16 (Reels), same project data */ view?: View };
+export type StoryVideoProps = { project: Project; audioSrc?: string; /** false for thumbnail stills: the picture without its burned-in captions */ captions?: boolean; /** the frame: 16:9 (default) or 9:16 (Reels), same project data */ view?: View; /** custom shots drawn in place of the library scene, by scene id (docs/PLAN.md section 6) */ customShots?: CustomShots };
 
-export function StoryVideo({ project, audioSrc, captions = true, view = LANDSCAPE }: StoryVideoProps) {
+export function StoryVideo({ project, audioSrc, captions = true, view = LANDSCAPE, customShots }: StoryVideoProps) {
   const timeline = useMemo(() => buildTimeline(project, { portrait: isPortrait(view) }), [project, view]);
   const scenes = project.scenes.scenes;
 
@@ -166,7 +167,7 @@ export function StoryVideo({ project, audioSrc, captions = true, view = LANDSCAP
         const body = (
           <Intro kind={scene.transitionIn}>
             <Outro frames={t.frames} next={next?.transitionIn}>
-              <SceneView scene={scene} cast={project.scenes.cast} frames={t.frames} />
+              {customShots?.[scene.id] ? <CustomScene Shot={customShots[scene.id]!} project={project} timeline={timeline} index={i} /> : <StyledScene file={project.scenes} scene={scene} cast={project.scenes.cast} frames={t.frames} />}
             </Outro>
           </Intro>
         );
