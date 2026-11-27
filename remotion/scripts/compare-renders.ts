@@ -1,7 +1,7 @@
 /**
  * Proves a stitched partial render matches a full render (Phase 4).
  *
- *   pnpm compare-renders <id> [--profile preview|final|lossless] [--frames a-b] [--json]
+ *   pnpm compare-renders <id> [--profile preview|final|lossless] [--frames a-b] [--baseline] [--json]
  *
  * 1. The stitched file: scripts/render-segments.ts, which reuses every cached
  *    segment and draws only what is missing (after an edit: the dirty ones).
@@ -77,6 +77,11 @@ await renderMedia({ composition, serveUrl, inputProps, outputLocation: full, ...
 const fullMs = Date.now() - t1;
 say(`full:     ${last - first + 1} frames in one call in ${(fullMs / 1000).toFixed(1)} s`);
 
+// ---- 2b. with --baseline, a second full render: how much two full renders of the same frames differ (Chrome's
+// rasteriser is not bit-exact from run to run on a few frames), the noise floor a stitched render is judged against
+const baselineFile = join(dir, `${profile}-full2.mp4`);
+if (args.includes("--baseline")) await renderMedia({ composition, serveUrl, inputProps, outputLocation: baselineFile, ...encodeOptions(profile), enforceAudioTrack: true, overwrite: true, concurrency: 8, frameRange: [first, last] });
+
 // ---- 3. pictures
 const frames = (f: string) => Number(spawnSync("ffprobe", ["-v", "error", "-count_packets", "-select_streams", "v:0", "-show_entries", "stream=nb_read_packets", "-of", "csv=p=0", f], { encoding: "utf8" }).stdout.trim());
 const psnrLog = join(dir, `${profile}.psnr.log`);
@@ -102,6 +107,16 @@ const pictures = {
   worst,
 };
 
+let baseline: { differing: number; psnrMin: number } | null = null;
+if (args.includes("--baseline")) {
+  const log = join(dir, `${profile}.base.log`);
+  const r = spawnSync("ffmpeg", ["-v", "error", "-i", full, "-i", baselineFile, "-lavfi", `psnr=stats_file=${log}`, "-f", "null", "-"], { encoding: "utf8" });
+  if (r.status !== 0) throw new Error(r.stderr);
+  const vals = readFileSync(log, "utf8").trim().split("\n").map((l) => (/psnr_avg:inf/.test(l) ? Infinity : Number(/psnr_avg:([\d.]+)/.exec(l)![1])));
+  rmSync(log);
+  baseline = { differing: vals.filter((v) => v !== Infinity).length, psnrMin: Math.min(...vals) };
+}
+
 // ---- 4. sound
 const uv = (script: string, ...a: string[]) => {
   const r = spawnSync("uv", ["run", "--no-sync", "python", script, ...a], { cwd: join(REPO_DIR, "audio"), encoding: "utf8", maxBuffer: 64 << 20 });
@@ -112,13 +127,13 @@ const whole = !frameArg;
 const between = uv("scripts/compare_audio.py", full, stitched) as { lagMs: number; residualDb: number; seconds: number; durationDiffMs: number };
 const lines = (video: string) => {
   if (!whole) return null;
-  const r = uv("scripts/verify_track.py", p.audioDir, "--video", video) as { video: { id: string; lagMs: number }[] };
-  const lags = r.video.map((x) => Math.abs(x.lagMs));
+  const r = uv("scripts/verify_track.py", p.audioDir, "--video", video) as { perLine: { video: { id: string; lagMs: number }[] } };
+  const lags = r.perLine.video.map((x) => Math.abs(x.lagMs));
   return { lines: lags.length, maxAbsLagMs: Math.max(...lags), within1ms: lags.filter((l) => l <= 1).length };
 };
 const sound = { stitchedVsFull: between, stitchedVsVoice: lines(stitched), fullVsVoice: lines(full) };
 
-const report = { project: id, profile, createdAt: new Date().toISOString(), range: [first, last], segments: { total: segs.length, drawn: segDone.rendered, reused: segDone.reused, framesDrawn: segDone.framesRendered }, timings: { stitchedMs, fullMs }, pictures, sound };
+const report = { project: id, profile, createdAt: new Date().toISOString(), range: [first, last], fullVsFull: baseline, segments: { total: segs.length, drawn: segDone.rendered, reused: segDone.reused, framesDrawn: segDone.framesRendered }, timings: { stitchedMs, fullMs }, pictures, sound };
 // PSNR of identical frames is infinite; JSON has no Infinity, so it is written as "inf"
 const inf = (_k: string, v: unknown) => (v === Infinity ? "inf" : v);
 writeFileSync(join(dir, `${profile}.json`), JSON.stringify(report, inf, 2) + "\n");
@@ -127,6 +142,7 @@ const db = (v: number) => (v === Infinity ? "∞" : v.toFixed(2));
 say(`\npictures: ${pictures.frames.compared} frames compared (stitched ${pictures.frames.stitched}, full ${pictures.frames.full}), ${pictures.identical} identical`);
 say(`  PSNR min ${db(pictures.psnr.min)} dB · 1st pct ${db(pictures.psnr.p1)} · median ${db(pictures.psnr.median)}   SSIM min ${pictures.ssim.min.toFixed(5)} · median ${pictures.ssim.median.toFixed(5)}`);
 say(`  segment boundaries (±2 frames, ${pictures.boundaries.frames} frames): PSNR min ${db(pictures.boundaries.psnrMin)} dB, SSIM min ${pictures.boundaries.ssimMin.toFixed(5)}, ${pictures.boundaries.identical} identical`);
+if (baseline) say(`  noise floor: a second full render differs from the first on ${baseline.differing} frames, PSNR min ${db(baseline.psnrMin)} dB`);
 say(`sound: stitched vs full lag ${between.lagMs} ms, residual ${between.residualDb} dB, length diff ${between.durationDiffMs} ms`);
 if (sound.stitchedVsVoice) say(`  every line's take in the stitched audio: max |lag| ${sound.stitchedVsVoice.maxAbsLagMs} ms (${sound.stitchedVsVoice.within1ms}/${sound.stitchedVsVoice.lines} within 1 ms); full render: ${sound.fullVsVoice!.maxAbsLagMs} ms`);
 if (!existsSync(stitched)) process.exit(1);
