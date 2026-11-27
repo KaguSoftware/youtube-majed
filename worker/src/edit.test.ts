@@ -1,14 +1,12 @@
 import { projectPaths, storyboardPaths, writeJson } from "@studio/project";
-import { SceneFile, VoiceFile, type EditOpIn, type ScriptFile } from "@studio/schema";
+import { SceneFile, type EditOpIn } from "@studio/schema";
 import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it } from "vitest";
 import { beatEdit, readOptions, regenerateScene } from "./edit-claude";
 import { applyOps, EditError, remapWords, type Draft } from "./edit-ops";
 import { describe as describeOps, linesToVoice, loadDraft } from "./edit";
-import { lock } from "./review";
-import { createProject, generateOptions, pickOption, writeStory } from "./story";
-import { storyboard } from "./storyboard";
 import { useFakeClaude } from "./test-env";
+import { editable } from "./test-edit-fixture";
 import { commit, diffVersions, ensureVersions, listVersions, readHead, rollback, versionFile } from "./versions";
 
 const env = useFakeClaude();
@@ -18,40 +16,6 @@ beforeEach(() => {
   delete process.env.FAKE_CLAUDE_MODE;
 });
 
-/** A voice.json for a script without audio: every word 0.3 s, a 0.3 s pause between lines. */
-function fakeVoice(script: ScriptFile): VoiceFile {
-  let t = 0.4;
-  const lines = script.lines.map((l) => {
-    const offset = t;
-    const words = l.text.split(/\s+/).filter(Boolean).map((w, i) => ({ text: w, start: offset + 0.06 + i * 0.3, end: offset + 0.06 + i * 0.3 + 0.25, score: 0.9 }));
-    const duration = 0.06 + words.length * 0.3 + 0.12;
-    t += duration + 0.3;
-    return { id: l.id, text: l.text, energy: l.energy, file: `lines/${l.id}.0123456789ab.wav`, offset, duration, seed: 1, seedUsed: 1, settings: {}, quality: { status: "ok" as const, wer: 0, heard: l.text, issues: [], attempts: 1 }, words };
-  });
-  return VoiceFile.parse({
-    version: 1,
-    engine: { name: "original", revision: "r", device: "cpu" },
-    reference: { file: "builtin:x", sha256: "s" },
-    aligner: { model: "m", revision: "r", device: "cpu", dtype: "float32" },
-    pauses: { leadIn: 0.4, tail: 1, loopBoundary: 0.7, byEnding: {}, continues: 0.05, beforeReveal: 0.15 },
-    track: { file: "narration.wav", sampleRate: 48000, duration: t + 1, loudness: { integratedLufs: -14, truePeakDbtp: -1.5, targetLufs: -14 } },
-    lines,
-  });
-}
-
-async function editable(): Promise<string> {
-  const b = createProject({ sentence: "A lighthouse keeper finds his oil disappearing every night.", narrative: "mystery", format: "reel", minutes: 1.25 });
-  await generateOptions(b.id);
-  pickOption(b.id, "A");
-  await writeStory(b.id);
-  lock(b.id, { force: true });
-  await storyboard(b.id);
-  const script = JSON.parse(readFileSync(projectPaths(b.id).scriptJson, "utf8")) as ScriptFile;
-  writeJson(projectPaths(b.id).voiceJson, fakeVoice(script));
-  env.reset();
-  return b.id;
-}
-
 const draftOf = (id: string): Draft => {
   const { voice: _v, ...d } = loadDraft(id, ensureVersions(id));
   return d;
@@ -60,7 +24,7 @@ const apply = (d: Draft, ops: EditOpIn[]) => applyOps(d, ops as never, { sfxTags
 
 describe("edit operations", () => {
   it("swaps scene fields with library ids only, and leaves every line alone", async () => {
-    const d = draftOf(await editable());
+    const d = draftOf(await editable(env));
     const s = d.scenes.scenes[1]!;
     const { draft } = apply(d, [{ op: "scene.set", scene: s.id, bg: "office", camera: "zoom_face", chars: [{ id: s.chars[0]!.id, action: "panic", expr: "shock" }] }]);
     const after = draft.scenes.scenes[1]!;
@@ -70,7 +34,7 @@ describe("edit operations", () => {
   });
 
   it("edits a line in the narration and script.json together, and only that line needs a take", async () => {
-    const id = await editable();
+    const id = await editable(env);
     const base = loadDraft(id, ensureVersions(id));
     const line = base.script.lines[2]!;
     const { draft } = apply(base, [{ op: "line.set", line: line.id, text: "A brand new line for the voice." }]);
@@ -80,7 +44,7 @@ describe("edit operations", () => {
   });
 
   it("inserts a line with its own scene, splitting the scene it lands in, and keeps scene ids", async () => {
-    const d = draftOf(await editable());
+    const d = draftOf(await editable(env));
     const host = d.scenes.scenes.find((s) => s.lineIds.length >= 1)!;
     const ids = d.scenes.scenes.map((s) => s.id);
     const { id: _id, lineIds: _l, ...body } = host;
@@ -94,7 +58,7 @@ describe("edit operations", () => {
   });
 
   it("adds, moves and deletes a sound effect on a word; refuses a word past the end", async () => {
-    const d = draftOf(await editable());
+    const d = draftOf(await editable(env));
     const [l1, l2] = d.script.lines;
     let { draft } = apply(d, [{ op: "sfx.add", tag: "door_slam", at: `${l1!.id}:1` }]);
     expect(draft.scenes.scenes.flatMap((s) => s.sfx).some((x) => x.tag === "door_slam" && x.at === `${l1!.id}:1`)).toBe(true);
@@ -106,7 +70,7 @@ describe("edit operations", () => {
   });
 
   it("sets and clears a voice effect on a line or one word", async () => {
-    const d = draftOf(await editable());
+    const d = draftOf(await editable(env));
     const l = d.script.lines[0]!;
     let { draft } = apply(d, [{ op: "fx", line: l.id, preset: "robot", word: 1 }, { op: "fx", line: l.id, preset: "phone_call" }]);
     expect(draft.fx.lines[l.id]).toEqual([{ preset: "robot", word: 1 }, { preset: "phone_call" }]);
@@ -115,7 +79,7 @@ describe("edit operations", () => {
   });
 
   it("trims, moves and deletes scenes; a cut takes its lines only because the operation says so", async () => {
-    const d = draftOf(await editable());
+    const d = draftOf(await editable(env));
     const scenes = d.scenes.scenes;
     // merge: picture goes, lines stay
     const { draft: merged } = apply(d, [{ op: "scene.delete", scene: scenes[2]!.id, lines: "merge" }]);
@@ -141,7 +105,7 @@ describe("edit operations", () => {
   });
 
   it("refuses an edit that would break coverage, and names the operation", async () => {
-    const d = draftOf(await editable());
+    const d = draftOf(await editable(env));
     const s = d.scenes.scenes[0]!;
     expect(() => apply(d, [{ op: "scene.trim", scene: s.id, start: 1 }])).toThrow(/operation 1 \(scene.trim\)/);
   });
@@ -159,7 +123,7 @@ describe("edit operations", () => {
 
 describe("versions", () => {
   it("starts from the working files, commits, diffs and rolls back without copying media", async () => {
-    const id = await editable();
+    const id = await editable(env);
     const v1 = ensureVersions(id);
     expect(v1.n).toBe(1);
     const d = draftOf(id);
@@ -181,7 +145,7 @@ describe("versions", () => {
   });
 
   it("records changes made outside the editor as their own version", async () => {
-    const id = await editable();
+    const id = await editable(env);
     ensureVersions(id);
     const scenes = JSON.parse(readFileSync(storyboardPaths(id).scenes, "utf8"));
     scenes.scenes[0].grade = scenes.scenes[0].grade === "night" ? "day" : "night";
@@ -194,7 +158,7 @@ describe("versions", () => {
 
 describe("Claude edit steps (fake claude)", () => {
   it("regenerates a scene as checked options and saves them for a pick", async () => {
-    const id = await editable();
+    const id = await editable(env);
     const scene = draftOf(id).scenes.scenes[1]!;
     const o = await regenerateScene(id, scene.id, "more dramatic", { count: 3 });
     expect(env.calls().map((c) => c.step)).toEqual(["regenerate"]);
@@ -207,7 +171,7 @@ describe("Claude edit steps (fake claude)", () => {
   });
 
   it("turns a beat into an inserted line plus its shots, through the same checks", async () => {
-    const id = await editable();
+    const id = await editable(env);
     const d = draftOf(id);
     const after = d.script.lines[1]!.id;
     const r = await beatEdit(id, "cut to a dog barking at him, he jumps", { after, dryRun: true });
