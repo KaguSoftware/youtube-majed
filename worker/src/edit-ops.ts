@@ -13,10 +13,11 @@
  * - no line's text changed, and no line went, unless an operation named it.
  */
 import {
+  EditOp,
   NarrationFile,
   SceneFile,
   narrationToScript,
-  type EditOp,
+  type EditOpIn,
   type FxFile,
   type NarrationFile as Narration,
   type Scene,
@@ -472,10 +473,14 @@ export function refreshReport(d: Draft): void {
   d.report.reveals = d.report.reveals.filter((r) => lines.has(r.lineId));
 }
 
-export function applyOps(base: Draft, ops: readonly EditOp[], o: { sfxTags: readonly string[] }): { draft: Draft; ctx: OpContext } {
+export function applyOps(base: Draft, ops: readonly (EditOp | EditOpIn)[], o: { sfxTags: readonly string[] }): { draft: Draft; ctx: OpContext } {
   const draft = clone(base);
   const ctx: OpContext = { sfxTags: o.sfxTags, explicit: new Set(), notes: [] };
-  ops.forEach((op, i) => {
+  ops.forEach((raw, i) => {
+    // parsed here too, so every caller gets the format's checks and defaults (new lines: energy 3, no delivery note)
+    const parsed = EditOp.safeParse(raw);
+    if (!parsed.success) throw new EditError(`operation ${i + 1} (${(raw as { op?: string }).op ?? "?"}): ${parsed.error.issues.map((x) => `${x.path.join(".") || "op"}: ${x.message}`).join("; ")}`);
+    const op = parsed.data;
     try {
       applyOp(draft, op, ctx);
     } catch (e) {
