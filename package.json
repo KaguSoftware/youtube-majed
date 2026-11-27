@@ -22,6 +22,8 @@
     "assets": "cd audio && uv run python -m studio_audio.assets",
     "render:project": "pnpm --filter @studio/remotion render:project",
     "render:segments": "pnpm --filter @studio/remotion render:segments",
-    "compare-renders": "pnpm --filter @studio/remotion compare-renders"
+    "compare-renders": "pnpm --filter @studio/remotion compare-renders",
+    "edit": "pnpm --silent --filter @studio/worker edit",
+    "versions": "pnpm --silent --filter @studio/worker versions"
   }
 }
