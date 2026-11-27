@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { BeatOutput, FixScenesOutput, RegenerateOutput } from "./edit";
 import { CastOutput, StoryboardOutput } from "./storyboard";
 import { CriticOutput, FactCheckOutput, LoopMapOutput, MasterOptionsOutput, NarrationOutput, RewriteOutput, type StepName } from "./story";
 
@@ -12,6 +13,9 @@ export const STEP_OUTPUTS = {
   critic: CriticOutput,
   cast: CastOutput,
   storyboard: StoryboardOutput,
+  regenerate: RegenerateOutput,
+  beat: BeatOutput,
+  fixscenes: FixScenesOutput,
 } as const satisfies Record<StepName, z.ZodType>;
 
 /**

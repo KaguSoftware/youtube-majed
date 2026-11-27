@@ -1,0 +1,171 @@
+{
+  "type": "object",
+  "properties": {
+    "options": {
+      "minItems": 2,
+      "maxItems": 3,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "lineIds": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^L\\d+\\.\\d+$"
+            },
+            "description": "Consecutive script lines this shot covers, in order"
+          },
+          "bg": {
+            "type": "string",
+            "pattern": "^[a-z0-9_]+$"
+          },
+          "grade": {
+            "type": "string",
+            "pattern": "^[a-z0-9_]+$"
+          },
+          "chars": {
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9_]+$",
+                  "description": "A cast id"
+                },
+                "action": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9_]+$"
+                },
+                "expr": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9_]+$"
+                },
+                "pos": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9_]+$"
+                },
+                "to": {
+                  "type": "string",
+                  "description": "Where a travelling action ends up (a position id), or \"\""
+                },
+                "facing": {
+                  "type": "string",
+                  "enum": [
+                    "auto",
+                    "left",
+                    "right"
+                  ],
+                  "description": "\"auto\" faces the centre or the direction of travel"
+                },
+                "look": {
+                  "type": "string",
+                  "enum": [
+                    "normal",
+                    "silhouette"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "action",
+                "expr",
+                "pos",
+                "to",
+                "facing",
+                "look"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "props": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9_]+$"
+                },
+                "attach": {
+                  "type": "string",
+                  "description": "\"<castId>.hand_r\" / \".hand_l\" / \".head\" for a held prop, or \"\""
+                },
+                "pos": {
+                  "type": "string",
+                  "description": "A position id for a prop that stands on its own, or \"\""
+                }
+              },
+              "required": [
+                "id",
+                "attach",
+                "pos"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "camera": {
+            "type": "string",
+            "pattern": "^[a-z0-9_]+$"
+          },
+          "transitionIn": {
+            "type": "string",
+            "pattern": "^[a-z0-9_]+$"
+          },
+          "caption": {
+            "type": "string",
+            "pattern": "^[a-z0-9_]+$"
+          },
+          "sfx": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "tag": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9_]+$",
+                  "description": "A sound tag from the sfx list"
+                },
+                "at": {
+                  "type": "string",
+                  "pattern": "^L\\d+\\.\\d+:\\d+$",
+                  "description": "The word it lands on, as <lineId>:<wordIndex> (0 = first word)"
+                }
+              },
+              "required": [
+                "tag",
+                "at"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "why": {
+            "type": "string",
+            "description": "A few words: what this shot does (establish, react, reveal, plant…)"
+          }
+        },
+        "required": [
+          "lineIds",
+          "bg",
+          "grade",
+          "chars",
+          "props",
+          "camera",
+          "transitionIn",
+          "caption",
+          "sfx",
+          "why"
+        ],
+        "additionalProperties": false
+      },
+      "description": "2 or 3 genuinely different takes on the scene, each covering exactly the scene's lineIds"
+    }
+  },
+  "required": [
+    "options"
+  ],
+  "additionalProperties": false
+}

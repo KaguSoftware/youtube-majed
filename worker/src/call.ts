@@ -23,6 +23,9 @@ const SKILL: Record<StepName, string> = {
   critic: "critic",
   cast: "plan-scenes",
   storyboard: "plan-scenes",
+  regenerate: "edit-scenes",
+  beat: "edit-scenes",
+  fixscenes: "edit-scenes",
 };
 
 export type StepOutput<S extends StepName> = z.output<(typeof STEP_OUTPUTS)[S]>;
@@ -43,8 +46,8 @@ export type CallOptions<S extends StepName> = {
 
 /** `/write-story step: narration` + the input. Skills read it as $ARGUMENTS. */
 export function promptFor(step: StepName, input: unknown, retryErrors?: string[]): string {
-  // write-story and plan-scenes hold several steps; the others are one step each
-  const head = SKILL[step] === "write-story" || SKILL[step] === "plan-scenes" ? `/${SKILL[step]} step: ${step}` : `/${SKILL[step]}`;
+  // write-story, plan-scenes and edit-scenes hold several steps; the others are one step each
+  const head = SKILL[step] === "write-story" || SKILL[step] === "plan-scenes" || SKILL[step] === "edit-scenes" ? `/${SKILL[step]} step: ${step}` : `/${SKILL[step]}`;
   let prompt = `${head}\n\nInput:\n${JSON.stringify(input)}`;
   if (retryErrors?.length) {
     prompt += `\n\nYour previous answer to this step was rejected by the validator:\n- ${retryErrors.join("\n- ")}\nFix exactly these problems and return the whole corrected JSON.`;

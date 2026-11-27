@@ -443,7 +443,7 @@ export type ReviewHistoryFile = z.infer<typeof ReviewHistoryFile>;
 
 // ---------------------------------------------------------------- run bookkeeping
 
-export const StepName = z.enum(["options", "loopmap", "narration", "rewrite", "factcheck", "critic", "cast", "storyboard"]);
+export const StepName = z.enum(["options", "loopmap", "narration", "rewrite", "factcheck", "critic", "cast", "storyboard", "regenerate", "beat", "fixscenes"]);
 export type StepName = z.infer<typeof StepName>;
 
 /** projects/<id>/usage.jsonl: one line per `claude -p` call. */
