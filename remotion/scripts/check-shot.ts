@@ -139,6 +139,7 @@ try {
       }
       stills[frame].push(`${rel}/${name}`);
       const g = spawnSync("ffmpeg", ["-v", "error", "-i", output, "-vf", "scale=96:54:flags=area", "-pix_fmt", "gray", "-f", "rawvideo", "-"], { maxBuffer: 1 << 20 });
+      if (g.error) fail("crash", `ffmpeg could not run (${g.error.message}); it measures how blank each frame is`, { stills, renderMs: Date.now() - t0 });
       const px = g.stdout;
       if (px.length) {
         const mean = px.reduce((s, v) => s + v, 0) / px.length;
