@@ -1,22 +1,18 @@
-import type { Metadata } from "next";
+"use client";
 import Link from "next/link";
-import { WorkerOffline } from "@/components/offline";
+import { use } from "react";
+import { WithProject } from "@/components/with-project";
 import { button } from "@/components/ui";
-import { loadProject } from "@/lib/server";
+import type { ProjectDetail } from "@/lib/api";
 import { ScriptEditor } from "./editor";
 
-export const dynamic = "force-dynamic";
-
-export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
-  const r = await loadProject((await params).id);
-  return { title: r.ok ? `Script · ${r.data.title ?? r.data.id}` : "Script" };
+export default function ScriptPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
+  return <WithProject id={id} title={(p) => `Script · ${p.title ?? p.id}`}>{(p) => <Script id={id} p={p} />}</WithProject>;
 }
 
-export default async function ScriptPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
-  const r = await loadProject(id);
-  if (!r.ok) return <WorkerOffline error={r.error} offline={r.offline} />;
-  if (!r.data.narration || !r.data.loopmap) {
+function Script({ id, p }: { id: string; p: ProjectDetail }) {
+  if (!p.narration || !p.loopmap) {
     return (
       <div className="mx-auto max-w-2xl px-6 py-24">
         <p className="eyebrow text-faint">Script</p>
@@ -26,5 +22,5 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
       </div>
     );
   }
-  return <ScriptEditor initial={r.data} />;
+  return <ScriptEditor initial={p} />;
 }

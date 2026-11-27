@@ -1,21 +1,20 @@
+"use client";
 import { NARRATIVES } from "@studio/schema";
-import type { Metadata } from "next";
 import Link from "next/link";
-import { WorkerOffline } from "@/components/offline";
+import { use } from "react";
 import { StepHead } from "@/components/step-head";
+import { WithProject } from "@/components/with-project";
 import { button } from "@/components/ui";
+import type { ProjectDetail } from "@/lib/api";
 import { ago, minutesLabel } from "@/lib/format";
-import { loadProject } from "@/lib/server";
-
-export const dynamic = "force-dynamic";
-export const metadata: Metadata = { title: "Brief" };
 
 /** Step 1. The brief is written once, on /new; here it is read back, so any step can point at what the story was asked to be. */
-export default async function BriefPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
-  const r = await loadProject(id);
-  if (!r.ok) return <WorkerOffline error={r.error} offline={r.offline} />;
-  const p = r.data;
+export default function BriefPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
+  return <WithProject id={id} title="Brief">{(p) => <Brief id={id} p={p} />}</WithProject>;
+}
+
+function Brief({ id, p }: { id: string; p: ProjectDetail }) {
   const b = p.brief;
   const rows: [string, string][] = [
     ["Narrative", NARRATIVES[b.narrative].label],

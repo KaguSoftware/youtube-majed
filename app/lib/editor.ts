@@ -7,6 +7,7 @@
 import { EditOp, FxEffect, SceneOptions, Version, VersionDiff, validateProject, type EditOpIn, type Project } from "@studio/schema";
 import { z } from "zod";
 import { call } from "./api";
+import { WORKER_URL } from "./worker-url";
 
 const Word = z.object({ text: z.string(), start: z.number(), end: z.number() });
 
@@ -67,4 +68,4 @@ export type CheckResult = z.infer<typeof CheckResponse>;
 /** Ops are checked here before they leave the browser, so a typo never reaches the queue. */
 export const opsOf = (ops: EditOpIn[]) => z.array(EditOp).min(1).parse(ops);
 
-export const sfxAudioUrl = (asset: string) => `/api/worker/editor/sfx/audio?asset=${encodeURIComponent(asset)}`;
+export const sfxAudioUrl = (asset: string) => `${WORKER_URL}/editor/sfx/audio?asset=${encodeURIComponent(asset)}`;

@@ -1,10 +1,11 @@
 /**
  * What the worker answers, checked with zod (the app trusts nothing that
- * crosses a process boundary). Shared by server components (which call the
- * worker directly) and client components (which go through /api/worker).
+ * crosses a process boundary). The browser calls the worker on this computer
+ * directly (lib/worker-url.ts).
  */
 import { Brief, CastId, CastMember, Comment, FactCheckOutput, LoopMapOutput, MasterOptionsOutput, MixResult, NarrationFile, PickFile, PipelineState, ReelCutFile, ReelRecord, RenderRecord, ReviewRound, SceneFile, StepName, StoryboardFile, VarietyFile, VarietyReport } from "@studio/schema";
 import { z } from "zod";
+import { WORKER_URL } from "./worker-url";
 
 export const Job = z.object({
   id: z.string(),
@@ -60,14 +61,22 @@ export class WorkerError extends Error {
   }
 }
 
-/** A request through the same-origin proxy, validated. */
+/** Status of a WorkerError when nothing answered: the helper isn't running on this computer (or the browser blocked it). */
+export const OFFLINE = 0;
+
+/** A request to the worker, validated. */
 export async function call<T extends z.ZodType>(path: string, schema: T, init?: { method?: string; body?: unknown }): Promise<z.output<T>> {
-  const res = await fetch(`/api/worker${path}`, {
-    method: init?.method ?? (init?.body !== undefined ? "POST" : "GET"),
-    headers: { "content-type": "application/json" },
-    body: init?.body !== undefined ? JSON.stringify(init.body) : undefined,
-    cache: "no-store",
-  });
+  let res: Response;
+  try {
+    res = await fetch(WORKER_URL + path, {
+      method: init?.method ?? (init?.body !== undefined ? "POST" : "GET"),
+      headers: { "content-type": "application/json" },
+      body: init?.body !== undefined ? JSON.stringify(init.body) : undefined,
+      cache: "no-store",
+    });
+  } catch {
+    throw new WorkerError("The Studio helper isn't running on this computer.", OFFLINE);
+  }
   const data: unknown = await res.json().catch(() => ({}));
   if (!res.ok) throw new WorkerError((data as { error?: string }).error ?? `The worker answered ${res.status}`, res.status);
   const parsed = schema.safeParse(data);
@@ -77,8 +86,23 @@ export async function call<T extends z.ZodType>(path: string, schema: T, init?: 
   return parsed.data;
 }
 
-/** A project's file through the same-origin proxy (the player seeks with byte ranges). Only renders, takes and the mixed track are served. */
-export const fileUrl = (id: string, rel: string, download = false) => `/api/worker/projects/${id}/file/${rel}${download ? "?download=1" : ""}`;
+/** A project's file from the worker (the player seeks with byte ranges). Only renders, takes and the mixed track are served. */
+export const fileUrl = (id: string, rel: string, download = false) => `${WORKER_URL}/projects/${id}/file/${rel}${download ? "?download=1" : ""}`;
+
+export type Loaded<T> = { ok: true; data: T } | { ok: false; error: string; offline: boolean };
+
+/** A read that reports failure as a value, for pages that show an offline screen instead of throwing. */
+export async function load<T extends z.ZodType>(path: string, schema: T): Promise<Loaded<z.output<T>>> {
+  try {
+    return { ok: true, data: await call(path, schema) };
+  } catch (e) {
+    const err = e as Error;
+    return { ok: false, error: err.message, offline: e instanceof WorkerError && e.status === OFFLINE };
+  }
+}
+
+export const loadProjects = () => load("/projects", z.array(ProjectSummary));
+export const loadProject = (id: string) => load(`/projects/${encodeURIComponent(id)}`, ProjectDetail);
 
 // ---------------------------------------------------------------- phase 3 pages
 

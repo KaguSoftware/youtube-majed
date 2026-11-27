@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import { Job } from "./api";
+import { WORKER_URL } from "./worker-url";
 
 /**
  * Live jobs from the worker over Server-Sent Events. Calls `onSettled` when a
@@ -14,7 +15,7 @@ export function useJobs(project: string | undefined, onSettled?: (job: Job) => v
   settled.current = onSettled;
 
   useEffect(() => {
-    const es = new EventSource("/api/worker/events");
+    const es = new EventSource(`${WORKER_URL}/events`);
     const merge = (incoming: Job[]) =>
       setJobs((prev) => {
         const map = new Map(prev.map((j) => [j.id, j]));

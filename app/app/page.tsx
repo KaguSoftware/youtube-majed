@@ -1,18 +1,19 @@
+"use client";
 import Link from "next/link";
 import { NARRATIVES } from "@studio/schema";
-import { WorkerOffline } from "@/components/offline";
+import { Gate, useLoaded } from "@/components/with-project";
 import { button } from "@/components/ui";
 import { StatusMark } from "@/components/status";
+import { type ProjectSummary, loadProjects } from "@/lib/api";
 import { ago, minutesLabel } from "@/lib/format";
 import { stepHref, stepOf } from "@/lib/steps";
-import { loadProjects } from "@/lib/server";
 
-export const dynamic = "force-dynamic";
+export default function Home() {
+  const loaded = useLoaded(loadProjects, []);
+  return <Gate loaded={loaded}>{(projects) => <Stories projects={projects} />}</Gate>;
+}
 
-export default async function Home() {
-  const r = await loadProjects();
-  if (!r.ok) return <WorkerOffline error={r.error} offline={r.offline} />;
-  const projects = r.data;
+function Stories({ projects }: { projects: ProjectSummary[] }) {
 
   return (
     <div className="mx-auto max-w-5xl px-6 pb-24 pt-14">

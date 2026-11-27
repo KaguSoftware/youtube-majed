@@ -43,10 +43,15 @@ pnpm worker   # terminal 1: the job worker on 127.0.0.1:8766
 pnpm app      # terminal 2: http://localhost:3100
 ```
 
-The app never runs Claude itself. Server components read from the worker,
-and the browser talks to it through `/api/worker/*` (a same-origin proxy
-that streams Server-Sent Events). Everything the worker returns is checked
-with zod (`lib/api.ts`).
+The app never runs Claude itself, and it has no server code: every page loads
+in the browser and calls the worker on this computer directly
+(`lib/worker-url.ts`, `http://127.0.0.1:8766`), including Server-Sent Events
+and media with byte ranges. That is what lets the same pages run from Vercel
+(`https://youtube-majed.vercel.app`) against the helper on whichever computer
+opens them (`scripts/helper.sh`, `docs/PLAN.md` section 10). While the worker
+is down a page says how to start it and opens by itself once it answers
+(`components/with-project.tsx`). Everything the worker returns is checked with
+zod (`lib/api.ts`).
 
 ## Script editor
 
