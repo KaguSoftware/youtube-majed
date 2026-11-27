@@ -20,8 +20,8 @@ import { REPO_DIR, projectPaths, readJson, readVoice, storyboardPaths, writeJson
 import { BACKGROUNDS, MixPlan, MixResult, SceneFile, StoryboardFile, TRANSITIONS, closest, type MixCue, type MixGate, type SceneFile as Scenes, type StoryboardFile as Report, type VoiceFile } from "@studio/schema";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { constants, copyFileSync, existsSync, mkdirSync, readFileSync, renameSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { readAssets, type Asset, type AssetKind } from "./assets";
 
 export const MIXER_VERSION = 1;
@@ -333,6 +333,23 @@ export function planMix(inp: MixInputs): MixPlan {
 
 // ---------------------------------------------------------------- running it
 
+/**
+ * The narration track as mix plans name it: its copy in the store by content
+ * (audio/narration/<sha256>.wav, shared with the version history), so the
+ * same track always gives the same plan, and the same plan is never mixed twice.
+ */
+export function storedNarration(project: string): string {
+  const file = projectPaths(project).narration;
+  const hash = sha256(file);
+  const dest = join(projectPaths(project).audioDir, "narration", `${hash}.wav`);
+  if (!existsSync(dest)) {
+    mkdirSync(dirname(dest), { recursive: true });
+    copyFileSync(file, `${dest}.tmp`, constants.COPYFILE_FICLONE);
+    renameSync(`${dest}.tmp`, dest);
+  }
+  return dest;
+}
+
 export type MixOptions = { scenes?: string; force?: boolean };
 export type MixRun = { plan: MixPlan; result: MixResult; cached: boolean; planFile: string; mix: string };
 
@@ -349,7 +366,7 @@ export function readInputs(project: string, o: MixOptions = {}): MixInputs {
   if (!report) throw new MixError(`no storyboard report at ${paths.report}: run \`pnpm story storyboard ${project}\` first`);
   const assets = readAssets();
   if (!assets.length) throw new MixError("the asset index is empty: run `pnpm assets seed` and `pnpm assets index`");
-  return { project, scenes, report, voice: voice.data, narration: projectPaths(project).narration, assets };
+  return { project, scenes, report, voice: voice.data, narration: storedNarration(project), assets };
 }
 
 const BLANK_REPORT: Report = { version: 1, createdAt: new Date(0).toISOString(), catalogue: "", source: "script", style: "", music: [], reveals: [], batches: [], flags: [], combos: [], stats: { scenes: 0, lines: 0, seconds: 0, timedBy: "voice", regenerated: 0, varietyHits: 0, varietyFixed: 0, mappedIds: 0 } };
@@ -385,6 +402,33 @@ export function runMix(project: string, o: MixOptions = {}): MixRun {
     if (r.status !== 0) throw new MixError(`the mixer failed:\n${(r.stderr || r.stdout).trim().slice(-1500)}`);
   }
   return finish(x);
+}
+
+/** The cache key of a plan: the stem of audio/mix/<key>.wav. */
+export const planKey = (plan: MixPlan) => createHash("sha256").update(JSON.stringify(plan)).digest("hex").slice(0, 20);
+
+/**
+ * Mixes a plan that is not (yet) the project's own, for the edit engine: the
+ * plan is kept next to its mix in the cache (audio/mix/<key>.plan.json) and
+ * nothing in the working files changes. An unchanged plan is never mixed twice.
+ */
+export async function mixPlan(project: string, plan: MixPlan, o: { signal?: AbortSignal } = {}): Promise<{ key: string; wav: string; json: string; cached: boolean; result: MixResult }> {
+  const paths = storyboardPaths(project);
+  const key = planKey(plan);
+  const x: Prepared = { plan, cachedWav: join(paths.mixCache, `${key}.wav`), cachedJson: join(paths.mixCache, `${key}.json`), resultFile: "", cached: false, paths: { ...paths, mixPlan: join(paths.mixCache, `${key}.plan.json`) } };
+  x.cached = existsSync(x.cachedWav) && existsSync(x.cachedJson);
+  if (!x.cached) {
+    writeJson(x.paths.mixPlan, plan);
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn("uv", mixerArgs(x), { cwd: join(REPO_DIR, "audio"), signal: o.signal });
+      let out = "";
+      child.stdout.on("data", (d) => (out += d));
+      child.stderr.on("data", (d) => (out += d));
+      child.on("error", (e) => reject(o.signal?.aborted ? e : new MixError(`cannot run uv (the audio venv): ${e.message}`)));
+      child.on("close", (code) => (code === 0 ? resolve() : reject(new MixError(`the mixer failed:\n${out.trim().slice(-1500)}`))));
+    });
+  }
+  return { key, wav: x.cachedWav, json: x.cachedJson, cached: x.cached, result: MixResult.parse(JSON.parse(readFileSync(x.cachedJson, "utf8"))) };
 }
 
 /** The same mix without blocking the worker's HTTP server while Python renders it. */
