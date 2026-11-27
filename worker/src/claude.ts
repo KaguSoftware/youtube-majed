@@ -72,6 +72,7 @@ export const TIMEOUT_MS: Record<StepName, number> = {
   regenerate: 6 * 60_000,
   beat: 6 * 60_000,
   fixscenes: 10 * 60_000,
+  reelcut: 10 * 60_000,
 };
 
 /** The fields of `--output-format json` we use. Everything else passes through. */

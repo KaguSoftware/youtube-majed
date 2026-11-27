@@ -27,6 +27,7 @@ import { pipelineOf } from "./pipeline";
 import { exportVideo, readExportRecord, readPreviewRecord, renderPaths, renderPreview } from "./render";
 import { voiceProject } from "./voice-run";
 import { editRoutes, editRunners } from "./edit-api";
+import { reelRoutes, reelRunners } from "./reel-api";
 import { editorRequest } from "./editor-api";
 
 const PORT = Number(process.env.STUDIO_WORKER_PORT ?? 8766);
@@ -69,6 +70,8 @@ const runners: Record<JobKind, Runner> = {
   export: (j, o) => exportVideo(j.project, { signal: o.signal, report: o.report }),
   // ---- Phase 4: the edit engine (src/edit-api.ts)
   ...editRunners,
+  // ---- Phase 4, Part C: the Reel cut and the Reel export (src/reel-api.ts)
+  ...reelRunners,
 };
 
 export const queue = new JobQueue(join(projectsDir(), "studio.sqlite"), runners, (job) => {
@@ -333,6 +336,7 @@ const routes: Route[] = [
   ],
   // ---- Phase 4: edits, versions, the timeline (src/edit-api.ts)
   ...editRoutes(enqueue).map(([method, pattern, handler]): Route => [method, pattern, (req, _res, m) => handler({ body: (schema) => body(req, schema), url: new URL(req.url ?? "/", "http://localhost") }, m)]),
+  ...reelRoutes(enqueue).map(([method, pattern, handler]): Route => [method, pattern, (req, _res, m) => handler({ body: (schema) => body(req, schema), url: new URL(req.url ?? "/", "http://localhost") }, m)]),
   ["GET", /^\/jobs$/, () => queue.list(30)],
   [
     "POST",

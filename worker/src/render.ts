@@ -81,9 +81,9 @@ const Event = z.discriminatedUnion("event", [
 ]);
 type Done = Extract<z.infer<typeof Event>, { event: "done" }>;
 
-type Phase = { label: string; from: number; to: number };
+export type Phase = { label: string; from: number; to: number };
 /** A phase of a longer job: maps 0..1 inside the phase to the job's 0..1000 scale. */
-const scaled = (report: (p: JobProgress) => void, ph: Phase) => (fraction: number, detail?: string) => report({ label: ph.label, done: Math.round((ph.from + (ph.to - ph.from) * Math.min(1, Math.max(0, fraction))) * 1000), total: 1000, ...(detail ? { detail } : {}) });
+export const scaled = (report: (p: JobProgress) => void, ph: Phase) => (fraction: number, detail?: string) => report({ label: ph.label, done: Math.round((ph.from + (ph.to - ph.from) * Math.min(1, Math.max(0, fraction))) * 1000), total: 1000, ...(detail ? { detail } : {}) });
 
 async function remotionRender(id: string, profile: "preview" | "final", out: string, o: { signal: AbortSignal; progress: (stage: "bundle" | "render" | "stills", fraction: number, detail?: string) => void; stills?: { frames: number[]; dir: string }; concurrency?: number; noVideo?: boolean }): Promise<Done> {
   const args = ["scripts/render-project.ts", id, "--profile", profile, "--out", out, "--json", ...(o.concurrency ? ["--concurrency", String(o.concurrency)] : []), ...(o.stills ? ["--stills", o.stills.frames.join(","), "--stills-dir", o.stills.dir] : []), ...(o.noVideo ? ["--no-video"] : [])];
@@ -133,7 +133,7 @@ type SegDone = Extract<z.infer<typeof SegEvent>, { event: "done" }>;
 export const segmented = () => process.env.STUDIO_RENDER_SEGMENTS !== "0";
 
 /** Draws only the segments missing from the cache, then joins them and muxes the mix (remotion/scripts/render-segments.ts). */
-async function segmentRender(id: string, profile: "preview" | "final", out: string, o: { signal: AbortSignal; progress: (stage: "plan" | "bundle" | "render" | "stitch", fraction: number, detail?: string) => void; concurrency?: number }): Promise<{ done: Done; seg: SegDone }> {
+export async function segmentRender(id: string, profile: "preview" | "final" | "reel", out: string, o: { signal: AbortSignal; progress: (stage: "plan" | "bundle" | "render" | "stitch", fraction: number, detail?: string) => void; concurrency?: number }): Promise<{ done: Done; seg: SegDone }> {
   const args = ["scripts/render-segments.ts", id, "--profile", profile, "--out", out, "--json", ...(o.concurrency ? ["--concurrency", String(o.concurrency)] : [])];
   let done: SegDone | undefined;
   let failure: string | undefined;
@@ -167,10 +167,10 @@ async function segmentRender(id: string, profile: "preview" | "final", out: stri
   return { seg: d, done: { event: "done", file: d.file, bytes: d.bytes, bundleMs: d.bundleMs, renderMs: d.renderMs, encodeMs: d.stitchMs, totalMs: d.totalMs, concurrency: d.concurrency, frames: d.framesRendered, fps: 30 } };
 }
 
-const segmentsOf = (s: SegDone) => ({ total: s.segments, drawn: s.rendered, reused: s.reused, framesDrawn: s.framesRendered, stitchMs: s.stitchMs });
+export const segmentsOf = (s: SegDone) => ({ total: s.segments, drawn: s.rendered, reused: s.reused, framesDrawn: s.framesRendered, stitchMs: s.stitchMs });
 
 /** Mixes the soundtrack for the project (cached by plan hash), reporting as the first phase of a job. */
-async function ensureMix(id: string, o: { signal: AbortSignal; report: (p: JobProgress) => void; phase: Phase }): Promise<{ cached: boolean; seconds: number }> {
+export async function ensureMix(id: string, o: { signal: AbortSignal; report: (p: JobProgress) => void; phase: Phase }): Promise<{ cached: boolean; seconds: number }> {
   const at = scaled(o.report, o.phase);
   at(0.05, "planning the cues");
   const t0 = Date.now();
@@ -184,7 +184,7 @@ async function ensureMix(id: string, o: { signal: AbortSignal; report: (p: JobPr
   }
 }
 
-function requireVoiced(id: string) {
+export function requireVoiced(id: string) {
   const voice = readVoice(id);
   if (!voice) throw new RenderError(`${id} has not been voiced yet`);
   if (!voice.ok) throw new RenderError(`voice.json is not valid:\n  - ${voice.errors.join("\n  - ")}`);
@@ -231,13 +231,13 @@ export async function renderPreview(id: string, o: RunOpts): Promise<RenderRecor
   return record;
 }
 
-const round1 = (n: number) => Math.round(n * 10) / 10;
-const timingsOf = (d: Done, totalMs: number) => ({ bundleMs: d.bundleMs, renderMs: d.renderMs, encodeMs: d.encodeMs, totalMs, concurrency: d.concurrency, frames: d.frames, framesPerSecond: d.renderMs ? round1(d.frames / (d.renderMs / 1000)) : 0 });
+export const round1 = (n: number) => Math.round(n * 10) / 10;
+export const timingsOf = (d: Done, totalMs: number) => ({ bundleMs: d.bundleMs, renderMs: d.renderMs, encodeMs: d.encodeMs, totalMs, concurrency: d.concurrency, frames: d.frames, framesPerSecond: d.renderMs ? round1(d.frames / (d.renderMs / 1000)) : 0 });
 
 // ---------------------------------------------------------------- export
 
 /** Re-encodes the video at a higher CRF, keeping the audio as it is. ffmpeg's -progress output drives the bar. */
-async function reencode(src: string, dest: string, profile: ExportProfile, crf: number, o: { signal: AbortSignal; progress: (fraction: number) => void; durationS: number }): Promise<void> {
+export async function reencode(src: string, dest: string, profile: ExportProfile, crf: number, o: { signal: AbortSignal; progress: (fraction: number) => void; durationS: number }): Promise<void> {
   await runChild("ffmpeg", ["-y", "-v", "error", "-nostats", "-progress", "pipe:1", "-i", src, "-c:v", "libx264", "-profile:v", "high", "-preset", profile.preset, "-crf", String(crf), "-pix_fmt", "yuv420p", "-c:a", "copy", "-movflags", "+faststart", dest], {
     signal: o.signal,
     onLine: (line) => {
@@ -247,7 +247,7 @@ async function reencode(src: string, dest: string, profile: ExportProfile, crf: 
   });
 }
 
-async function faststart(src: string, dest: string, signal: AbortSignal): Promise<void> {
+export async function faststart(src: string, dest: string, signal: AbortSignal): Promise<void> {
   await runChild("ffmpeg", ["-y", "-v", "error", "-i", src, "-c", "copy", "-movflags", "+faststart", dest], { signal });
 }
 

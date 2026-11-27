@@ -32,4 +32,10 @@ writing stories).
   skill. Code then maps unknown ids, repairs, adds head-fake payoffs and runs
   the variety guard (`worker/src/storyboard.ts`).
 
+- `.claude/skills/reel-cut`: a 60 to 90 second Reel from a finished long video
+  (Phase 4). Picks the strongest loop from the critic's scores and the loop
+  map, chooses the existing lines to keep, and may add one hook and one ending
+  line. Code checks the result and builds the child project
+  (`worker/src/reel-cut.ts`).
+
 `custom-shot` arrives in Phase 5 (docs/PLAN.md).

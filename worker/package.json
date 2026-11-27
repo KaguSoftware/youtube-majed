@@ -12,7 +12,8 @@
     "start": "tsx --disable-warning=ExperimentalWarning src/server.ts",
     "mix": "tsx --disable-warning=ExperimentalWarning src/mix-cli.ts",
     "edit": "tsx --disable-warning=ExperimentalWarning src/edit-cli.ts",
-    "versions": "tsx --disable-warning=ExperimentalWarning src/versions-cli.ts"
+    "versions": "tsx --disable-warning=ExperimentalWarning src/versions-cli.ts",
+    "reel": "tsx --disable-warning=ExperimentalWarning src/reel-cli.ts"
   },
   "dependencies": {
     "@studio/project": "workspace:*",

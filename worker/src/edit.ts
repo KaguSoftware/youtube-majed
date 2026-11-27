@@ -121,15 +121,15 @@ async function voiceLines(id: string, d: Draft, ids: string[], o: { signal?: Abo
 
 // ---------------------------------------------------------------- the track
 
-type Order = { id: string; key: string; fx?: { preset: string; word?: number }[] }[];
+export type Order = { id: string; key: string; fx?: { preset: string; word?: number }[] }[];
 
 const sameOrder = (a: Order, b: Order) => JSON.stringify(a) === JSON.stringify(b);
 
-function orderOf(voice: VoiceFile): Order {
+export function orderOf(voice: VoiceFile): Order {
   return voice.lines.map((l) => ({ id: l.id, key: takeKey(l.file), ...(l.fx ? { fx: l.fx.effects } : {}) }));
 }
 
-async function assembleTrack(id: string, voice: VoiceFile, order: Order, signal?: AbortSignal): Promise<{ voice: VoiceFile; narration: string; fxMade: string[] }> {
+export async function assembleTrack(id: string, voice: VoiceFile, order: Order, signal?: AbortSignal): Promise<{ voice: VoiceFile; narration: string; fxMade: string[] }> {
   const vp = versionPaths(id);
   const work = join(vp.work, `${Date.now()}-${process.pid}`);
   mkdirSync(work, { recursive: true });

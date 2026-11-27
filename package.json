@@ -24,6 +24,7 @@
     "render:segments": "pnpm --filter @studio/remotion render:segments",
     "compare-renders": "pnpm --filter @studio/remotion compare-renders",
     "edit": "pnpm --silent --filter @studio/worker edit",
-    "versions": "pnpm --silent --filter @studio/worker versions"
+    "versions": "pnpm --silent --filter @studio/worker versions",
+    "reel": "pnpm --silent --filter @studio/worker reel"
   }
 }

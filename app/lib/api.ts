@@ -3,13 +3,13 @@
  * crosses a process boundary). Shared by server components (which call the
  * worker directly) and client components (which go through /api/worker).
  */
-import { Brief, CastId, CastMember, Comment, FactCheckOutput, LoopMapOutput, MasterOptionsOutput, MixResult, NarrationFile, PickFile, PipelineState, RenderRecord, ReviewRound, SceneFile, StepName, StoryboardFile } from "@studio/schema";
+import { Brief, CastId, CastMember, Comment, FactCheckOutput, LoopMapOutput, MasterOptionsOutput, MixResult, NarrationFile, PickFile, PipelineState, ReelCutFile, ReelRecord, RenderRecord, ReviewRound, SceneFile, StepName, StoryboardFile } from "@studio/schema";
 import { z } from "zod";
 
 export const Job = z.object({
   id: z.string(),
   project: z.string(),
-  kind: z.enum(["options", "write", "review", "fix", "rewrite", "storyboard", "voice", "mix", "render", "export", "edit", "rollback", "regenerate", "beat", "fixscenes"]),
+  kind: z.enum(["options", "write", "review", "fix", "rewrite", "storyboard", "voice", "mix", "render", "export", "edit", "rollback", "regenerate", "beat", "fixscenes", "reelcut", "reelexport"]),
   label: z.string(),
   status: z.enum(["queued", "waiting", "running", "done", "failed", "cancelled"]),
   createdAt: z.number(),
@@ -110,6 +110,18 @@ export const ScenesState = z.object({ scenes: SceneFile.nullable() });
 export const CastState = z.object({ cast: z.record(CastId, CastMember).nullable() });
 export const MixState = z.object({ mix: MixResult.nullable() });
 export const RendersState = z.object({ preview: RenderRecord.nullable(), export: RenderRecord.nullable() });
+
+/** The Reel export of a project (9:16), whether it is out of date, and how Reel cuts and long videos are linked. */
+export const ReelState = z.object({
+  format: z.enum(["youtube", "reel"]),
+  links: z.object({
+    cutFrom: ReelCutFile.nullable(),
+    reels: z.array(z.object({ id: z.string(), seconds: z.number().nullable(), loopId: z.string(), createdAt: z.string() })),
+  }),
+  reel: ReelRecord.nullable(),
+  stale: z.boolean(),
+});
+export type ReelState = z.infer<typeof ReelState>;
 
 export const JobResponse = z.object({ job: Job }).loose();
 export type StoryboardState = z.infer<typeof StoryboardState>;

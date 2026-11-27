@@ -58,4 +58,6 @@ pnpm story storyboard <id>   # scene JSON for a locked script (Phase 3)
 pnpm assets seed|index # the sound library: assets/sources.json -> assets/index.sqlite
 pnpm mix <id>          # sound design: SFX, risers, ambience, music, -14 LUFS (cached)
 pnpm render:project <id>     # preview render of a storyboarded project with its mix
+pnpm reel <id> export     # the 9:16 Reel (1080x1920, CRF 21, captions burned in) and its .srt
+pnpm reel <id> cut        # Claude cuts a 60-90 s Reel from a long video into the project <id>-reel
 ```

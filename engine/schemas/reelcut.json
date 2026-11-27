@@ -1,0 +1,121 @@
+{
+  "type": "object",
+  "properties": {
+    "loopId": {
+      "type": "string",
+      "pattern": "^L\\d+$",
+      "description": "The loop the cut is built around: the strongest one for a viewer who starts here"
+    },
+    "why": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Two or three sentences: why this loop (cite the critic's scores and the loop map) and what the cut leaves out"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "description": "A working title for the Reel"
+    },
+    "lineIds": {
+      "minItems": 4,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^L\\d+\\.\\d+$"
+      },
+      "description": "The existing lines to keep, in script order. They may skip lines inside a loop to tighten it, and may start in the loop before, for the stakes"
+    },
+    "hook": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "description": "What the narrator says: one breath, spoken forms only (no digits or symbols)"
+            },
+            "energy": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 5
+            },
+            "delivery": {
+              "type": "string",
+              "maxLength": 60,
+              "description": "1–4 performable words, e.g. \"hushed, slow\""
+            },
+            "showScene": {
+              "type": "string",
+              "pattern": "^S\\d+$",
+              "description": "A scene of the full video whose picture plays under this line (its background, characters and camera are copied); pick the one that shows the thing the line is about"
+            }
+          },
+          "required": [
+            "text",
+            "energy",
+            "delivery",
+            "showScene"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "An optional new first line that states the stakes or the question at once; null when a kept line already does"
+    },
+    "ending": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "description": "What the narrator says: one breath, spoken forms only (no digits or symbols)"
+            },
+            "energy": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 5
+            },
+            "delivery": {
+              "type": "string",
+              "maxLength": 60,
+              "description": "1–4 performable words, e.g. \"hushed, slow\""
+            },
+            "showScene": {
+              "type": "string",
+              "pattern": "^S\\d+$",
+              "description": "A scene of the full video whose picture plays under this line (its background, characters and camera are copied); pick the one that shows the thing the line is about"
+            }
+          },
+          "required": [
+            "text",
+            "energy",
+            "delivery",
+            "showScene"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "An optional new last line that closes the loop and leaves a question open; null when the kept lines already do"
+    }
+  },
+  "required": [
+    "loopId",
+    "why",
+    "title",
+    "lineIds",
+    "hook",
+    "ending"
+  ],
+  "additionalProperties": false
+}

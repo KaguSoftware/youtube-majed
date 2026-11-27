@@ -81,6 +81,45 @@ PSNR min 40.5 dB, median 45.6, SSIM min 0.981; final PSNR min 46.3 dB, median
 52.1, SSIM min 0.992 (encoder noise: segments start on their own keyframes);
 sound lag 0 ms, every line's take at ≤ 0.021 ms in both files.
 
+## Vertical, 9:16 (Phase 4)
+
+```bash
+pnpm render:segments <id> --profile reel      # 1080×1920, CRF 21, captions burned in (the "ProjectVertical" composition)
+pnpm render:project <id> --profile reel
+tsx scripts/stills.ts SceneryVertical --per-scene --scale 0.3 --out <dir> --sheet sheet.jpg --cols 12   # contact sheets
+```
+
+The same project data renders into a 16:9 frame (`Project`) or a 9:16 frame
+(`ProjectVertical`, `src/scene/view.ts`); there is no second scene file. A
+tall frame is a **re-layout, not a crop** (`src/scene/portrait.ts`):
+
+- **Spacing.** Characters, and the props that stand at a position, are pulled
+  toward the middle of the stage (never closer than 280 px, a crowd as far as
+  it takes to fit), so a duo written 900 px apart shares the frame. Order and
+  facing are kept; a prop's own width (a bed, a car, a desk) counts.
+- **Framing.** The zoom fits the group: a lone character fills the frame, a
+  duo shares it, a crowd gets a wider shot. Medium shots are favoured (a
+  scene written wide is framed at its tallest comfortable size; `medium` is
+  waist-up, large). The fit leaves room for the camera move's own zoom, so a
+  push or a pan does not crop the group. Scenes with an overlay at the top
+  frame the figures lower and smaller (`OVERLAY_HEADROOM`).
+- **Camera.** The scene rests in its base view; the move *away* from it is what
+  depth weights (`layerTransform`), so a background's horizon and parallax
+  layers stay aligned at rest. A group that travels is followed.
+- **Text.** Captions and overlays sit inside `SAFE_PORTRAIT` (top 250, bottom
+  480, left 90, right 150 px of 1080×1920: the Shorts and Instagram interfaces
+  cover the top, the right-hand buttons and the post's own caption). Captions
+  are cut into shorter chunks (`CHUNK_PORTRAIT`) and wrap to two lines.
+- **Backgrounds** are drawn once, in the 1920×1080 world plus its bleed, and
+  framed from there; no background needed a second drawing. A window can show
+  at most the bleed (260 px), so the zoom never goes below 1.2.
+
+The `Library-9x16` folder in Studio holds the galleries (Scenery: every
+background by day and night, Layouts, Cameras, Text: captions and overlays,
+Transitions, Weather, Travel, Neon) with the safe zone drawn over each frame
+(`SafeGuides`), and `Samples-9x16` the samples. Segments of the 9:16 render are
+cached under `renders/segments/reel/`, beside the 16:9 ones.
+
 ## Concurrency (measured on the M3 Pro, 36 GB, 6 performance + 6 efficiency cores)
 
 300 frames of elevator-13 (frames 4500 to 4799) at the 1080p profile:

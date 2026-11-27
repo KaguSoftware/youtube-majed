@@ -12,3 +12,4 @@ export * from "./sound";
 export * from "./export";
 export * from "./pipeline";
 export * from "./edit";
+export * from "./reel";

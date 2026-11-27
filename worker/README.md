@@ -246,6 +246,53 @@ repeated pictures flagged). Regenerate options are saved in
 the whole video in one call as before. `render.json` / `export.json` record
 how many segments were drawn and reused.
 
+## Reels (Phase 4, Part C)
+
+docs/PLAN.md section 9, "Reels / Shorts". Two things, both usable on any project:
+
+```bash
+pnpm reel <id> export     # the 9:16 file: renders/reel/<id>.mp4, <id>.srt, reel.json
+pnpm reel <id> cut        # Claude cuts a 60-90 s Reel from a long video: creates the project <id>-reel
+pnpm reel <id> status
+```
+
+**Reel export** (`src/reel-export.ts`). Works for a native Reel (brief format
+`reel`) and for a Reel cut. The segment renderer draws the `reel` profile
+(1080×1920, 30 fps, H.264 High, CRF 21, preset slow, AAC 192 kbps, captions
+burned in), so after an edit only the scenes that changed are drawn again. Over
+40 MB (`STUDIO_REEL_MAX_MB`) it is re-encoded once at CRF 23, audio copied,
+then fast start. The `.srt` follows the old system's caption rules. Flat
+animation is small: the two proof Reels came out at 9 to 13 MB, under the plan's
+15 to 40 MB estimate.
+
+**Reel cut** (`src/reel-cut.ts`, skill `engine/.claude/skills/reel-cut`, step
+`reelcut`). One `claude -p` call, zod-checked, usage logged under the long
+video, one retry with the errors:
+
+1. Input: the loop map with the critic's scores per loop, every line with its
+   id, text, energy, beats and the seconds it takes to speak, the scenes.
+2. Output: the loop it is built around and why, the existing lines to keep
+   (script order), and optionally one `hook` before and one `ending` after,
+   each with a `showScene` whose picture plays under it. Code checks the ids,
+   the order, 16 and 22 words at most, spoken forms only, and 60 to 90 s.
+3. The child `<id>-reel` is made from the long video's current version: kept
+   lines keep their ids, takes (cloned by hash, never voiced again), scenes and
+   cast. The track is assembled from those takes (no model), the sound mixed
+   again, and the result committed as version 1 of the child. `reel.json`
+   records the parent, its version, the choice and the measured length.
+4. The hook and ending go in as an ordinary `insert` edit (version 2): only
+   they are voiced, so the audio service must be running if the cut adds one.
+
+The child has its own scenes, versions and edit pass, so the editor, the
+preview and both exports work on it unchanged. A name is never reused:
+`<id>-reel`, then `<id>-reel-2`.
+
+| Route | |
+| --- | --- |
+| `GET /projects/:id/reel` | the Reel export, whether it is out of date, the cuts made from this video (or where this one came from) |
+| `POST /projects/:id/reel/export` / `reel/cut` | jobs `reelexport` and `reelcut`; a cut is refused for a Reel and for a Reel cut |
+| `POST /projects/:id/reveal` `{file}` | shows a file of `renders/` in the Finder |
+
 ## Usage log
 
 `projects/<id>/usage.jsonl`, one line per call: step, model, attempt, ok,

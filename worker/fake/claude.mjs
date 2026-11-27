@@ -241,7 +241,26 @@ function fixscenes() {
   return { scenes: input.fix.map((f, k) => ({ sceneId: f.sceneId, scene: draftOf(f.scene, k) })) };
 }
 
-const builders = { options, loopmap, narration, rewrite, "fact-check": factcheck, critic, cast, storyboard, regenerate, beat, fixscenes };
+// --- reel-cut: the loop with the best critic scores, from its first line on, until about 66 s are kept
+function reelCut() {
+  const score = (l) => (l.critic ? l.critic.stakes + l.critic.question + l.critic.surprise + l.critic.rehook : 0);
+  const best = input.loops.reduce((b, l) => (score(l) > score(b) ? l : b), input.loops[0]);
+  const ids = input.lines.map((l) => l.id);
+  const span = new Map(input.lines.map((l) => [l.id, l.seconds]));
+  let from = ids.findIndex((id) => id.startsWith(best.id + "."));
+  let to = from;
+  let total = span.get(ids[from]);
+  while (total < 66 && (to + 1 < ids.length || from > 0)) {
+    if (to + 1 < ids.length) total += span.get(ids[++to]);
+    else total += span.get(ids[--from]);
+  }
+  const kept = ids.slice(from, to + 1);
+  const scene = input.scenes.find((s) => s.lineIds.includes(kept[0])) ?? input.scenes[0];
+  const hook = process.env.FAKE_CLAUDE_NO_HOOK ? null : { text: "Nobody believed him at first.", energy: 4, delivery: "hushed, slow", showScene: scene.id };
+  return { loopId: best.id, why: `Loop ${best.id} has the best critic scores (${score(best)} of 20) and a fair head fake; the cut starts at its first line.`, title: "The part nobody believed", lineIds: kept, hook, ending: null };
+}
+
+const builders = { options, loopmap, narration, rewrite, "fact-check": factcheck, critic, cast, storyboard, regenerate, beat, fixscenes, "reel-cut": reelCut };
 
 // --- behaviour
 
