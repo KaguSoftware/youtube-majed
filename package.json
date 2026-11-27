@@ -20,6 +20,8 @@
     "app": "pnpm --filter @studio/app dev",
     "mix": "pnpm --silent --filter @studio/worker mix",
     "assets": "cd audio && uv run python -m studio_audio.assets",
-    "render:project": "pnpm --filter @studio/remotion render:project"
+    "render:project": "pnpm --filter @studio/remotion render:project",
+    "render:segments": "pnpm --filter @studio/remotion render:segments",
+    "compare-renders": "pnpm --filter @studio/remotion compare-renders"
   }
 }

@@ -11,7 +11,9 @@
     "still": "remotion still src/index.ts",
     "typecheck": "tsc -p .",
     "sync-check": "tsx scripts/sync-check.ts",
-    "render:project": "tsx scripts/render-project.ts"
+    "render:project": "tsx scripts/render-project.ts",
+    "render:segments": "tsx scripts/render-segments.ts",
+    "compare-renders": "tsx scripts/compare-renders.ts"
   },
   "dependencies": {
     "@remotion/bundler": "4.0.547",
