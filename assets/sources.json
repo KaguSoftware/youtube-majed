@@ -2134,6 +2134,506 @@
         0,
         48
       ]
+    },
+    {
+      "id": "music/tense_holizna_tension_in_the_air",
+      "file": "music/tense_holizna_tension_in_the_air.flac",
+      "kind": "music",
+      "tags": [
+        "bed_tense",
+        "fma"
+      ],
+      "moods": [
+        "tense"
+      ],
+      "description": "\"Tension In The Air\" by HoliznaCC0 (dark hip-hop beat)",
+      "licence": {
+        "name": "CC0",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "author": "HoliznaCC0",
+      "source": {
+        "type": "url",
+        "ref": "HoliznaCC0 - Tension In The Air (Beats From The Crypt)",
+        "url": "https://freemusicarchive.org/music/holiznacc0/beats-from-the-crypt/tension-in-the-air/",
+        "download": "https://files.freemusicarchive.org/storage-freemusicarchive-org/tracks/lRAv3I6kZS9zdv49CEUnPONSwToogtKVurnJqvqg.mp3",
+        "sha1": "a3ca77f7601ba58762ce013d7d364ce22c6f5ac0"
+      }
+    },
+    {
+      "id": "music/tense_komiku_tension",
+      "file": "music/tense_komiku_tension.flac",
+      "kind": "music",
+      "tags": [
+        "bed_tense",
+        "fma"
+      ],
+      "moods": [
+        "tense"
+      ],
+      "description": "\"Tension\" by Komiku (soundtrack cue)",
+      "licence": {
+        "name": "CC0",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "author": "Komiku",
+      "source": {
+        "type": "url",
+        "ref": "Komiku - Tension (It's time for adventure ! vol 2)",
+        "url": "https://freemusicarchive.org/music/Komiku/Its_time_for_adventure__vol_2/Komiku_-_Its_time_for_adventure_vol_2_-_12_Tension/",
+        "download": "https://files.freemusicarchive.org/storage-freemusicarchive-org/music/no_curator/Komiku/Its_time_for_adventure__vol_2/Komiku_-_12_-_Tension.mp3",
+        "sha1": "2babc38ee979ba8b05b418175e8e6bbe1037630f"
+      }
+    },
+    {
+      "id": "music/mystery_holizna_small_town_on_pluto",
+      "file": "music/mystery_holizna_small_town_on_pluto.flac",
+      "kind": "music",
+      "tags": [
+        "bed_mystery",
+        "fma"
+      ],
+      "moods": [
+        "mystery"
+      ],
+      "description": "\"A Small Town On Pluto (Music Box)\" by HoliznaCC0 (eerie music box)",
+      "licence": {
+        "name": "CC0",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "author": "HoliznaCC0",
+      "source": {
+        "type": "url",
+        "ref": "HoliznaCC0 - A Small Town On Pluto (Music Box) (Background Music)",
+        "url": "https://freemusicarchive.org/music/holiznacc0/background-music/a-small-town-on-pluto-music-box/",
+        "download": "https://files.freemusicarchive.org/storage-freemusicarchive-org/tracks/eHBWkBW3fpLOPKWdtx7MPbd3vS9AjA8ZYCGpf8M3.mp3",
+        "sha1": "cf5a686fd9eaf1c120bc7055b00b31f4925929c4"
+      }
+    },
+    {
+      "id": "music/mystery_komiku_is_everything_true",
+      "file": "music/mystery_komiku_is_everything_true.flac",
+      "kind": "music",
+      "tags": [
+        "bed_mystery",
+        "fma"
+      ],
+      "moods": [
+        "mystery"
+      ],
+      "description": "\"Is everything of this is true ?\" by Komiku (soundtrack cue)",
+      "licence": {
+        "name": "CC0",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "author": "Komiku",
+      "source": {
+        "type": "url",
+        "ref": "Komiku - Is everything of this is true ? (Tale on the Late)",
+        "url": "https://freemusicarchive.org/music/Komiku/Tale_on_the_Late/Komiku_-_Tale_on_the_Late_-_10_Is_everything_of_this_is_true_-/",
+        "download": "https://files.freemusicarchive.org/storage-freemusicarchive-org/music/Music_for_Video/Komiku/Tale_on_the_Late/Komiku_-_10_-_Is_everything_of_this_is_true_.mp3",
+        "sha1": "9a448d9e2748b5a57fdf6ee88ccb440f26b5f198"
+      }
+    },
+    {
+      "id": "music/dread_holizna_creepy_piano_1",
+      "file": "music/dread_holizna_creepy_piano_1.flac",
+      "kind": "music",
+      "tags": [
+        "bed_dread",
+        "fma"
+      ],
+      "moods": [
+        "dread"
+      ],
+      "description": "\"Creepy Piano 1\" by HoliznaCC0 (creepy solo piano)",
+      "licence": {
+        "name": "CC0",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "author": "HoliznaCC0",
+      "source": {
+        "type": "url",
+        "ref": "HoliznaCC0 - Creepy Piano 1 (Background Music)",
+        "url": "https://freemusicarchive.org/music/holiznacc0/background-music/creepy-piano-1/",
+        "download": "https://files.freemusicarchive.org/storage-freemusicarchive-org/tracks/jJbCeb2sUTfKSLP7WPk1gkqLSIMTOfUfaorlkgu5.mp3",
+        "sha1": "761e82304f64356f401a98a2395815349583f840"
+      }
+    },
+    {
+      "id": "music/dread_loyalty_freak_dark_alley",
+      "file": "music/dread_loyalty_freak_dark_alley.flac",
+      "kind": "music",
+      "tags": [
+        "bed_dread",
+        "fma"
+      ],
+      "moods": [
+        "dread"
+      ],
+      "description": "\"A really dark alley\" by Loyalty Freak Music (dark Halloween ambient)",
+      "licence": {
+        "name": "CC0",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "author": "Loyalty Freak Music",
+      "source": {
+        "type": "url",
+        "ref": "Loyalty Freak Music - A really dark alley (WITCHY, BATTY, SPOOKY, HALLOWEEN IN SEPTEMBER !!)",
+        "url": "https://freemusicarchive.org/music/Loyalty_Freak_Music/WITCHY_BATTY_SPOOKY_HALLOWEEN_IN_SEPTEMBER_/A_really_dark_alley/",
+        "download": "https://files.freemusicarchive.org/storage-freemusicarchive-org/music/Music_for_Video/Loyalty_Freak_Music/WITCHY_BATTY_SPOOKY_HALLOWEEN_IN_SEPTEMBER_/Loyalty_Freak_Music_-_07_-_A_really_dark_alley.mp3",
+        "sha1": "9c5a4d20f0fe34d89e43317b4120ef8a178bc595"
+      }
+    },
+    {
+      "id": "music/action_emma_ma_determined_pursuit",
+      "file": "music/action_emma_ma_determined_pursuit.flac",
+      "kind": "music",
+      "tags": [
+        "bed_action",
+        "opengameart"
+      ],
+      "moods": [
+        "action"
+      ],
+      "description": "\"Determined Pursuit (epic orchestra loop)\" by Emma_MA (seamless loop, frantic strings and horns, a race against the clock)",
+      "licence": {
+        "name": "CC0",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "author": "Emma_MA",
+      "source": {
+        "type": "url",
+        "ref": "Emma_MA - Determined Pursuit (epic orchestra loop)",
+        "url": "https://opengameart.org/content/determined-pursuit-epic-orchestra-loop",
+        "download": "https://opengameart.org/sites/default/files/determined_pursuit_loop.wav",
+        "sha1": "bb2f4f80107fed2ec2c6c122baab16739ea4be21"
+      }
+    },
+    {
+      "id": "music/action_komiku_fight_run",
+      "file": "music/action_komiku_fight_run.flac",
+      "kind": "music",
+      "tags": [
+        "bed_action",
+        "fma"
+      ],
+      "moods": [
+        "action"
+      ],
+      "description": "\"Fight, run, breath deeply\" by Komiku (soundtrack cue)",
+      "licence": {
+        "name": "CC0",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "author": "Komiku",
+      "source": {
+        "type": "url",
+        "ref": "Komiku - Fight, run, breath deeply (It's time for adventure ! vol 2)",
+        "url": "https://freemusicarchive.org/music/Komiku/Its_time_for_adventure__vol_2/Komiku_-_Its_time_for_adventure_vol_2_-_13_Fight_run_breath_deeply/",
+        "download": "https://files.freemusicarchive.org/storage-freemusicarchive-org/music/no_curator/Komiku/Its_time_for_adventure__vol_2/Komiku_-_13_-_Fight_run_breath_deeply.mp3",
+        "sha1": "95ca3bb2933352c7040cb9cc0c142d98ba9c10e2"
+      }
+    },
+    {
+      "id": "music/calm_holizna_drifting_piano",
+      "file": "music/calm_holizna_drifting_piano.flac",
+      "kind": "music",
+      "tags": [
+        "bed_calm",
+        "fma"
+      ],
+      "moods": [
+        "calm"
+      ],
+      "description": "\"Drifting Piano\" by HoliznaCC0 (gentle piano)",
+      "licence": {
+        "name": "CC0",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "author": "HoliznaCC0",
+      "source": {
+        "type": "url",
+        "ref": "HoliznaCC0 - Drifting Piano (Background Music)",
+        "url": "https://freemusicarchive.org/music/holiznacc0/background-music/drifting-piano/",
+        "download": "https://files.freemusicarchive.org/storage-freemusicarchive-org/tracks/uGFgbWaUKc0LLRnbLShVKZ7yhiK5nsxczsKgpcvW.mp3",
+        "sha1": "091b1fe8720af59828c58a4a61a73318884e36a9"
+      }
+    },
+    {
+      "id": "music/calm_komiku_chill_out_theme",
+      "file": "music/calm_komiku_chill_out_theme.flac",
+      "kind": "music",
+      "tags": [
+        "bed_calm",
+        "fma"
+      ],
+      "moods": [
+        "calm"
+      ],
+      "description": "\"Chill Out Theme\" by Komiku (soundtrack cue)",
+      "licence": {
+        "name": "CC0",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "author": "Komiku",
+      "source": {
+        "type": "url",
+        "ref": "Komiku - Chill Out Theme (It's time for adventure ! vol 2)",
+        "url": "https://freemusicarchive.org/music/Komiku/Its_time_for_adventure__vol_2/Komiku_-_Its_time_for_adventure_vol_2_-_02_Chill_Out_Theme/",
+        "download": "https://files.freemusicarchive.org/storage-freemusicarchive-org/music/no_curator/Komiku/Its_time_for_adventure__vol_2/Komiku_-_02_-_Chill_Out_Theme.mp3",
+        "sha1": "f1f323b6d7c3f22267400f072b94bffd0399679b"
+      }
+    },
+    {
+      "id": "music/warm_komiku_friends_2018",
+      "file": "music/warm_komiku_friends_2018.flac",
+      "kind": "music",
+      "tags": [
+        "bed_warm",
+        "fma"
+      ],
+      "moods": [
+        "warm"
+      ],
+      "description": "\"Friends, 2018\" by Komiku (soundtrack cue)",
+      "licence": {
+        "name": "CC0",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "author": "Komiku",
+      "source": {
+        "type": "url",
+        "ref": "Komiku - Friends, 2018 (Tale on the Late)",
+        "url": "https://freemusicarchive.org/music/Komiku/Tale_on_the_Late/Komiku_-_Tale_on_the_Late_-_04_Friends_2018/",
+        "download": "https://files.freemusicarchive.org/storage-freemusicarchive-org/music/Music_for_Video/Komiku/Tale_on_the_Late/Komiku_-_04_-_Friends_2018.mp3",
+        "sha1": "1b1b7ef70ee623848a9b5fe518297ba33381dbe1"
+      }
+    },
+    {
+      "id": "music/warm_komiku_remember_the_time",
+      "file": "music/warm_komiku_remember_the_time.flac",
+      "kind": "music",
+      "tags": [
+        "bed_warm",
+        "fma"
+      ],
+      "moods": [
+        "warm"
+      ],
+      "description": "\"Remember the time we use to play\" by Komiku (nostalgic soundtrack cue)",
+      "licence": {
+        "name": "CC0",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "author": "Komiku",
+      "source": {
+        "type": "url",
+        "ref": "Komiku - Remember the time we use to play (Tale on the Late)",
+        "url": "https://freemusicarchive.org/music/Komiku/Tale_on_the_Late/Komiku_-_Tale_on_the_Late_-_02_Remember_the_time_we_use_to_play/",
+        "download": "https://files.freemusicarchive.org/storage-freemusicarchive-org/music/Music_for_Video/Komiku/Tale_on_the_Late/Komiku_-_02_-_Remember_the_time_we_use_to_play.mp3",
+        "sha1": "072ab2789dfb7b9d12f799aa6419a8745ff926fb"
+      }
+    },
+    {
+      "id": "music/sad_kistol_sadness",
+      "file": "music/sad_kistol_sadness.flac",
+      "kind": "music",
+      "tags": [
+        "bed_sad",
+        "opengameart"
+      ],
+      "moods": [
+        "sad"
+      ],
+      "description": "\"Sadness\" by Kistol (solo piano, seamless loop)",
+      "licence": {
+        "name": "CC0",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "author": "Kistol",
+      "source": {
+        "type": "url",
+        "ref": "Kistol - Sadness",
+        "url": "https://opengameart.org/content/sadness",
+        "download": "https://opengameart.org/sites/default/files/Sadness_0.ogg",
+        "sha1": "053c77d5a6bd74bd50f89bf10403a17a07922277"
+      }
+    },
+    {
+      "id": "music/sad_komiku_sad_walk_piano",
+      "file": "music/sad_komiku_sad_walk_piano.flac",
+      "kind": "music",
+      "tags": [
+        "bed_sad",
+        "fma"
+      ],
+      "moods": [
+        "sad"
+      ],
+      "description": "\"Sad walk with sad piano\" by Komiku (piano)",
+      "licence": {
+        "name": "CC0",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "author": "Komiku",
+      "source": {
+        "type": "url",
+        "ref": "Komiku - Sad walk with sad piano (A Monplaisir Best-Of ! Let's hear that crap.)",
+        "url": "https://freemusicarchive.org/music/Komiku/A_Monplaisir_Best-Of__Lets_hear_that_crap/Komiku_-_A_Monplaisir_Best-of__Lets_here_that_crap_-_32_Sad_walk_with_sad_piano/",
+        "download": "https://files.freemusicarchive.org/storage-freemusicarchive-org/music/Music_for_Video/Komiku/A_Monplaisir_Best-Of__Lets_hear_that_crap/Komiku_-_32_-_Sad_walk_with_sad_piano.mp3",
+        "sha1": "a4b1034e13360c94eb7cf70f9040ae00ec9bd9a5"
+      }
+    },
+    {
+      "id": "music/hopeful_holizna_spring_on_the_horizon",
+      "file": "music/hopeful_holizna_spring_on_the_horizon.flac",
+      "kind": "music",
+      "tags": [
+        "bed_hopeful",
+        "fma"
+      ],
+      "moods": [
+        "hopeful"
+      ],
+      "description": "\"Spring On The Horizon\" by HoliznaCC0 (light, rising)",
+      "licence": {
+        "name": "CC0",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "author": "HoliznaCC0",
+      "source": {
+        "type": "url",
+        "ref": "HoliznaCC0 - Spring On The Horizon (Background Music)",
+        "url": "https://freemusicarchive.org/music/holiznacc0/background-music/spring-on-the-horizon/",
+        "download": "https://files.freemusicarchive.org/storage-freemusicarchive-org/tracks/XaPEssVQ1Ks8r4GzowzzHsP5xfIi2FcDxVmEM3Bn.mp3",
+        "sha1": "eec41f8263d277d47557d61e7a5cdf9141478a93"
+      }
+    },
+    {
+      "id": "music/hopeful_komiku_something_to_save",
+      "file": "music/hopeful_komiku_something_to_save.flac",
+      "kind": "music",
+      "tags": [
+        "bed_hopeful",
+        "fma"
+      ],
+      "moods": [
+        "hopeful"
+      ],
+      "description": "\"Something to save\" by Komiku (soundtrack cue)",
+      "licence": {
+        "name": "CC0",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "author": "Komiku",
+      "source": {
+        "type": "url",
+        "ref": "Komiku - Something to save (It's time for adventure ! vol 2)",
+        "url": "https://freemusicarchive.org/music/Komiku/Its_time_for_adventure__vol_2/Komiku_-_Its_time_for_adventure_vol_2_-_10_Something_to_save/",
+        "download": "https://files.freemusicarchive.org/storage-freemusicarchive-org/music/no_curator/Komiku/Its_time_for_adventure__vol_2/Komiku_-_10_-_Something_to_save.mp3",
+        "sha1": "16b7d74e198754b9f87b1844d777fea409804221"
+      }
+    },
+    {
+      "id": "music/triumphant_emma_ma_triumphant",
+      "file": "music/triumphant_emma_ma_triumphant.flac",
+      "kind": "music",
+      "tags": [
+        "bed_triumphant",
+        "opengameart"
+      ],
+      "moods": [
+        "triumphant"
+      ],
+      "description": "\"Triumphant\" by Emma_MA (short celebratory strings and horns)",
+      "licence": {
+        "name": "CC0",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "author": "Emma_MA",
+      "source": {
+        "type": "url",
+        "ref": "Emma_MA - Triumphant",
+        "url": "https://opengameart.org/content/triumphant",
+        "download": "https://opengameart.org/sites/default/files/triumphant_0.mp3",
+        "sha1": "476b07fed909183c0c82042d61a0c7ee9b003e98"
+      }
+    },
+    {
+      "id": "music/triumphant_komiku_victory",
+      "file": "music/triumphant_komiku_victory.flac",
+      "kind": "music",
+      "tags": [
+        "bed_triumphant",
+        "fma"
+      ],
+      "moods": [
+        "triumphant"
+      ],
+      "description": "\"Victory\" by Komiku (soundtrack cue)",
+      "licence": {
+        "name": "CC0",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "author": "Komiku",
+      "source": {
+        "type": "url",
+        "ref": "Komiku - Victory (It's time for adventure ! vol 2)",
+        "url": "https://freemusicarchive.org/music/Komiku/Its_time_for_adventure__vol_2/Komiku_-_Its_time_for_adventure_vol_2_-_15_Victory/",
+        "download": "https://files.freemusicarchive.org/storage-freemusicarchive-org/music/no_curator/Komiku/Its_time_for_adventure__vol_2/Komiku_-_15_-_Victory.mp3",
+        "sha1": "9af5f19e64db8a5fa5b49508fff35c2c5c18a143"
+      }
+    },
+    {
+      "id": "music/playful_komiku_walk_of_the_day",
+      "file": "music/playful_komiku_walk_of_the_day.flac",
+      "kind": "music",
+      "tags": [
+        "bed_playful",
+        "fma"
+      ],
+      "moods": [
+        "playful"
+      ],
+      "description": "\"Time for the walk of the day\" by Komiku (light, bouncy)",
+      "licence": {
+        "name": "CC0",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "author": "Komiku",
+      "source": {
+        "type": "url",
+        "ref": "Komiku - Time for the walk of the day (Poupi's incredible adventures !)",
+        "url": "https://freemusicarchive.org/music/Komiku/Poupis_incredible_adventures_/Komiku_-_Poupis_incredible_adventures__-_03_Time_for_the_walk_of_the_day/",
+        "download": "https://files.freemusicarchive.org/storage-freemusicarchive-org/music/Music_for_Video/Komiku/Poupis_incredible_adventures_/Komiku_-_03_-_Time_for_the_walk_of_the_day.mp3",
+        "sha1": "f91dbd12d85b675d9f45d171982e340c816c8220"
+      }
+    },
+    {
+      "id": "music/playful_loyalty_freak_monster_parade",
+      "file": "music/playful_loyalty_freak_monster_parade.flac",
+      "kind": "music",
+      "tags": [
+        "bed_playful",
+        "fma"
+      ],
+      "moods": [
+        "playful"
+      ],
+      "description": "\"Monster Parade\" by Loyalty Freak Music (spooky-silly Halloween)",
+      "licence": {
+        "name": "CC0",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "author": "Loyalty Freak Music",
+      "source": {
+        "type": "url",
+        "ref": "Loyalty Freak Music - Monster Parade (WITCHY, BATTY, SPOOKY, HALLOWEEN IN SEPTEMBER !!)",
+        "url": "https://freemusicarchive.org/music/Loyalty_Freak_Music/WITCHY_BATTY_SPOOKY_HALLOWEEN_IN_SEPTEMBER_/Monster_Parade/",
+        "download": "https://files.freemusicarchive.org/storage-freemusicarchive-org/music/Music_for_Video/Loyalty_Freak_Music/WITCHY_BATTY_SPOOKY_HALLOWEEN_IN_SEPTEMBER_/Loyalty_Freak_Music_-_01_-_Monster_Parade.mp3",
+        "sha1": "8576cc6b2dd3686ff9bbd34c89d5bf28d77538fc"
+      }
     }
   ]
 }

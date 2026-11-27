@@ -12,8 +12,13 @@ asset with its licence) and this README are committed.
 - `sfx/commons/`: CC0 / public-domain recordings from Wikimedia Commons, each
   checked against the SHA-1 the manifest records.
 - `sfx/synth/`, `music/placeholder/`: made by `audio/studio_audio/sfx_synth.py`
-  (own work). The music beds are placeholders until real music is chosen.
-- `music/`: royalty-free beds with loop points and stings.
+  (own work). The placeholder beds stay as a last resort; the mixer always
+  prefers real music.
+- `music/`: 20 CC0 beds, two per mood, from Free Music Archive (Komiku,
+  HoliznaCC0, Loyalty Freak Music) and OpenGameArt. Source type `url`: the
+  file is downloaded from `source.download` and checked against its SHA-1;
+  `source.url` is the track page that shows the CC0 licence. Save that page
+  as a PDF when you use a track: it is the proof for a Content ID dispute.
 - `voices/`: reference clips for the signature voice (own voice, or with written permission).
 - `index.sqlite`: the asset index (kind, tags, moods, length, loudness, onset,
   peak, loop points, licence), rebuilt from the manifest.

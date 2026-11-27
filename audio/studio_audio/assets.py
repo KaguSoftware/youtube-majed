@@ -14,6 +14,9 @@ section 7). The audio files themselves stay local (gitignored).
 - commons: downloaded from Wikimedia Commons, checked against the SHA-1 the
   manifest records (taken from the Commons API with the licence), trimmed,
   resampled to 48 kHz, stored as FLAC.
+- url: any other direct download (Free Music Archive, OpenGameArt music),
+  handled like commons: SHA-1 checked, trimmed, resampled, stored as FLAC.
+  The licence is the one shown on the track's own page (`source.url`).
 - synth: rendered by studio_audio.sfx_synth.
 
 The index stores per file: kind, tags, moods, length, loudness (integrated
@@ -139,19 +142,20 @@ def seed(only: set[str] | None = None, force: bool = False) -> None:
                 continue
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(legacy, dest)  # copy, never move: legacy/ is read-only
-        elif src["type"] == "commons":
+        elif src["type"] in ("commons", "url"):
             with tempfile.TemporaryDirectory() as tmp:
-                raw = Path(tmp) / "download"
+                raw = Path(tmp) / ("download" + Path(src["download"].split("?")[0]).suffix)
                 _download(src["download"].split("?")[0], raw)
                 sha1 = hashlib.sha1(raw.read_bytes()).hexdigest()
                 if sha1 != src["sha1"]:
-                    raise SystemExit(f"{a['id']}: SHA-1 {sha1} does not match the manifest ({src['sha1']}); the file on Commons changed")
+                    raise SystemExit(f"{a['id']}: SHA-1 {sha1} does not match the manifest ({src['sha1']}); the file at the source changed")
                 audio, sr = _decode(raw)
             if "trim" in a:
                 s, e = a["trim"]
                 audio = audio[int(s * sr) : int(e * sr)]
             _write(dest, _to48k(audio, sr))
-            time.sleep(20)  # Wikimedia asks automated clients to go slowly
+            if src["type"] == "commons":
+                time.sleep(20)  # Wikimedia asks automated clients to go slowly
         elif src["type"] == "synth":
             name = src["ref"].split(".", 1)[1]
             _write(dest, sfx_synth.RECIPES[name]().T)
