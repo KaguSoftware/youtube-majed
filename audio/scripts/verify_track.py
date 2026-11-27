@@ -35,7 +35,7 @@ if video:
         subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", video, "-vn", "-ac", "1", "-ar", str(SR), "-c:a", "pcm_s16le", str(wav)], check=True)
         vid = load(wav)
 for l in v["lines"]:
-    take = load(d / l["file"])
+    take = load(d / (l.get("fx") or {}).get("file", l["file"]))  # a line with a voice effect plays its effected take
     out["track"].append({"id": l["id"], "lagMs": round(lag_ms(take, narr, l["offset"]), 3)})
     if video: out["video"].append({"id": l["id"], "lagMs": round(lag_ms(take, vid, l["offset"]), 3)})
 summ = lambda rows: {"maxAbsMs": max(abs(r["lagMs"]) for r in rows), "meanMs": round(float(np.mean([r["lagMs"] for r in rows])), 3), "worst": max(rows, key=lambda r: abs(r["lagMs"]))["id"]} if rows else None

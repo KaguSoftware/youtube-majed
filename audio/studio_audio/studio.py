@@ -37,44 +37,10 @@ GATE_VERSION = 1  # bump when align.py's thresholds change (re-aligns, does not 
 RETRY_SEED_STEP = 7919
 STATUS_RANK = {"ok": 0, "warn": 1, "fail": 2}
 
-# --- pause rules -----------------------------------------------------------
-# Silence inserted between two lines, ON TOP of the ~0.18 s of padding each line
-# file already carries (0.06 s before, 0.12 s after). Chosen by the end of the
-# previous line and where the loop boundary falls (ids look like "L3.4": loop
-# L3, line 4). Longer at loop boundaries, because that is where the story
-# resets its question.
-LEAD_IN = 0.40  # silence before the first line
-TAIL = 1.00  # after the last line (lets the room reverb decay, gives the outro a beat)
-PAUSE_LOOP_BOUNDARY = 0.70
-PAUSE_BY_ENDING = {"…": 0.50, "?": 0.34, "!": 0.32, ".": 0.28}
-PAUSE_CONTINUES = 0.05  # line ends on a comma, dash or nothing: the sentence goes on
-PAUSE_BEFORE_REVEAL = 0.15  # extra beat before an energy-5 line inside a loop
-
-
-def fade_edges(w: np.ndarray, sr: int, ms: float = 8.0) -> np.ndarray:
-    """Raised-cosine fade at both ends of a take: a take cut mid-breath ends on a step, which is a click."""
-    n = min(int(sr * ms / 1000), len(w) // 2)
-    if n < 2:
-        return w
-    ramp = (0.5 - 0.5 * np.cos(np.linspace(0, np.pi, n))).astype(w.dtype)
-    out = w.copy()
-    out[:n] *= ramp
-    out[-n:] *= ramp[::-1]
-    return out
-
-
-def loop_of(line_id: str) -> str:
-    return line_id.split(".")[0]
-
-
-def pause_after(prev: dict, nxt: dict) -> float:
-    if loop_of(prev["id"]) != loop_of(nxt["id"]):
-        return PAUSE_LOOP_BOUNDARY
-    end = prev["text"].rstrip().rstrip("\"'”’)")[-1:]
-    pause = PAUSE_BY_ENDING.get(end, PAUSE_CONTINUES)
-    if nxt.get("energy") == 5:
-        pause += PAUSE_BEFORE_REVEAL
-    return pause
+# Pause rules, frame alignment and assembly live in track.py (no model imports), shared with the edit engine.
+from .track import (  # noqa: E402  (re-exported: tests and the README point here)
+    LEAD_IN, PAUSE_BEFORE_REVEAL, PAUSE_BY_ENDING, PAUSE_CONTINUES, PAUSE_LOOP_BOUNDARY, TAIL, assemble, fade_edges, loop_of, pause_after,
+)
 
 
 def camel_settings(s: dict) -> dict:
@@ -176,58 +142,20 @@ class Studio:
 
     # ----------------------------------------------------------------- track
     def track(self, out_dir: str | Path, order: list[dict], reference: str | Path | None = None) -> dict:
-        """order: [{id, key}] in narration order. Assembles, masters, writes narration.wav and voice.json."""
+        """order: [{id, key, fx?}] in narration order. Assembles, masters, writes narration.wav and voice.json (track.assemble)."""
         out = Path(out_dir)
-        sr = config.MASTER_SR
-        metas = [json.loads((out / "lines" / f"{o['id']}.{o['key']}.json").read_text()) for o in order]
-        wavs = []
-        for m in metas:
-            w, wsr = sf.read(out / m["file"], dtype="float32")
-            wavs.append(matcheq.resample(w, wsr, sr))
-        wavs = [fade_edges(w, sr) for w in matcheq.balance_lines(wavs, sr)]  # one level and one tone across every line before mastering
-
-        offsets: list[int] = []
-        cursor = round(LEAD_IN * sr)
-        for i, (m, w) in enumerate(zip(metas, wavs)):
-            offsets.append(cursor)
-            cursor += len(w)
-            if i + 1 < len(metas):
-                cursor += round(pause_after(m, metas[i + 1]) * sr)
-        total = cursor + round(TAIL * sr)
-        raw = np.zeros(total, dtype=np.float32)
-        for off, w in zip(offsets, wavs):
-            raw[off : off + len(w)] += w
-
         ref_path, ref_sha = self._ref(reference)
-        mastered, loud = master.master(raw, sr, curve_path=config.eq_curve_for(ref_path))
-        sf.write(out / "narration.wav", mastered, sr, subtype="PCM_24")
-
-        lines = []
-        for m, off, w in zip(metas, offsets, wavs):
-            t0 = off / sr
-            lines.append({
-                "id": m["id"], "text": m["text"], "energy": m["energy"], "file": m["file"],
-                "offset": round(t0, 5), "duration": round(len(w) / sr, 5),
-                "seed": m["seed"], "seedUsed": m["seedUsed"], "settings": m["settings"], "quality": m["quality"],
-                "words": [{"text": x["text"], "start": round(t0 + x["start"], 4), "end": round(t0 + x["end"], 4), "score": x["score"]} for x in m["words"]],
-            })
-
         try:
             ref_name = str(ref_path.relative_to(config.REPO))
         except ValueError:  # the built-in voice lives in the model snapshot
             ref_name = f"{config.BUILTIN}:{pins.MODELS[self.voice.engine].repo}@{self.voice.revision[:8]}/{ref_path.name}"
-        voice = {
-            "version": 1,
-            "engine": {"name": self.voice.engine, "revision": self.voice.revision, "device": self.voice.device},
-            "reference": {"file": ref_name, "sha256": ref_sha},
-            "aligner": {"model": pins.MODELS["align"].repo, "revision": pins.MODELS["align"].revision, "device": "cpu", "dtype": "float32"},
-            "pauses": {"leadIn": LEAD_IN, "tail": TAIL, "loopBoundary": PAUSE_LOOP_BOUNDARY, "byEnding": PAUSE_BY_ENDING,
-                       "continues": PAUSE_CONTINUES, "beforeReveal": PAUSE_BEFORE_REVEAL},
-            "track": {"file": "narration.wav", "sampleRate": sr, "duration": round(total / sr, 5), "loudness": loud.to_json()},
-            "lines": lines,
-        }
-        (out / "voice.json").write_text(json.dumps(voice, indent=2))
-        return voice
+        return assemble(
+            out, order,
+            engine={"name": self.voice.engine, "revision": self.voice.revision, "device": self.voice.device},
+            reference={"file": ref_name, "sha256": ref_sha},
+            aligner={"model": pins.MODELS["align"].repo, "revision": pins.MODELS["align"].revision, "device": "cpu", "dtype": "float32"},
+            narration=out / "narration.wav", voice_path=out / "voice.json", curve_path=config.eq_curve_for(ref_path),
+        )
 
 
 def _quality(a, attempts: int) -> dict:
