@@ -132,7 +132,9 @@ def assemble(out_dir: Path, order: list[dict], *, engine: dict, reference: dict,
             "id": m["id"], "text": m["text"], "energy": m["energy"], "file": m["file"],
             "offset": round(t0, 5), "duration": round(n / sr, 5),
             "seed": m["seed"], "seedUsed": m["seedUsed"], "settings": m["settings"], "quality": m["quality"],
-            "words": [{"text": x["text"], "start": round(t0 + x["start"], 4), "end": round(t0 + x["end"], 4), "score": x["score"]} for x in m["words"]],
+            # line offset + the word's own time in the take, each rounded on its own: a word's place relative to its
+            # line is then the same number in every version, so a line that moved by whole frames keeps every word frame
+            "words": [{"text": x["text"], "start": round(round(t0, 5) + round(x["start"], 4), 6), "end": round(round(t0, 5) + round(x["end"], 4), 6), "score": x["score"]} for x in m["words"]],
         }
         if f:
             line["fx"] = f

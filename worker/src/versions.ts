@@ -128,7 +128,22 @@ function workingMedia(id: string): Version["media"] {
   return { narration, mix };
 }
 
-const sameFiles = (a: Version["files"], b: Version["files"]) => TRACKED.every((f) => a[f] === b[f]);
+/** JSON with sorted keys: two files that differ only in formatting or key order are the same file. */
+const canonical = (v: unknown): string =>
+  Array.isArray(v) ? `[${v.map(canonical).join(",")}]` : v && typeof v === "object" ? `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${canonical((v as Record<string, unknown>)[k])}`).join(",")}}` : JSON.stringify(v);
+
+/** Does the working tree hold the version's files? Bytes first; a file whose bytes differ is compared as JSON. */
+function sameFiles(id: string, v: Version["files"], working: Partial<Record<TrackedFile, string>>): boolean {
+  return TRACKED.every((f) => {
+    if (v[f] === working[f]) return true;
+    if (!v[f] || !working[f]) return false;
+    try {
+      return canonical(JSON.parse(objectText(id, v[f]!))) === canonical(JSON.parse(readFileSync(workingPath(id, f), "utf8")));
+    } catch {
+      return false;
+    }
+  });
+}
 
 /** Writes a version's tracked files and media back as the working files. */
 export function materialise(id: string, v: Version): void {
@@ -215,7 +230,7 @@ export function ensureVersions(id: string): Version {
   const raw = Object.fromEntries(TRACKED.filter((f) => files[f]).map((f) => [f, readFileSync(workingPath(id, f), "utf8")]));
   if (head === undefined) return commit(id, { kind: "start", label: "as it was before editing", files: raw, media });
   const current = readVersion(id, head);
-  if (sameFiles(current.files, files) && current.media.narration === media.narration && current.media.mix === media.mix) return current;
+  if (sameFiles(id, current.files, files) && current.media.narration === media.narration && current.media.mix === media.mix) return current;
   return commit(id, { kind: "outside", label: "changes made outside the editor", files: raw, media });
 }
 

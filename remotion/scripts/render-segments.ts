@@ -215,7 +215,8 @@ emit({ event: "stitch", stage: "mux" });
 // (AAC, -cutoff 18000). Encoding six minutes of audio is most of a stitch (~7-12 s), so the encoded track is cached
 // by the mix it comes from (audio/mix.json names the plan), the bitrate and the frame range: an edit that changes
 // only pictures, and a rollback, reuse it and the stitch is two stream copies.
-const mixId = createHash("sha256").update(readFileSync(join(p.audioDir, "mix.json"))).update(`${prof.audioBitrate}|${first}|${frames}`).digest("hex").slice(0, 20);
+const planHash = String((JSON.parse(readFileSync(join(p.audioDir, "mix.json"), "utf8")) as { planHash?: string }).planHash ?? readFileSync(sb.mix).length);
+const mixId = createHash("sha256").update(planHash).update(`${prof.audioBitrate}|${first}|${frames}`).digest("hex").slice(0, 20);
 const audioDir = join(p.dir, "renders", "segments", "audio");
 const audio = join(audioDir, `${mixId}.mp4`); // .mp4, not .m4a: Remotion's ffmpeg build has no ipod muxer
 const audioCached = existsSync(audio);

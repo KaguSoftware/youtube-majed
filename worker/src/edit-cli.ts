@@ -178,7 +178,7 @@ async function main() {
       await renderAfter(t0, positional[0]);
       return;
     } else if (command === "align") {
-      const v = await alignToFrames(id!);
+      const v = await alignToFrames(id!, { force: has("force") });
       console.log(`✓ version ${v.n}: ${v.label} (${v.changes?.durationS.from} → ${v.changes?.durationS.to} s) · ${secs(Date.now() - t0)}`);
     } else if (command === "regenerate") {
       const [scene, note] = positional;

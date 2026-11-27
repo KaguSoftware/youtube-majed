@@ -274,10 +274,10 @@ export function describe(ops: readonly EditOp[]): string {
 }
 
 /** Re-assembles the track with every line on a frame (projects voiced before Phase 4), as its own version. */
-export async function alignToFrames(id: string, o: EditOptions = {}): Promise<Version> {
+export async function alignToFrames(id: string, o: EditOptions & { force?: boolean } = {}): Promise<Version> {
   const head = ensureVersions(id);
   const base = loadDraft(id, head);
-  if (base.voice.pauses.frameRate) throw new EditError(`${id}'s lines already start on frames`);
+  if (base.voice.pauses.frameRate && !o.force) throw new EditError(`${id}'s lines already start on frames (--force assembles the track again anyway)`);
   const { voice, narration } = await assembleTrack(id, base.voice, orderOf(base.voice), o.signal);
   const plan = planMix({ project: id, scenes: base.scenes, report: base.report, voice, narration, assets: readAssets() });
   const mix = await mixPlan(id, plan, { signal: o.signal });

@@ -112,14 +112,25 @@ function fromVoice(p: Project): Omit<Timeline, "overlays"> {
   const lines = new Map(voice.lines.map((l) => [l.id, l]));
   const total = Math.ceil(voice.track.duration * fps);
   const sec = (t: number) => Math.round(t * fps);
+  // Frame-aligned tracks (voice.json pauses.frameRate, Phase 4): a word's frame is its line's frame plus its own
+  // offset in the line, rounded on its own. An edit that moves a line by whole frames then moves every word by the
+  // same frames, and the render segments of unchanged scenes are reused (segments.ts). Older tracks keep plain rounding.
+  const aligned = voice.pauses.frameRate === fps;
+  const at = (lineId: string, t: number) => {
+    if (!aligned) return sec(t);
+    const offset = lines.get(lineId)!.offset;
+    return sec(offset) + Math.round((t - offset) * fps);
+  };
 
   // Scene starts: just before the first word, never before the previous scene's last word has ended.
   const starts: number[] = [];
   p.scenes.scenes.forEach((scene, i) => {
     if (i === 0) return starts.push(0);
-    const first = lines.get(scene.lineIds[0]!)!.words[0]!;
-    const prevLast = lines.get(p.scenes.scenes[i - 1]!.lineIds.at(-1)!)!.words.at(-1)!;
-    starts.push(Math.min(sec(first.start), Math.max(starts[i - 1]! + MIN_SCENE, sec(first.start) - SCENE_LEAD_IN, sec(prevLast.end))));
+    const firstId = scene.lineIds[0]!;
+    const prevId = p.scenes.scenes[i - 1]!.lineIds.at(-1)!;
+    const first = at(firstId, lines.get(firstId)!.words[0]!.start);
+    const prevEnd = at(prevId, lines.get(prevId)!.words.at(-1)!.end);
+    starts.push(Math.min(first, Math.max(starts[i - 1]! + MIN_SCENE, first - SCENE_LEAD_IN, prevEnd)));
   });
   const scenes: TimedScene[] = starts.map((start, index) => ({ index, start, frames: (starts[index + 1] ?? total) - start }));
 
@@ -127,7 +138,7 @@ function fromVoice(p: Project): Omit<Timeline, "overlays"> {
   const chunks: Chunk[] = [];
   p.scenes.scenes.forEach((scene, index) => {
     const timed = scene.lineIds.flatMap((id) =>
-      lines.get(id)!.words.map((w, wi): TimedWord => ({ text: w.text, lineId: id, index: wi, sceneIndex: index, start: sec(w.start), end: Math.max(sec(w.start) + 1, sec(w.end)) })),
+      lines.get(id)!.words.map((w, wi): TimedWord => ({ text: w.text, lineId: id, index: wi, sceneIndex: index, start: at(id, w.start), end: Math.max(at(id, w.start) + 1, at(id, w.end)) })),
     );
     words.push(...timed);
     if (scene.caption !== "none") chunks.push(...chunkWords(timed, scene.caption));
