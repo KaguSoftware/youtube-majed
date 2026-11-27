@@ -9,7 +9,7 @@ import { z } from "zod";
 export const Job = z.object({
   id: z.string(),
   project: z.string(),
-  kind: z.enum(["options", "write", "review", "fix", "rewrite", "storyboard", "voice", "mix", "render", "export"]),
+  kind: z.enum(["options", "write", "review", "fix", "rewrite", "storyboard", "voice", "mix", "render", "export", "edit", "rollback", "regenerate", "beat", "fixscenes"]),
   label: z.string(),
   status: z.enum(["queued", "waiting", "running", "done", "failed", "cancelled"]),
   createdAt: z.number(),

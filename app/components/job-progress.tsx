@@ -12,6 +12,9 @@ const STEP_WORDS: Record<string, string> = {
   critic: "The critic is reading",
   cast: "Claude is casting the characters and choosing the places",
   storyboard: "Claude is planning the scenes",
+  regenerate: "Claude is drawing up new versions of the scene",
+  beat: "Claude is writing the beat",
+  fixscenes: "Claude is fixing the flagged scenes",
 };
 
 /**

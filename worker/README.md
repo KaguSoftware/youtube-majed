@@ -237,6 +237,7 @@ repeated pictures flagged). Regenerate options are saved in
 | `POST /projects/:id/edits/regenerate` `{scene, note, count?}` · `GET …/edits/options/:oid` · `POST …/edits/options/:oid/pick` `{n, render?}` | options, then a pick (job `edit`) |
 | `POST /projects/:id/edits/beat` `{beat, after\|before, render?}` · `POST /projects/:id/edits/fix` `{scenes: [{scene, note}], render?}` | jobs `beat`, `fixscenes` |
 | `GET /projects/:id/timeline` | scene frames, whether each segment is drawn (preview, final), lines with words and effects, mix cues |
+| `GET /projects/:id/editor` · `/editor/options?scene=` · `GET /editor/sfx` · `/editor/sfx/audio?asset=` | for the editor UI (`src/editor-api.ts`): the live draft with its timeline and soundtrack, a scene's newest options, the SFX tags with a file to preview (byte ranges) |
 
 `render`: `none` (default), `preview`, `final` or `both`, drawn after the commit.
 

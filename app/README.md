@@ -14,8 +14,8 @@ nine steps of `docs/PLAN.md` section 2; each step is a page.
 | 5 | Voice | `/p/[id]/voice` | Voice the script, listen per line, retake |
 | 6 | Storyboard | `/p/[id]/storyboard` | Claude plans the scenes; what code repaired |
 | 7 | Render | `/p/[id]/render` | Sound mix, then the 720p preview |
-| 8 | Editor | `/p/[id]/editor` | Phase 4. The render plays in a Remotion Player meanwhile |
-| 9 | Export | `/p/[id]/export` | The YouTube file, subtitles, chapters, thumbnail frames |
+| 8 | Editor | `/p/[id]/editor` | The video editor: live draft, timeline, every fix as a version, Update video |
+| 9 | Export | `/p/[id]/export` | Two files from one project: YouTube 16:9 and Reel 9:16, each with progress, size, download and show in Finder; subtitles, chapters and thumbnail frames for YouTube; cut a Reel from a long video |
 | | Cast | `/p/[id]/cast` | Every character's look, previewed by the real animation library |
 
 The routes of steps 2 and 4 are the Phase 2 ones: the stepper wraps them
@@ -67,6 +67,45 @@ with zod (`lib/api.ts`).
   review scores round by round, and the lock.
 - Lock writes `projects/<id>/script.json` for `pnpm voice <id>`. Locked lines
   are never rewritten. Alt + ↑/↓ moves between lines.
+
+## Video editor (step 8)
+
+docs/PLAN.md section 8, on the edit engine (`worker/README.md`, "Edit engine").
+It works on the project data, never on the MP4.
+
+- **The Player draws the live composition**: `StoryVideo` from
+  `@studio/remotion` with the project as it is now (scenes, script and
+  voice.json, validated with the same `validateProject` the render runs) and
+  the current mix underneath. A swap previews before anything is committed or
+  drawn. "Last render" plays the preview MP4 on the same frame clock. A Reel
+  project (format `reel`) draws in the 9:16 frame (`PORTRAIT`). Fredoka for
+  the captions comes from `public/fonts/` (the render entries load it with
+  `staticFile`, which only works in a Remotion bundle).
+- **The timeline**: scenes, voice lines (and their words from 64 px/s), sound
+  effects (yours, on words, editable; the mix rules' risers, hits and whooshes
+  shown faint) and music with ambience, on one playhead that follows the
+  Player without re-rendering the tracks. Hatched scenes need drawing.
+- **The inspector** (no modals): a scene's library-only dropdowns (preview
+  live; Apply commits one `scene.set`), Ask Claude for 2–3 versions (preview
+  each, use one), arrange (trim by lines, move within the loop, delete with
+  or without its lines), flag. A line's text, energy and delivery (only that
+  line is voiced again), another take, a voice effect on the line or one word,
+  sound effects on a word (searchable from the asset index, with a preview of
+  the file the mix uses), cut. A placed effect: hear it, move it to the word
+  under the playhead, remove it.
+- **Flags** collect misgenerated scenes with a note (kept in this browser) and
+  send them to Claude in one `fixscenes` call. **Versions**: the history, any
+  two compared, roll back to any one (a new version; nothing voiced or drawn).
+- **Update video** draws only the segments that changed (the preview, and the
+  1080p export if ticked), with an estimate from this project's last render.
+  The message after each change says how long it took from the click.
+- **Keyboard**: Space play/pause, ←/→ a frame (⇧ a second), ↑/↓ previous/next
+  scene, inside a track ←/→ between its items, ⌫ delete (asks first for a
+  scene), F flag, B beat at the playhead, ⌘Z roll back one version, −/+ zoom,
+  Esc closes a preview or the beat.
+
+The stepper needs nothing new: an edit changes the scenes, voice or sound, so
+Render and Export show out of date until Update video draws them again.
 
 The Cast page and the Remotion Player import the animation library from
 `@studio/remotion` (transpiled by Next), so a look is drawn by the same code

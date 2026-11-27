@@ -27,6 +27,7 @@ import { pipelineOf } from "./pipeline";
 import { exportVideo, readExportRecord, readPreviewRecord, renderPaths, renderPreview } from "./render";
 import { voiceProject } from "./voice-run";
 import { editRoutes, editRunners } from "./edit-api";
+import { editorRequest } from "./editor-api";
 
 const PORT = Number(process.env.STUDIO_WORKER_PORT ?? 8766);
 
@@ -378,6 +379,7 @@ function serveFile(req: IncomingMessage, res: ServerResponse, id: string, rel: s
 }
 
 export const server = createServer(async (req, res) => {
+  if (editorRequest(req, res)) return; // the editor UI's reads (src/editor-api.ts)
   const fileMatch = req.method === "GET" ? /^\/projects\/([\w-]+)\/file\/(.+)$/.exec(new URL(req.url ?? "/", "http://localhost").pathname) : null;
   if (fileMatch) return serveFile(req, res, fileMatch[1]!, decodeURIComponent(fileMatch[2]!));
   const url = new URL(req.url ?? "/", "http://localhost");
