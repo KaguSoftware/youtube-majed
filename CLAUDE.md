@@ -50,6 +50,10 @@ pnpm schemas           # regenerate engine/schemas/*.json from packages/schema
 pnpm worker            # job worker for the app (127.0.0.1:8766)
 pnpm app               # the Studio website (http://localhost:3100)
 pnpm story <command>   # the story engine without the UI (pnpm story for help)
+pnpm edit <id> <command>      # the edit engine: swap, line, insert, sfx, fx, trim, move, delete, regenerate, beat, fix, render
+pnpm versions <id> [command]  # version history: list, show, diff, rollback
+pnpm render:segments <id>     # draw only the segments missing from the cache, then stitch
+pnpm compare-renders <id>     # prove a stitched render matches a full one (PSNR/SSIM, sync)
 pnpm story storyboard <id>   # scene JSON for a locked script (Phase 3)
 pnpm assets seed|index # the sound library: assets/sources.json -> assets/index.sqlite
 pnpm mix <id>          # sound design: SFX, risers, ambience, music, -14 LUFS (cached)

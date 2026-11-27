@@ -27,6 +27,60 @@ The library catalogue (`packages/schema/src/catalogue.ts`) is the only list of
 ids scene JSON may use; TypeScript enforces that `src/library/` implements
 each one. Adding an item means adding it there and implementing it here.
 
+## Partial re-render (Phase 4)
+
+```bash
+pnpm render:segments <id> [--profile preview|final|lossless] [--out file.mp4] [--frames a-b] [--plan] [--json]
+pnpm compare-renders <id> [--profile preview|final|lossless] [--frames a-b] [--baseline]
+```
+
+The video is drawn in **segments, one per scene**, each a frame range of the
+full `Project` composition, cached in
+`projects/<id>/renders/segments/<profile>/<key>.mp4`. The key
+(`src/scene/segments.ts`) hashes everything that can put a pixel in that
+range: every Sequence overlapping it (the scene, and the previous one while
+its tail runs under this scene's transition), each with its whole scene
+object (the id seeds idle motion), the cast looks it uses, its length and the
+next transition (outros: dip, iris, wipe push); the caption chunks and
+overlays overlapping it; all positions relative to the segment's first frame.
+Plus a hash of the render code (`remotion/src`, the entry, fonts, the schema,
+the Remotion version) and the encode profile. Sound effects are not drawn,
+so they are not in it.
+
+Every animation reads Sequence-relative frames and captions and overlays
+read `frame - start`, so a scene that only moved by whole frames has the same
+key. Frame-aligned tracks make that the normal case after an edit
+(audio/README.md, "Track assembly").
+
+Missing segments are drawn through one browser; consecutive missing ones in
+one `renderMedia` call with an IDR keyframe forced on each segment start
+(`-force_key_frames`, `-forced-idr`), then cut apart without re-encoding
+(each call costs ~0.8 s of tab start-up, measured). The segments are joined
+with the concat demuxer (stream copy) and the mix is muxed in once. The
+encoded soundtrack is cached by mix plan, bitrate and frame range, and is
+encoded while the segments are drawn. Both use Remotion's own ffmpeg, so the
+AAC is the same encoder as a full render's (`-cutoff 18000`, as Remotion).
+
+Measured on elevator-13 (6:15, 99 scenes, 11,277 frames), from cold: preview
+96 s (a full one-call render: 105 s), 1080p final 143 s (full: 165 s), 69.0 MB.
+After an edit, a swap redraws 1 segment, a line edit 2 (the scene and the one
+before it, whose end moved), with everything after moved and reused.
+
+**The proof** (`scripts/compare-renders.ts`): the stitched file against the
+whole composition drawn in one call with the same encode, per-frame PSNR and
+SSIM, the frames around every segment boundary on their own, the two
+soundtracks against each other, and every line's take against each file's
+audio (`audio/scripts/verify_track.py`). `--profile lossless` (x264 qp 0)
+takes the encoder out: frames must be identical. `--baseline` renders a second
+full render, because Chrome's rasteriser is not bit-exact from run to run on a
+few frames. Results on an edited elevator-13 (version 16, after six edits;
+most segments drawn before the edits): lossless 11,220 of 11,251 frames
+identical, all 490 boundary frames identical, the rest at ≥ 80.0 dB, the
+same as two full renders against each other (23 frames, ≥ 80.0 dB); preview
+PSNR min 40.5 dB, median 45.6, SSIM min 0.981; final PSNR min 46.3 dB, median
+52.1, SSIM min 0.992 (encoder noise: segments start on their own keyframes);
+sound lag 0 ms, every line's take at ≤ 0.021 ms in both files.
+
 ## Concurrency (measured on the M3 Pro, 36 GB, 6 performance + 6 efficiency cores)
 
 300 frames of elevator-13 (frames 4500 to 4799) at the 1080p profile:
@@ -52,7 +106,10 @@ frames/s, the draw is faster than the encode), the 1080p export in about
 ## Notes
 
 - Voiced scenes start 6 frames before their first word; timing comes from
-  `voice.json`, never from the scene JSON (`src/scene/timeline.ts`).
+  `voice.json`, never from the scene JSON (`src/scene/timeline.ts`). On a
+  frame-aligned track (`pauses.frameRate`), a word's frame is its line's frame
+  plus its own offset in the line, each rounded on its own.
+- Transition lengths live in `src/scene/transitions.ts` (React-free, read by the segment planner).
 - `StoryVideo` takes `captions={false}` for stills. The `Project` composition
   resolves its props per input props, so a caption-free still needs its own
   `selectComposition` call (`scripts/render-project.ts`).

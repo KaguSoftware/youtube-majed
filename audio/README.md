@@ -78,6 +78,44 @@ carries (`studio.py`, recorded in `voice.json` under `pauses`):
 | extra, before an energy-5 line inside a loop | +0.15 s |
 | after the last line | 1.00 s |
 
+### Track assembly (Phase 4)
+
+`studio_audio/track.py` assembles and masters the track. The service's
+`POST /master` and the edit engine (as a child process, no model loaded:
+`uv run python -m studio_audio.track <request.json>`) share it. Since Phase 4
+**every line starts on a video frame**: its offset is rounded to the nearest
+1/30 s, so a pause changes by at most 17 ms and the track does not drift.
+Word times are written as the line's offset plus the word's time in its take,
+each rounded on its own. After an edit, every later line moves by whole
+frames and every later word keeps its frame relative to its line, so the
+render segments of unchanged scenes are reused. `voice.json` records it as
+`pauses.frameRate: 30`. A project voiced before Phase 4 is aligned once with
+`pnpm edit <id> align`.
+
+### Voice effect presets (Phase 4)
+
+`studio_audio/fx.py`, docs/PLAN.md section 7, with Pedalboard:
+
+| Preset | Chain |
+| --- | --- |
+| `chipmunk` | PitchShift +5 st |
+| `giant` | PitchShift −5, low-pass 2.8 kHz, reverb |
+| `phone_call` | high-pass 320 Hz + low-pass 3.3 kHz, distortion 9 dB, filtered again |
+| `echo_thought` | delay 210 ms (feedback 0.38) + reverb |
+| `robot` | bitcrush 7 bit + chorus (7 Hz, feedback 0.55) |
+| `underwater` | low-pass 650 Hz + chorus + low-pass 900 Hz |
+
+An effect applies to a whole line or to one word (the word's span from the
+take's own alignment, ±30 ms, 15 ms crossfades; nothing of the effect sounds
+before the word, since a pitch shifter smears a little energy ahead of its
+input). It never moves a word: timing follows the dry take, and a tail
+(echo, reverb) rings on into the pause and under what follows. The effected
+region is brought back to the dry region's speech level, and line balancing
+is measured on the dry take, then applied to the effected one (measured on a
+phone-call line, it would "fix" the effect back). Results are cached next to
+the take: `lines/<id>.<key>.fx-<hash>.wav`; `voice.json` names it per line
+(`fx.file`, `fx.effects`).
+
 ### Scene timing in Remotion
 
 `remotion/src/scene/timeline.ts`: with a `voice.json`, scene 1 starts at frame 0;

@@ -146,6 +146,105 @@ least 45 s apart, rendered without captions (`src/sidecars.ts`).
 `STUDIO_RENDER_CONCURRENCY` sets Remotion's parallel frames (default 8 on the
 M3 Pro; see `remotion/README.md` for what was measured).
 
+## Edit engine (Phase 4)
+
+docs/PLAN.md section 8, without the UI. Every change works on project data,
+lands in a new version, and redoes only what it touched. The format is
+`EditRequest` in `packages/schema/src/edit.ts` (zod; the CLI shorthand maps
+one to one onto it).
+
+| Operation | What is redone |
+| --- | --- |
+| `scene.set` (bg, grade, camera, transition, caption, weather, framing, a character's action/expr/pos, props, overlays; library ids only), `scene.replace` | the segments that show the scene |
+| `line.set` (text, energy, delivery, seed) | that line's take; the track is re-assembled; its scenes stretch, later ones move by whole frames and keep their segments |
+| `insert` (a line, a scene, or both, after/before a line or scene) | only the new line is voiced; a scene it lands inside is cut in two |
+| `sfx.add` / `sfx.move` / `sfx.delete` on a word | the mix only (a sound draws nothing) |
+| `fx` (a voice preset on a line or one word, or `none`) | the track (the effected take is cached like a take); no picture |
+| `scene.trim` (move its edges by whole lines), `scene.move` (within its loop), `scene.delete` (`merge`: the lines join a neighbour; `cut`: the lines go too) | the track when lines go or move; captions and music re-flow |
+| `line.delete` | as `cut` |
+
+Locked script lines change only through `line.set`, `line.delete` or a
+`cut`; any other change to a line's text is refused (`checkDraft` in
+`src/edit-ops.ts`). Scene ids are never renumbered (an id seeds the scene's
+idle motion); new scenes take the next free id, new lines the next free
+number in their loop.
+
+```bash
+pnpm edit <id> set S12 bg=office camera=zoom_face action=ines:panic expr=ines:shock
+pnpm edit <id> line L3.4 text="…" [energy=4] [delivery="…"] [seed=7]
+pnpm edit <id> insert --after L3.4 line="A dog barks." [scene=like:S12 action=ines:jump]
+pnpm edit <id> sfx add door_slam L3.4:2 · sfx move door_slam L3.4:2 L3.5:0 · sfx delete door_slam L3.4:2
+pnpm edit <id> fx L3.4 echo_thought [--word 5]       # chipmunk giant phone_call echo_thought robot underwater | none
+pnpm edit <id> trim S12 start=1 · move S12 --after S10 · delete S12 merge|cut · cut-line L3.4
+pnpm edit <id> apply edit.json                      # an EditRequest
+pnpm edit <id> check <command …>                    # what it would do; changes nothing
+pnpm edit <id> regenerate S12 "<note>" [--count 3]  # Claude: 2–3 options, then: pnpm edit <id> pick <optionsId> <n>
+pnpm edit <id> beat "<beat in plain words>" --after L3.4 [--check]
+pnpm edit <id> fix S3 "<note>" S9 "<note>"          # flagged scenes, one call
+pnpm edit <id> render preview|final|both            # draw the current version (missing segments only)
+pnpm edit <id> align [--force]                      # once, for a project voiced before Phase 4: line starts on frames
+#   every edit command takes --label "…" and --render preview|final|both
+pnpm versions <id> [list] · show <n> · diff <a> <b> · rollback <n> [--render …] · init
+```
+
+How it works (`src/edit.ts`): the operations are applied to a draft copy of
+HEAD and checked (coverage, scene order, consecutive lines, the strict
+`SceneFile`, the narration, locked lines, then `validateProject` with the new
+voice). Then:
+
+1. **voice**: lines whose text, effective energy or seed changed, and new
+   lines, get a take from the audio service (`POST /line`, cached by key).
+   The service is needed only then.
+2. **track**: if a take, the order of lines or an effect changed, the takes
+   are assembled and mastered again by `audio/studio_audio/track.py` (a
+   child process, no model, ~27 s for 6 minutes). Every line starts on a
+   video frame, and word frames are counted from their line
+   (`remotion/src/scene/timeline.ts`), so a line moved by whole frames keeps
+   every word's frame and every later segment is reused.
+3. **mix**: re-planned from the draft and mixed only for a new plan
+   (`audio/mix/<key>.wav`). Plans name the narration by its stored copy
+   (`audio/narration/<sha256>.wav`), so equal tracks give equal plans.
+4. **commit**: a new version; its files become the working files.
+
+**Versions** (`src/versions.ts`): `projects/<id>/versions/NNNN.json` per
+version (operations, label, what changed, what it cost), `HEAD`, and
+`objects/<hash>.json` for the tracked JSON (script, narration, scenes,
+storyboard report, voice.json, overrides, fx, mix plan and result). Takes,
+effected takes, narration tracks, mixes and render segments are never copied
+per version; each lives in its own cache by content and a version only names
+it. Rolling back writes the old JSON back and clones the old narration and
+mix out of their caches (copy-on-write on APFS): nothing is voiced, mixed or
+drawn. Working files changed outside the editor (a re-voice, a new
+storyboard) become a version of their own before the next edit.
+
+**Claude steps** (`src/edit-claude.ts`, skill `engine/.claude/skills/edit-scenes`):
+`regenerate`, `beat`, `fixscenes`, each one `claude -p` call through
+`src/call.ts` (zod, one retry with the errors, usage logged). Every draft
+shot goes through the storyboard step's code: id mapping (`normaliseShot`),
+reveal devices (`ensurePayoffs`), and the variety guard on the new or changed
+scenes only (camera repeats swapped, recent-video combos re-cameraed,
+repeated pictures flagged). Regenerate options are saved in
+`projects/<id>/edits/options/`; picking one commits it.
+
+**HTTP** (`src/edit-api.ts`; long work is a queued job with progress):
+
+| Route | |
+| --- | --- |
+| `GET /projects/:id/versions` · `/versions/:n` · `/versions/diff?a=&b=` | history, one version, a diff |
+| `POST /projects/:id/versions/:n/rollback` `{render?}` | job `rollback` |
+| `POST /projects/:id/edits` `{label?, ops, render?}` | job `edit`; an impossible edit is refused at once (409) |
+| `POST /projects/:id/edits/check` `{ops}` | dry run: lines to voice, track re-assembled, notes |
+| `POST /projects/:id/edits/regenerate` `{scene, note, count?}` · `GET …/edits/options/:oid` · `POST …/edits/options/:oid/pick` `{n, render?}` | options, then a pick (job `edit`) |
+| `POST /projects/:id/edits/beat` `{beat, after\|before, render?}` · `POST /projects/:id/edits/fix` `{scenes: [{scene, note}], render?}` | jobs `beat`, `fixscenes` |
+| `GET /projects/:id/timeline` | scene frames, whether each segment is drawn (preview, final), lines with words and effects, mix cues |
+
+`render`: `none` (default), `preview`, `final` or `both`, drawn after the commit.
+
+**Rendering** in segments is the default for the preview and the export
+(`remotion/README.md`, "Partial re-render"); `STUDIO_RENDER_SEGMENTS=0` draws
+the whole video in one call as before. `render.json` / `export.json` record
+how many segments were drawn and reused.
+
 ## Usage log
 
 `projects/<id>/usage.jsonl`, one line per call: step, model, attempt, ok,
