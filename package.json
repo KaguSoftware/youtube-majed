@@ -1,0 +1,15 @@
+{
+  "name": "studio",
+  "private": true,
+  "packageManager": "pnpm@9.15.9",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "studio": "pnpm --filter @studio/remotion studio",
+    "validate": "pnpm --filter @studio/remotion validate",
+    "render": "pnpm --filter @studio/remotion render",
+    "render:preview": "pnpm --filter @studio/remotion render:preview",
+    "typecheck": "pnpm -r typecheck"
+  }
+}

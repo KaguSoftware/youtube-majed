@@ -1,0 +1,29 @@
+{
+  "name": "@studio/remotion",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "studio": "remotion studio src/index.ts",
+    "validate": "tsx scripts/validate.ts",
+    "render": "tsx scripts/render.ts lighthouse --profile final",
+    "render:preview": "tsx scripts/render.ts lighthouse --profile preview",
+    "still": "remotion still src/index.ts",
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.547",
+    "@remotion/fonts": "4.0.547",
+    "@studio/schema": "workspace:*",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "remotion": "4.0.547"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.7",
+    "@types/react": "19.3.3",
+    "@types/react-dom": "19.3.0",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2"
+  }
+}

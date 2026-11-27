@@ -1,39 +1,33 @@
-# python
-.venv/
-__pycache__/
-*.pyc
-.uv/
+# --- v2 studio ---
+# project data, licensed media and renders stay on this machine
+projects/*
+!projects/.gitkeep
+assets/sfx/*
+!assets/sfx/.gitkeep
+assets/music/*
+!assets/music/.gitkeep
+assets/voices/*
+!assets/voices/.gitkeep
+renders/
+*.mp4
+*.mov
 
 # node
 node_modules/
+.pnpm-store/
+dist/
 .next/
+*.tsbuildinfo
 
-# bench artifacts
-bench/results/*.json
-bench/results/*.md
-bench/out/
-!bench/results/.gitkeep
+# python
+.venv/
+venv/
+__pycache__/
+*.pyc
 
-# models & media — never commit weights
-models/
-*.safetensors
-*.gguf
-*.ckpt
-media/
-*.wav
-*.mp4
-*.png
-!bench/prompts/*.png
-
-# The style references are source inputs, not generated media: hero_crop.png is
-# what every shot conditions on, so a clone without it cannot run the slice.
-!bench/refs/*.png
-
-.env
-.env.local
-.DS_Store
-
-# phase 1 slice output — media and cache, never committed
-work/
-.vercel
+# secrets
 .env*
+
+# os / editor
+.DS_Store
+*.log

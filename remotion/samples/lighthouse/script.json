@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "lines": [
+    { "id": "L1.1", "text": "For forty years, Tom has kept this lighthouse burning.", "energy": 2, "delivery": "warm storyteller" },
+    { "id": "L1.2", "text": "Tonight, a cargo ship is heading straight into a storm.", "energy": 3, "delivery": "building" },
+    { "id": "L1.3", "text": "And the lamp has two hours of oil left.", "energy": 4, "delivery": "punchy, ominous" },
+    { "id": "L1.4", "text": "Yesterday, the tank was full.", "energy": 3, "delivery": "flat, puzzled" },
+    { "id": "L1.5", "text": "Someone is stealing the oil.", "energy": 4, "delivery": "hushed, certain" },
+    { "id": "L2.1", "text": "There's only one other person on this island.", "energy": 3, "delivery": "leaning in" },
+    { "id": "L2.2", "text": "Sam. The new assistant.", "energy": 3, "delivery": "pointed" },
+    { "id": "L2.3", "text": "Sam arrived a week ago.", "energy": 2, "delivery": "matter of fact" },
+    { "id": "L2.4", "text": "The oil started vanishing a week ago.", "energy": 4, "delivery": "knowing" },
+    { "id": "L2.5", "text": "Tom hasn't slept properly since.", "energy": 2, "delivery": "tired, sympathetic" },
+    { "id": "L3.1", "text": "So tonight, he spreads flour across the floor,", "energy": 3, "delivery": "scheming" },
+    { "id": "L3.2", "text": "and pretends to sleep.", "energy": 2, "delivery": "sly" },
+    { "id": "L3.3", "text": "Midnight. Slow footsteps on the stairs.", "energy": 2, "delivery": "hushed, slow" },
+    { "id": "L3.4", "text": "In the morning, there are flour prints everywhere.", "energy": 4, "delivery": "excited" },
+    { "id": "L3.5", "text": "He follows them, ready to catch Sam in the act.", "energy": 4, "delivery": "hype" },
+    { "id": "L4.1", "text": "They lead straight back to his own bed.", "energy": 5, "delivery": "reveal, slow down" },
+    { "id": "L4.2", "text": "His own boots are covered in flour.", "energy": 4, "delivery": "dawning" },
+    { "id": "L4.3", "text": "Tom has been sleepwalking.", "energy": 4, "delivery": "deadpan" },
+    { "id": "L4.4", "text": "Every night, he empties the tank himself.", "energy": 3, "delivery": "comic" },
+    { "id": "L4.5", "text": "Sam never touched a drop.", "energy": 2, "delivery": "deadpan" },
+    { "id": "L5.1", "text": "But next to his prints, there's a second trail.", "energy": 4, "delivery": "dread" },
+    { "id": "L5.2", "text": "Smaller. Barefoot.", "energy": 3, "delivery": "hushed" },
+    { "id": "L5.3", "text": "And it doesn't belong to Sam.", "energy": 5, "delivery": "dread, final" }
+  ]
+}

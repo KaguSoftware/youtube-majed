@@ -1,0 +1,158 @@
+{
+  "version": 1,
+  "title": "The Lighthouse Thief",
+  "cast": {
+    "keeper": { "name": "Tom", "hat": "keeper_cap", "color": "#d0473d", "beard": true, "scale": 1 },
+    "sam": { "name": "Sam", "hat": "beanie", "color": "#2f9e8f", "scale": 0.9 },
+    "stranger": { "name": "?", "hat": "none", "color": "#000000", "scale": 0.62 }
+  },
+  "scenes": [
+    {
+      "id": "S1", "lineIds": ["L1.1"], "bg": "lighthouse_exterior", "grade": "dusk",
+      "chars": [{ "id": "keeper", "action": "walk", "expr": "happy", "pos": "far_right", "to": "center_right" }],
+      "props": [], "camera": "slow_push", "transitionIn": "cut",
+      "sfx": [{ "tag": "seagulls", "at": "L1.1:0" }], "caption": "word_pop"
+    },
+    {
+      "id": "S2", "lineIds": ["L1.2"], "bg": "lighthouse_exterior", "grade": "night",
+      "chars": [{ "id": "keeper", "action": "look_around", "expr": "neutral", "pos": "center" }],
+      "props": [{ "id": "lantern", "attach": "keeper.hand_r" }, { "id": "ship", "pos": "right" }],
+      "camera": "static", "transitionIn": "dip_to_black",
+      "sfx": [{ "tag": "thunder_far", "at": "L1.2:8" }], "caption": "word_pop"
+    },
+    {
+      "id": "S3", "lineIds": ["L1.3"], "bg": "lighthouse_stairs", "grade": "night",
+      "chars": [{ "id": "keeper", "action": "idle", "expr": "shock", "pos": "center" }],
+      "props": [{ "id": "oil_can", "attach": "keeper.hand_r" }],
+      "camera": "zoom_face", "transitionIn": "smash_cut",
+      "sfx": [{ "tag": "dun_dun_dun", "at": "L1.3:3" }], "caption": "word_pop"
+    },
+    {
+      "id": "S4", "lineIds": ["L1.4"], "bg": "house_interior", "grade": "night",
+      "chars": [{ "id": "keeper", "action": "think", "expr": "suspicious", "pos": "center_right" }],
+      "props": [{ "id": "clock", "pos": "center_left" }],
+      "camera": "slow_push", "transitionIn": "whoosh_wipe",
+      "sfx": [{ "tag": "clock_tick", "at": "L1.4:0" }], "caption": "word_pop"
+    },
+    {
+      "id": "S5", "lineIds": ["L1.5"], "bg": "lighthouse_stairs", "grade": "night",
+      "chars": [{ "id": "keeper", "action": "look_around", "expr": "fear", "pos": "center_right" }],
+      "props": [{ "id": "lantern", "attach": "keeper.hand_r" }, { "id": "oil_can", "pos": "center_left" }],
+      "camera": "static", "transitionIn": "cut",
+      "sfx": [], "caption": "word_pop"
+    },
+    {
+      "id": "S6", "lineIds": ["L2.1"], "bg": "street", "grade": "day",
+      "chars": [{ "id": "keeper", "action": "look_around", "expr": "suspicious", "pos": "center" }],
+      "props": [], "camera": "dolly_out", "transitionIn": "whoosh_wipe",
+      "sfx": [{ "tag": "wind_soft", "at": "L2.1:0" }], "caption": "word_pop"
+    },
+    {
+      "id": "S7", "lineIds": ["L2.2"], "bg": "street", "grade": "day",
+      "chars": [
+        { "id": "keeper", "action": "idle", "expr": "suspicious", "pos": "left" },
+        { "id": "sam", "action": "walk", "expr": "happy", "pos": "far_right", "to": "center_right" }
+      ],
+      "props": [], "camera": "static", "transitionIn": "smash_cut",
+      "sfx": [{ "tag": "record_scratch", "at": "L2.2:0" }], "caption": "word_pop"
+    },
+    {
+      "id": "S8", "lineIds": ["L2.3", "L2.4"], "bg": "house_interior", "grade": "day",
+      "chars": [
+        { "id": "keeper", "action": "think", "expr": "suspicious", "pos": "left" },
+        { "id": "sam", "action": "talk", "expr": "happy", "pos": "center_right" }
+      ],
+      "props": [], "camera": "slow_push", "transitionIn": "whoosh_wipe",
+      "sfx": [], "caption": "word_pop"
+    },
+    {
+      "id": "S9", "lineIds": ["L2.5"], "bg": "house_interior", "grade": "night",
+      "chars": [{ "id": "keeper", "action": "sit", "expr": "sad", "pos": "center" }],
+      "props": [{ "id": "bed", "pos": "center" }, { "id": "clock", "pos": "center_left" }],
+      "camera": "slow_push", "transitionIn": "dip_to_black",
+      "sfx": [{ "tag": "clock_tick", "at": "L2.5:0" }], "caption": "word_pop"
+    },
+    {
+      "id": "S10", "lineIds": ["L3.1"], "bg": "house_interior", "grade": "night",
+      "chars": [{ "id": "keeper", "action": "point", "expr": "smirk", "pos": "center_right" }],
+      "props": [{ "id": "flour_sack", "pos": "left" }],
+      "camera": "static", "transitionIn": "cut",
+      "sfx": [], "caption": "word_pop"
+    },
+    {
+      "id": "S11", "lineIds": ["L3.2"], "bg": "house_interior", "grade": "night",
+      "chars": [{ "id": "keeper", "action": "sleep", "expr": "smirk", "pos": "center" }],
+      "props": [{ "id": "bed", "pos": "center" }],
+      "camera": "slow_push", "transitionIn": "cut",
+      "sfx": [{ "tag": "snore", "at": "L3.2:2" }], "caption": "word_pop"
+    },
+    {
+      "id": "S12", "lineIds": ["L3.3"], "bg": "lighthouse_stairs", "grade": "night",
+      "chars": [{ "id": "keeper", "action": "sneak", "expr": "neutral", "pos": "right", "to": "far_left", "look": "silhouette" }],
+      "props": [{ "id": "oil_can", "attach": "keeper.hand_r" }],
+      "camera": "static", "transitionIn": "dip_to_black",
+      "sfx": [{ "tag": "footsteps_wood", "at": "L3.3:1" }], "caption": "word_pop"
+    },
+    {
+      "id": "S13", "lineIds": ["L3.4"], "bg": "house_interior", "grade": "day",
+      "chars": [{ "id": "keeper", "action": "point", "expr": "shock", "pos": "right" }],
+      "props": [{ "id": "footprints", "pos": "center_left" }],
+      "camera": "slow_push", "transitionIn": "whoosh_wipe",
+      "sfx": [{ "tag": "rooster", "at": "L3.4:0" }], "caption": "word_pop"
+    },
+    {
+      "id": "S14", "lineIds": ["L3.5"], "bg": "house_interior", "grade": "day",
+      "chars": [{ "id": "keeper", "action": "sneak", "expr": "angry", "pos": "far_right", "to": "left" }],
+      "props": [{ "id": "footprints", "pos": "left" }],
+      "camera": "static", "transitionIn": "cut",
+      "sfx": [{ "tag": "sneaky_pizzicato", "at": "L3.5:0" }], "caption": "word_pop"
+    },
+    {
+      "id": "S15", "lineIds": ["L4.1"], "bg": "house_interior", "grade": "day",
+      "chars": [{ "id": "keeper", "action": "idle", "expr": "shock", "pos": "center_right" }],
+      "props": [{ "id": "bed", "pos": "far_left" }, { "id": "footprints", "pos": "left" }],
+      "camera": "zoom_face", "transitionIn": "smash_cut",
+      "sfx": [{ "tag": "tension_riser", "at": "L4.1:0" }, { "tag": "hit_low", "at": "L4.1:7" }], "caption": "word_pop"
+    },
+    {
+      "id": "S16", "lineIds": ["L4.2"], "bg": "house_interior", "grade": "day",
+      "chars": [{ "id": "keeper", "action": "sit", "expr": "shock", "pos": "center" }],
+      "props": [{ "id": "footprints", "pos": "center" }],
+      "camera": "shake", "transitionIn": "cut",
+      "sfx": [{ "tag": "thud", "at": "L4.2:0" }], "caption": "word_pop"
+    },
+    {
+      "id": "S17", "lineIds": ["L4.3", "L4.4"], "bg": "house_interior", "grade": "night",
+      "chars": [{ "id": "keeper", "action": "sleepwalk", "expr": "sleepy", "pos": "right", "to": "far_left" }],
+      "props": [{ "id": "oil_can", "attach": "keeper.hand_r" }],
+      "camera": "static", "transitionIn": "whoosh_wipe",
+      "sfx": [{ "tag": "snore", "at": "L4.3:0" }], "caption": "word_pop"
+    },
+    {
+      "id": "S18", "lineIds": ["L4.5"], "bg": "house_interior", "grade": "day",
+      "chars": [
+        { "id": "keeper", "action": "facepalm", "expr": "sad", "pos": "left" },
+        { "id": "sam", "action": "shrug", "expr": "smirk", "pos": "center_right" }
+      ],
+      "props": [], "camera": "static", "transitionIn": "smash_cut",
+      "sfx": [{ "tag": "sad_trombone", "at": "L4.5:3" }], "caption": "word_pop"
+    },
+    {
+      "id": "S19", "lineIds": ["L5.1", "L5.2"], "bg": "lighthouse_stairs", "grade": "night",
+      "chars": [{ "id": "keeper", "action": "look_around", "expr": "fear", "pos": "right" }],
+      "props": [
+        { "id": "lantern", "attach": "keeper.hand_r" },
+        { "id": "footprints", "pos": "far_left" },
+        { "id": "small_footprints", "pos": "far_left" }
+      ],
+      "camera": "dolly_out", "transitionIn": "dip_to_black",
+      "sfx": [{ "tag": "heartbeat", "at": "L5.1:0" }], "caption": "word_pop"
+    },
+    {
+      "id": "S20", "lineIds": ["L5.3"], "bg": "lighthouse_exterior", "grade": "night",
+      "chars": [{ "id": "stranger", "action": "idle", "expr": "neutral", "pos": "center_right", "facing": "left", "look": "silhouette" }],
+      "props": [], "camera": "slow_push", "transitionIn": "cut",
+      "sfx": [{ "tag": "dun_dun_dun", "at": "L5.3:5" }], "caption": "word_pop"
+    }
+  ]
+}
