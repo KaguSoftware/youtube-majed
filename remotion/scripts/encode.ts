@@ -14,10 +14,17 @@ import type { SegmentProfile } from "../src/scene/segments";
 export const SEGMENT_PROFILES = {
   preview: { ...EXPORT_PROFILES.preview, lossless: false },
   final: { ...EXPORT_PROFILES.youtube, lossless: false },
+  /** the 9:16 Reel: drawn by the "ProjectVertical" composition (1080 wide), so the render scale is 1 */
+  reel: { ...EXPORT_PROFILES.reel, lossless: false },
   lossless: { ...EXPORT_PROFILES.preview, id: "lossless" as const, label: "Lossless 1280×720 (x264 qp 0), for the proof only", crf: 0, lossless: true },
 } as const;
 export type SegmentProfileName = keyof typeof SEGMENT_PROFILES;
 export const isProfileName = (s: string): s is SegmentProfileName => s in SEGMENT_PROFILES;
+
+/** Width of the composition a profile is drawn from, so `scale` brings it to the profile's size. */
+export const compositionWidth = (p: { orientation: "landscape" | "portrait" }) => (p.orientation === "portrait" ? 1080 : 1920);
+/** The Remotion composition id a profile is drawn from (scripts/project-entry.tsx). */
+export const compositionOf = (p: { orientation: "landscape" | "portrait" }) => (p.orientation === "portrait" ? "ProjectVertical" : "Project");
 
 export function segmentProfile(name: SegmentProfileName): SegmentProfile {
   const p = SEGMENT_PROFILES[name];
@@ -36,7 +43,7 @@ export function encodeOptions(name: SegmentProfileName, o: { keyframesAt?: numbe
     codec: "h264",
     crf: p.lossless ? 1 : p.crf, // Remotion accepts 1-51; qp 0 replaces it below
     x264Preset: p.preset,
-    scale: p.width / 1920,
+    scale: p.width / compositionWidth(p),
     imageFormat: "jpeg",
     jpegQuality: p.jpegQuality,
     pixelFormat: "yuv420p",

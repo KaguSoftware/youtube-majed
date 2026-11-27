@@ -1,6 +1,8 @@
 import { AbsoluteFill, interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
 import type { Chunk } from "../../scene/timeline";
-import { ACCENT, INK, SAFE_BOTTOM } from "../../theme";
+import { SAFE_WIDTH, isPortrait, useView } from "../../scene/view";
+import { ACCENT, INK } from "../../theme";
+import { captionBox, wordRow } from "./box";
 import { WordPop } from "./WordPop";
 
 /**
@@ -15,9 +17,10 @@ function Karaoke({ chunk }: { chunk: Chunk }) {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const enter = spring({ frame: frame - chunk.start, fps, config: { damping: 16, stiffness: 200 } });
+  const portrait = isPortrait(useView());
   return (
-    <AbsoluteFill style={{ justifyContent: "flex-end", alignItems: "center", paddingBottom: SAFE_BOTTOM, pointerEvents: "none" }}>
-      <div style={{ display: "flex", gap: 20, transform: `translateY(${(1 - enter) * 30}px)`, opacity: enter }}>
+    <AbsoluteFill style={captionBox(portrait)}>
+      <div style={{ ...wordRow(portrait, 20), transform: `translateY(${(1 - enter) * 30}px)`, opacity: enter }}>
         {chunk.words.map((w, i) => {
           const said = frame >= w.start;
           const now = said && frame < w.end;
@@ -27,7 +30,7 @@ function Karaoke({ chunk }: { chunk: Chunk }) {
               key={i}
               style={{
                 ...font,
-                fontSize: 72,
+                fontSize: portrait ? 78 : 72,
                 color: said ? ACCENT : "#ffffff",
                 WebkitTextStroke: `12px ${INK}`,
                 paintOrder: "stroke fill",
@@ -49,9 +52,10 @@ function Karaoke({ chunk }: { chunk: Chunk }) {
 function Subtitle({ chunk }: { chunk: Chunk }) {
   const frame = useCurrentFrame();
   const o = interpolate(frame, [chunk.start, chunk.start + 4, chunk.end - 3, chunk.end], [0, 1, 1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+  const portrait = isPortrait(useView());
   return (
-    <AbsoluteFill style={{ justifyContent: "flex-end", alignItems: "center", paddingBottom: SAFE_BOTTOM + 10, pointerEvents: "none" }}>
-      <div style={{ ...font, fontSize: 50, color: "#ffffff", background: "rgba(16,14,30,0.72)", padding: "14px 30px 18px", borderRadius: 16, opacity: o, letterSpacing: 0.4 }}>
+    <AbsoluteFill style={captionBox(portrait, 10)}>
+      <div style={{ ...font, ...(portrait ? { whiteSpace: "normal", textAlign: "center", maxWidth: SAFE_WIDTH, lineHeight: 1.18 } : {}), fontSize: portrait ? 52 : 50, color: "#ffffff", background: "rgba(16,14,30,0.72)", padding: "14px 30px 18px", borderRadius: 16, opacity: o, letterSpacing: 0.4 }}>
         {chunk.words.map((w) => w.text).join(" ")}
       </div>
     </AbsoluteFill>
@@ -65,14 +69,15 @@ function Punch({ chunk }: { chunk: Chunk }) {
   const w = chunk.words[0]!;
   const slam = spring({ frame: frame - w.start, fps, config: { damping: 10, stiffness: 320, mass: 0.6 } });
   const scale = interpolate(slam, [0, 1], [2.4, 1]);
+  const portrait = isPortrait(useView());
   return (
-    <AbsoluteFill style={{ justifyContent: "flex-end", alignItems: "center", paddingBottom: SAFE_BOTTOM + 40, pointerEvents: "none" }}>
+    <AbsoluteFill style={captionBox(portrait, 40)}>
       <span
         style={{
           ...font,
-          fontSize: 190,
+          fontSize: portrait ? 140 : 190,
           color: ACCENT,
-          WebkitTextStroke: `22px ${INK}`,
+          WebkitTextStroke: `${portrait ? 18 : 22}px ${INK}`,
           paintOrder: "stroke fill",
           filter: "drop-shadow(0 12px 0 rgba(0,0,0,0.3))",
           transform: `scale(${scale}) rotate(${(1 - slam) * -8 - 3}deg)`,

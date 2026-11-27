@@ -1,7 +1,7 @@
 /**
  * Renders a storyboarded project from projects/<id>/ (Phase 3).
  *
- *   pnpm render:project <id> [--profile preview|final] [--track mix|narration] [--scenes <scenes.json>]
+ *   pnpm render:project <id> [--profile preview|final|reel] [--track mix|narration] [--scenes <scenes.json>]
  *                       [--out name.mp4 | /abs/path.mp4] [--concurrency N] [--frames 0-299]
  *                       [--stills 120,900,2400 --stills-dir <dir>] [--no-video] [--json]
  *
@@ -42,7 +42,7 @@ const die = (m: string): never => {
 
 const VALUE_FLAGS = ["profile", "track", "scenes", "out", "concurrency", "frames", "stills", "stills-dir"].map((f) => `--${f}`);
 const id = args.find((a, i) => !a.startsWith("--") && !VALUE_FLAGS.includes(args[i - 1] ?? ""));
-if (!id) die("usage: pnpm render:project <id> [--profile preview|final] [--track mix|narration] [--scenes <file>] [--out name.mp4] [--concurrency N] [--frames a-b] [--stills f,f --stills-dir dir] [--no-video] [--json]");
+if (!id) die("usage: pnpm render:project <id> [--profile preview|final|reel] [--track mix|narration] [--scenes <file>] [--out name.mp4] [--concurrency N] [--frames a-b] [--stills f,f --stills-dir dir] [--no-video] [--json]");
 const projectId = id!;
 const profileName = arg("profile") ?? "preview";
 const profile = PROFILES[profileName];
@@ -90,7 +90,7 @@ const serveUrl = await bundle({
 });
 const bundleMs = Date.now() - t0;
 const inputProps = { project: projectId };
-const composition = await selectComposition({ serveUrl, id: "Project", inputProps });
+const composition = await selectComposition({ serveUrl, id: profileName === "reel" ? "ProjectVertical" : "Project", inputProps });
 const frames = frameRange ? frameRange[1] - frameRange[0] + 1 : composition.durationInFrames;
 
 let renderMs = 0;
@@ -137,7 +137,7 @@ if (stills.length) {
   const files: string[] = [];
   // the composition's props are resolved from its input props, so the caption-free stills need their own resolution
   const stillProps = { ...inputProps, captions: false };
-  const stillComposition = await selectComposition({ serveUrl, id: "Project", inputProps: stillProps });
+  const stillComposition = await selectComposition({ serveUrl, id: profileName === "reel" ? "ProjectVertical" : "Project", inputProps: stillProps });
   for (const [i, frame] of stills.entries()) {
     const output = join(stillsDir!, `thumb-${i + 1}.jpg`);
     await renderStill({ composition: stillComposition, serveUrl, inputProps: stillProps, output, frame, imageFormat: "jpeg", jpegQuality: 95, overwrite: true });

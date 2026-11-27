@@ -6,6 +6,7 @@ import { Overlays } from "../library/overlays";
 import { EASE } from "../rig/pose";
 import { INK } from "../theme";
 import { SceneView } from "./SceneView";
+import { LANDSCAPE, ViewContext, isPortrait, useView, type View } from "./view";
 import { buildTimeline } from "./timeline";
 import { TRANSITION_FRAMES } from "./transitions";
 
@@ -24,10 +25,11 @@ const GLITCH = 10; // frames of glitch at the start of the scene
 
 function Intro({ kind, children }: { kind: TransitionId; children: ReactNode }) {
   const f = useCurrentFrame();
+  const width = useView().width;
   if (kind === "whoosh_wipe") {
     const p = EASE.inOut(Math.min(1, f / TRANSITION_FRAMES.whoosh_wipe));
     if (p >= 1) return <>{children}</>;
-    const edge = -320 + p * (1920 + 640);
+    const edge = -320 + p * (width + 640);
     return (
       <AbsoluteFill>
         <AbsoluteFill style={{ clipPath: `polygon(0 0, ${edge + 160}px 0, ${edge - 160}px 100%, 0 100%)` }}>{children}</AbsoluteFill>
@@ -92,12 +94,12 @@ function Intro({ kind, children }: { kind: TransitionId; children: ReactNode }) 
     if (p >= 1) return <>{children}</>;
     // The fold sweeps right to left; right of it is the new page, left of it the old page with the curled flap over it.
     const slant = 260;
-    const top = 1920 + slant - p * (1920 + 2 * slant);
+    const top = width + slant - p * (width + 2 * slant);
     const bottom = top - slant;
-    const flap = Math.min(340, (1920 - bottom) * 0.42);
+    const flap = Math.min(340, (width - bottom) * 0.42);
     return (
       <AbsoluteFill>
-        <AbsoluteFill style={{ clipPath: `polygon(${top}px 0, 1920px 0, 1920px 100%, ${bottom}px 100%)` }}>{children}</AbsoluteFill>
+        <AbsoluteFill style={{ clipPath: `polygon(${top}px 0, ${width}px 0, ${width}px 100%, ${bottom}px 100%)` }}>{children}</AbsoluteFill>
         <AbsoluteFill
           style={{
             clipPath: `polygon(${top}px 0, ${top - flap}px 0, ${bottom - flap * 1.15}px 100%, ${bottom}px 100%)`,
@@ -148,13 +150,14 @@ function Pushed({ from, children }: { from: number; children: ReactNode }) {
   return <AbsoluteFill style={{ transform: `translateX(${p * 180}px)` }}>{children}</AbsoluteFill>;
 }
 
-export type StoryVideoProps = { project: Project; audioSrc?: string; /** false for thumbnail stills: the picture without its burned-in captions */ captions?: boolean };
+export type StoryVideoProps = { project: Project; audioSrc?: string; /** false for thumbnail stills: the picture without its burned-in captions */ captions?: boolean; /** the frame: 16:9 (default) or 9:16 (Reels), same project data */ view?: View };
 
-export function StoryVideo({ project, audioSrc, captions = true }: StoryVideoProps) {
-  const timeline = useMemo(() => buildTimeline(project), [project]);
+export function StoryVideo({ project, audioSrc, captions = true, view = LANDSCAPE }: StoryVideoProps) {
+  const timeline = useMemo(() => buildTimeline(project, { portrait: isPortrait(view) }), [project, view]);
   const scenes = project.scenes.scenes;
 
   return (
+    <ViewContext.Provider value={view}>
     <AbsoluteFill style={{ background: INK }}>
       {timeline.scenes.map((t, i) => {
         const scene = scenes[i]!;
@@ -177,5 +180,6 @@ export function StoryVideo({ project, audioSrc, captions = true }: StoryVideoPro
       {captions && <Captions chunks={timeline.chunks} />}
       {audioSrc && <Html5Audio src={audioSrc} />}
     </AbsoluteFill>
+    </ViewContext.Provider>
   );
 }

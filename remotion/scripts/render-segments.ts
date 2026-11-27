@@ -1,7 +1,7 @@
 /**
  * Renders a project in segments (Phase 4, partial re-render).
  *
- *   pnpm render:segments <id> [--profile preview|final|lossless] [--out file.mp4] [--concurrency N]
+ *   pnpm render:segments <id> [--profile preview|final|reel|lossless] [--out file.mp4] [--concurrency N]
  *                        [--frames a-b] [--plan] [--json]
  *
  * One segment per scene, each a frame range of the full `Project`
@@ -29,7 +29,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, 
 import { cpus } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { planSegments } from "../src/scene/segments";
-import { SEGMENT_PROFILES, encodeOptions, isProfileName, segmentProfile, type SegmentProfileName } from "./encode";
+import { SEGMENT_PROFILES, compositionOf, compositionWidth, encodeOptions, isProfileName, segmentProfile, type SegmentProfileName } from "./encode";
 import { REMOTION_DIR, REPO_DIR } from "./load";
 
 const args = process.argv.slice(2);
@@ -48,7 +48,7 @@ const die = (m: string): never => {
 
 const VALUE_FLAGS = ["profile", "out", "concurrency", "frames"].map((f) => `--${f}`);
 const id = args.find((a, i) => !a.startsWith("--") && !VALUE_FLAGS.includes(args[i - 1] ?? ""));
-if (!id) die("usage: pnpm render:segments <id> [--profile preview|final|lossless] [--out file.mp4] [--concurrency N] [--frames a-b] [--plan] [--json]");
+if (!id) die("usage: pnpm render:segments <id> [--profile preview|final|reel|lossless] [--out file.mp4] [--concurrency N] [--frames a-b] [--plan] [--json]");
 const projectId = id!;
 const profileArg = arg("profile") ?? "preview";
 if (!isProfileName(profileArg)) die(`Unknown profile "${profileArg}". Use: ${Object.keys(SEGMENT_PROFILES).join(", ")}`);
@@ -137,11 +137,11 @@ if (missing.length) {
   });
   bundleMs = Date.now() - t0;
   const inputProps = { project: projectId };
-  const composition = await selectComposition({ serveUrl, id: "Project", inputProps });
+  const composition = await selectComposition({ serveUrl, id: compositionOf(prof), inputProps });
   if (composition.durationInFrames !== plan.total) die(`the composition has ${composition.durationInFrames} frames but the plan has ${plan.total}; was a file changed during the render?`);
   // the scale factor must match the render scale, as when renderMedia opens its own browser: without it Chrome draws
   // every frame at 1080p and the screenshot is scaled down (measured 72 instead of 103 frames/s at 720p)
-  const browser = await openBrowser("chrome", { chromiumOptions: {}, forceDeviceScaleFactor: prof.width / 1920 });
+  const browser = await openBrowser("chrome", { chromiumOptions: {}, forceDeviceScaleFactor: prof.width / compositionWidth(prof) });
   const t1 = Date.now();
   let done = 0;
   let lastEmit = 0;

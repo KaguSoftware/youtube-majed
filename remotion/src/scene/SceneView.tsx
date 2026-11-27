@@ -1,4 +1,4 @@
-import { ACTIONS, BACKGROUNDS, POSITIONS, type CastMember, type CharInScene, type Scene } from "@studio/schema";
+import { ACTIONS, BACKGROUNDS, POSITIONS, type CastMember, type CharInScene, type PositionId, type Scene } from "@studio/schema";
 import { useId } from "react";
 import { AbsoluteFill, useCurrentFrame } from "remotion";
 import { ACTION_LIB } from "../library/actions";
@@ -15,8 +15,12 @@ import { bodyOf, sizeOf } from "../rig/look";
 import { solve, type Vec } from "../rig/skeleton";
 import { arrivalFrame, travelled } from "../rig/stride";
 import { H, W, hash01, type TimeOfDay } from "../theme";
+import { portraitBase, portraitLayout } from "./portrait";
+import { isPortrait, useView } from "./view";
 
-const posX = (id: keyof typeof POSITIONS) => POSITIONS[id].x * W;
+const posX = (id: PositionId) => POSITIONS[id].x * W;
+/** Where a named position is on the stage. A tall frame pulls the positions together (scene/portrait.ts). */
+export type XOf = (id: PositionId) => number;
 const ARRIVE_BLEND = 8; // frames to settle from a travelling action into idle
 
 export type Placed = {
@@ -41,18 +45,18 @@ function seatAt(scene: Scene, pos: string): number {
 }
 
 /** Where a character is and what pose it is in at a frame of its scene. */
-function place(char: CharInScene, cast: CastMember, scene: Scene, frame: number, groundY: number, inPlace = false): Placed {
+function place(char: CharInScene, cast: CastMember, scene: Scene, frame: number, groundY: number, inPlace = false, xOf: XOf = posX): Placed {
   const def = ACTION_LIB[char.action];
   const phase = hash01(`${scene.id}-${char.id}`);
   const body = bodyOf(cast);
   const size = sizeOf(cast);
-  const startX = posX(char.pos);
+  const startX = xOf(char.pos);
   const travels = ACTIONS[char.action].travels && !inPlace;
 
   let facing: 1 | -1 = char.facing ? (char.facing === "right" ? 1 : -1) : startX <= W / 2 ? 1 : -1;
-  const dir = char.to ? Math.sign(posX(char.to) - startX) || facing : facing;
+  const dir = char.to ? Math.sign(xOf(char.to) - startX) || facing : facing;
   if (travels && !char.facing) facing = dir > 0 ? 1 : -1;
-  const dist = char.to ? Math.abs(posX(char.to) - startX) : Infinity;
+  const dist = char.to ? Math.abs(xOf(char.to) - startX) : Infinity;
   const arrival = travels ? arrivalFrame(def, body, size, dist, phase) : Infinity;
 
   // Travel distance comes from the legs (rig/stride.ts), so planted feet stay put.
@@ -110,6 +114,7 @@ type StageProps = {
   wallY: number;
   tod: TimeOfDay;
   frame: number;
+  xOf?: XOf;
 };
 
 /**
@@ -117,14 +122,14 @@ type StageProps = {
  * front of the characters who use them. World coordinates (1920×1080).
  * SceneView puts it inside the camera; galleries draw it on their own.
  */
-export function Stage({ scene, placed, groundY, horizonY, wallY, tod, frame }: StageProps) {
+export function Stage({ scene, placed, groundY, horizonY, wallY, tod, frame, xOf = posX }: StageProps) {
   // A character "uses" a ground prop at its own pos: lies in the bed, sits on the chair, drives the car.
   const userOf = (pos: string | undefined) =>
     pos ? placed.find((p) => p.char.pos === pos && (ACTION_LIB[p.char.action].lying || ACTION_LIB[p.char.action].perch)) : undefined;
   const propArgs = (p: Scene["props"][number]) => {
     const impl = PROP_IMPL[p.id];
     const user = userOf(p.pos);
-    let x = p.pos ? posX(p.pos) : W * 0.72;
+    let x = p.pos ? xOf(p.pos) : W * 0.72;
     if (user && impl.vehicle) x = user.x;
     else if (user && impl.besideSeat) x = user.x + user.facing * 175;
     return { x, groundY, horizonY, wallY, skyY: Math.min(260, horizonY - 260), tod, frame, flip: user ? user.facing === -1 : x > W / 2 };
@@ -173,8 +178,8 @@ export function Stage({ scene, placed, groundY, horizonY, wallY, tod, frame }: S
 }
 
 /** Places every character of a scene at a frame. `inPlace` keeps travellers on their spot (galleries). */
-export function placeAll(scene: Scene, cast: Record<string, CastMember>, frame: number, groundY: number, inPlace = false): Placed[] {
-  return scene.chars.map((c) => place(inPlace ? { ...c, to: undefined } : c, cast[c.id]!, scene, frame, groundY, inPlace));
+export function placeAll(scene: Scene, cast: Record<string, CastMember>, frame: number, groundY: number, inPlace = false, xOf: XOf = posX): Placed[] {
+  return scene.chars.map((c) => place(inPlace ? { ...c, to: undefined } : c, cast[c.id]!, scene, frame, groundY, inPlace, xOf));
 }
 
 /**
@@ -202,18 +207,22 @@ export function SceneView({ scene, cast, frames }: { scene: Scene; cast: Record<
   const tod = grade.tod;
   const interior = BACKGROUNDS[scene.bg].interior;
 
-  const placed = placeAll(scene, cast, frame, bg.groundY);
+  const view = useView();
+  const portrait = isPortrait(view);
+  const layout = portrait ? portraitLayout(scene) : undefined;
+  const placed = placeAll(scene, cast, frame, bg.groundY, false, layout?.xOf);
   const marks = placed.map(anchors);
   const chars: Vec = marks.length
     ? { x: marks.reduce((s, m) => s + m.body.x, 0) / marks.length, y: marks.reduce((s, m) => s + m.body.y, 0) / marks.length }
     : { x: W / 2, y: H / 2 };
   const face = marks[0]?.head ?? chars;
-  const base = baseView(scene.framing, placed, bg.groundY);
-  const cam: Cam = CAMERAS[scene.camera](frame, frames, { chars, face }, base);
+  const base = layout ? portraitBase(scene, cast, layout, placed.map((p) => p.x), bg.groundY) : baseView(scene.framing, placed, bg.groundY);
+  const move = CAMERAS[scene.camera](frame, frames, { chars, face }, base, view);
+  const cam: Cam = portrait ? { ...move, base, view } : move;
 
   return (
     <AbsoluteFill style={{ filter: grade.filter }}>
-      <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} style={{ position: "absolute", inset: 0 }}>
+      <svg viewBox={`0 0 ${view.width} ${view.height}`} width={view.width} height={view.height} style={{ position: "absolute", inset: 0 }}>
         {cam.blur > 0.5 && (
           <defs>
             <filter id={`${gid}-whip`} x="-5%" y="0" width="110%" height="100%">
@@ -227,7 +236,7 @@ export function SceneView({ scene, cast, frames }: { scene: Scene; cast: Record<
               <bg.Back tod={tod} frame={frame} />
               {scene.weather && <WeatherBack kind={scene.weather} frame={frame} tod={tod} groundY={bg.groundY} />}
               <Layer depth={1}>
-                <Stage scene={scene} placed={placed} groundY={bg.groundY} horizonY={bg.horizonY} wallY={bg.wallY} tod={tod} frame={frame} />
+                <Stage scene={scene} placed={placed} groundY={bg.groundY} horizonY={bg.horizonY} wallY={bg.wallY} tod={tod} frame={frame} xOf={layout?.xOf} />
               </Layer>
               {bg.Front && <bg.Front tod={tod} frame={frame} />}
               {scene.weather && <WeatherFront kind={scene.weather} frame={frame} tod={tod} groundY={bg.groundY} />}

@@ -69,7 +69,9 @@ function drawn(scene: Scene, cast: Record<string, CastMember>) {
 }
 
 export function planSegments(project: Project, o: { code: string; profile: SegmentProfile }): SegmentPlan {
-  const timeline = buildTimeline(project);
+  // the tall frame lays scenes out and cuts captions differently (scene/portrait.ts), so it draws different pixels
+  const portrait = o.profile.height > o.profile.width;
+  const timeline = buildTimeline(project, { portrait });
   const scenes = project.scenes.scenes;
   const cast = project.scenes.cast;
   const seqs = timeline.scenes.map((t, i) => {

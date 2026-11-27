@@ -11,10 +11,11 @@ import { GALLERY_PROJECTS, GalleryVideo, galleryFrames, type GalleryProjectId } 
 import { ScenePreview, type PreviewProps } from "./gallery/Preview";
 import { StoryVideo } from "./scene/StoryVideo";
 import { buildTimeline } from "./scene/timeline";
+import { PORTRAIT, type View } from "./scene/view";
 import { FPS, H, W } from "./theme";
 import { fetchVoice, trackUrl } from "./voice";
 
-type SampleProps = { sample: SampleId; project?: Project; audioSrc?: string };
+type SampleProps = { sample: SampleId; project?: Project; audioSrc?: string; view?: View };
 
 /**
  * Loads the sample's scene, script and timing files, plus its voice.json if
@@ -27,12 +28,12 @@ const loadSample: CalculateMetadataFunction<SampleProps> = async ({ props }) => 
   const voice = await fetchVoice(props.sample);
   const project = assertProject(`samples/${props.sample}`, { ...SAMPLES[props.sample], voice });
   const audioSrc = project.voice ? trackUrl(props.sample, project.voice.track.file) : undefined;
-  return { durationInFrames: buildTimeline(project).total, props: { ...props, project, audioSrc } };
+  return { durationInFrames: buildTimeline(project, { portrait: props.view?.kind === "portrait" }).total, props: { ...props, project, audioSrc } };
 };
 
-function Sample({ project, audioSrc }: SampleProps) {
+function Sample({ project, audioSrc, view }: SampleProps) {
   if (!project) throw new Error("project was not loaded (calculateMetadata did not run)");
-  return <StoryVideo project={project} audioSrc={audioSrc} />;
+  return <StoryVideo project={project} audioSrc={audioSrc} view={view} />;
 }
 
 export function Root() {
@@ -51,6 +52,26 @@ export function Root() {
             defaultProps={{ sample } as SampleProps}
             calculateMetadata={loadSample}
           />
+        ))}
+      </Folder>
+      <Folder name="Samples-9x16">
+        {(Object.keys(SAMPLES) as SampleId[]).map((sample) => (
+          <Composition
+            key={sample}
+            id={`${compositionId(sample)}Vertical`}
+            component={Sample}
+            width={PORTRAIT.width}
+            height={PORTRAIT.height}
+            fps={FPS}
+            durationInFrames={1}
+            defaultProps={{ sample, view: PORTRAIT } as SampleProps}
+            calculateMetadata={loadSample}
+          />
+        ))}
+      </Folder>
+      <Folder name="Library-9x16">
+        {(Object.keys(GALLERY_PROJECTS) as GalleryProjectId[]).map((id) => (
+          <Composition key={id} id={`${id}Vertical`} component={GalleryVideo} width={PORTRAIT.width} height={PORTRAIT.height} fps={FPS} durationInFrames={galleryFrames(id, PORTRAIT)} defaultProps={{ id, view: PORTRAIT }} />
         ))}
       </Folder>
       <Folder name="Library">

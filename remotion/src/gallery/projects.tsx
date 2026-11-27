@@ -1,9 +1,11 @@
-import { assertProject, type CastMember, type Project, type Scene } from "@studio/schema";
+import { BACKGROUNDS, assertProject, type BackgroundId, type CastMember, type Project, type Scene } from "@studio/schema";
 import { useMemo } from "react";
 import { AbsoluteFill, useCurrentFrame } from "remotion";
 import { StoryVideo } from "../scene/StoryVideo";
 import { buildTimeline } from "../scene/timeline";
+import { LANDSCAPE, PORTRAIT, isPortrait, type View } from "../scene/view";
 import { FPS, INK, PAPER } from "../theme";
+import { SafeGuides } from "./SafeGuides";
 
 /**
  * Galleries that run through the real pipeline: a small hand-made project
@@ -137,24 +139,65 @@ export const GALLERY_PROJECTS = {
       ],
       NEON,
     ),
+
+  /** Every background with people in it, by day and by night: the real framing a scene gets, in either frame. */
+  Scenery: () =>
+    project(
+      "Scenery",
+      (Object.keys(BACKGROUNDS) as BackgroundId[]).flatMap((bg): Shot[] => [
+        { label: `${bg} · day · duo`, bg, seconds: 2, chars: duo("sam", "rex") },
+        { label: `${bg} · night · solo, medium`, bg, grade: "night", framing: "medium", seconds: 2, chars: [{ id: "tom", action: "think", expr: "confused", pos: "center" }] },
+      ]),
+      CAST,
+    ),
+
+  /** How a scene is laid out for the number and spread of its characters. */
+  Layouts: () =>
+    project(
+      "Layouts",
+      [
+        { label: "solo · centre", bg: "street", chars: [{ id: "sam", action: "talk", expr: "happy", pos: "center" }] },
+        { label: "solo · left", bg: "street", chars: [{ id: "sam", action: "talk", expr: "happy", pos: "left" }] },
+        { label: "solo · far right", bg: "park", chars: [{ id: "ana", action: "point", expr: "shock", pos: "far_right" }] },
+        { label: "solo · medium", bg: "office", framing: "medium", chars: [{ id: "rex", action: "talk", expr: "smirk", pos: "center" }] },
+        { label: "duo · centre pair", bg: "kitchen", chars: duo("sam", "rex") },
+        { label: "duo · left and right", bg: "cafe", chars: [{ id: "ana", action: "talk", expr: "happy", pos: "left" }, { id: "tom", action: "idle", expr: "neutral", pos: "right" }] },
+        { label: "duo · far apart", bg: "beach", chars: [{ id: "sam", action: "wave", expr: "happy", pos: "far_left" }, { id: "rex", action: "idle", expr: "neutral", pos: "far_right" }] },
+        { label: "duo · medium", bg: "classroom", framing: "medium", chars: duo("ana", "tom") },
+        { label: "trio", bg: "lab", chars: [{ id: "sam", action: "think", expr: "confused", pos: "left" }, { id: "rex", action: "talk", expr: "happy", pos: "center" }, { id: "ana", action: "idle", expr: "neutral", pos: "right" }] },
+        { label: "four", bg: "classroom", chars: [{ id: "sam", action: "idle", expr: "neutral", pos: "far_left" }, { id: "rex", action: "talk", expr: "happy", pos: "center_left" }, { id: "ana", action: "idle", expr: "neutral", pos: "center_right" }, { id: "tom", action: "idle", expr: "neutral", pos: "far_right" }] },
+        { label: "walker · the frame follows", bg: "road", seconds: 4, chars: [{ id: "tom", action: "walk", expr: "happy", pos: "far_left", to: "far_right" }] },
+        { label: "two walkers", bg: "street", seconds: 4, chars: [{ id: "sam", action: "walk", expr: "happy", pos: "left", to: "center_right" }, { id: "ana", action: "walk", expr: "happy", pos: "center_left", to: "far_right" }] },
+        { label: "walker enters from off screen", bg: "forest", seconds: 4, chars: [{ id: "ana", action: "sneak", expr: "suspicious", pos: "offscreen_left", to: "center" }, { id: "rex", action: "idle", expr: "neutral", pos: "center_right" }] },
+        { label: "typist at a desk", bg: "office", chars: [{ id: "rex", action: "type", expr: "sleepy", pos: "center" }], props: [{ id: "chair", pos: "center" }, { id: "desk", pos: "center" }] },
+        { label: "driver in a car", bg: "road", chars: [{ id: "tom", action: "drive", expr: "happy", pos: "center" }], props: [{ id: "car", pos: "center" }] },
+        { label: "sleeper in a bed", bg: "bedroom", grade: "night", chars: [{ id: "sam", action: "sleep", expr: "sleepy", pos: "center" }], props: [{ id: "bed", pos: "center" }] },
+        { label: "no characters", bg: "lighthouse_exterior", grade: "dusk", chars: [] },
+        { label: "held prop", bg: "lighthouse_stairs", grade: "night", chars: [{ id: "tom", action: "sneak", expr: "fear", pos: "left", to: "center_right" }], seconds: 4, props: [{ id: "lantern", attach: "tom.hand_r" }] },
+      ],
+      CAST,
+    ),
 } satisfies Record<string, () => { project: Project; labels: string[] }>;
 
 export type GalleryProjectId = keyof typeof GALLERY_PROJECTS;
 
-export function galleryFrames(id: GalleryProjectId): number {
-  return buildTimeline(GALLERY_PROJECTS[id]().project).total;
+export function galleryFrames(id: GalleryProjectId, view: View = LANDSCAPE): number {
+  return buildTimeline(GALLERY_PROJECTS[id]().project, { portrait: isPortrait(view) }).total;
 }
 
-/** Plays a gallery project with a label naming what the current scene shows. */
-export function GalleryVideo({ id }: { id: GalleryProjectId }) {
+export { PORTRAIT };
+
+/** Plays a gallery project with a label naming what the current scene shows. In the 9:16 frame the label sits in the top interface strip, with the safe zones marked. */
+export function GalleryVideo({ id, view = LANDSCAPE, guides }: { id: GalleryProjectId; view?: View; guides?: boolean }) {
   const frame = useCurrentFrame();
   const { project: p, labels } = useMemo(() => GALLERY_PROJECTS[id](), [id]);
   const timeline = useMemo(() => buildTimeline(p), [p]);
   const i = timeline.scenes.findIndex((s) => frame >= s.start && frame < s.start + s.frames);
   return (
     <AbsoluteFill>
-      <StoryVideo project={p} />
-      <div style={{ position: "absolute", left: 32, top: 28, background: PAPER, color: INK, padding: "8px 18px", borderRadius: 12, fontFamily: "Fredoka, sans-serif", fontWeight: 700, fontSize: 30 }}>
+      <StoryVideo project={p} view={view} />
+      {isPortrait(view) && (guides ?? true) && <SafeGuides />}
+      <div style={{ position: "absolute", left: 32, top: isPortrait(view) ? 60 : 28, background: PAPER, color: INK, padding: "8px 18px", borderRadius: 12, fontFamily: "Fredoka, sans-serif", fontWeight: 700, fontSize: isPortrait(view) ? 26 : 30 }}>
         {labels[Math.max(0, i)]}
       </div>
     </AbsoluteFill>

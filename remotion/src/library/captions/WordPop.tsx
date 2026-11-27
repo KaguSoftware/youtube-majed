@@ -1,6 +1,8 @@
 import { AbsoluteFill, spring, useCurrentFrame, useVideoConfig } from "remotion";
 import type { Chunk } from "../../scene/timeline";
-import { ACCENT, INK, SAFE_BOTTOM } from "../../theme";
+import { isPortrait, useView } from "../../scene/view";
+import { ACCENT, INK } from "../../theme";
+import { captionBox, wordRow } from "./box";
 
 /**
  * Caption style "word_pop": 1–3 big words at a time, each popping in as it is
@@ -9,12 +11,14 @@ import { ACCENT, INK, SAFE_BOTTOM } from "../../theme";
 export function WordPop({ chunks }: { chunks: Chunk[] }) {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
+  const portrait = isPortrait(useView());
   const chunk = chunks.find((c) => frame >= c.start && frame < c.end);
   if (!chunk) return null;
+  const base = portrait ? { ...baseStyle, fontSize: 84, WebkitTextStroke: `13px ${INK}` } : baseStyle;
 
   return (
-    <AbsoluteFill style={{ justifyContent: "flex-end", alignItems: "center", paddingBottom: SAFE_BOTTOM, pointerEvents: "none" }}>
-      <div style={{ display: "flex", gap: 26, alignItems: "baseline" }}>
+    <AbsoluteFill style={captionBox(portrait)}>
+      <div style={wordRow(portrait, 26)}>
         {chunk.words.map((w, i) => {
           if (frame < w.start) return <span key={i} style={{ ...base, opacity: 0 }}>{w.text}</span>;
           const pop = spring({ frame: frame - w.start, fps, config: { damping: 11, stiffness: 260, mass: 0.55 } });
@@ -39,7 +43,7 @@ export function WordPop({ chunks }: { chunks: Chunk[] }) {
   );
 }
 
-const base: React.CSSProperties = {
+const baseStyle: React.CSSProperties = {
   display: "inline-block",
   fontFamily: "Fredoka, sans-serif",
   fontWeight: 700,

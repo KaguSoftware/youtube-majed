@@ -7,7 +7,7 @@ import { z } from "zod";
  * compresses far better than camera footage. Every +6 CRF roughly halves the
  * file, so "over the cap" is answered once, with CRF + `crfStep`.
  */
-export const ExportProfileId = z.enum(["preview", "youtube"]);
+export const ExportProfileId = z.enum(["preview", "youtube", "reel"]);
 export type ExportProfileId = z.infer<typeof ExportProfileId>;
 
 export type ExportProfile = {
@@ -19,13 +19,15 @@ export type ExportProfile = {
   crf: number;
   /** x264 preset */
   preset: "veryfast" | "slow";
-  audioBitrate: "128k" | "320k";
+  audioBitrate: "128k" | "192k" | "320k";
   jpegQuality: number;
   /** MB; a file over this is re-encoded once at crf + crfStep. 0 = no cap. */
   maxMB: number;
   crfStep: number;
-  /** srt, chapters and thumbnail suggestions are written next to the file */
+  /** srt, chapters and thumbnail suggestions are written next to the file (the Reel writes an srt only) */
   sidecars: boolean;
+  /** `portrait` is drawn by the 9:16 composition (remotion/src/scene/view.ts) from the same project data */
+  orientation: "landscape" | "portrait";
 };
 
 export const EXPORT_PROFILES: Record<ExportProfileId, ExportProfile> = {
@@ -42,6 +44,23 @@ export const EXPORT_PROFILES: Record<ExportProfileId, ExportProfile> = {
     maxMB: 250,
     crfStep: 2,
     sidecars: true,
+    orientation: "landscape",
+  },
+  /** docs/PLAN.md section 9, "Reels / Shorts": 1080×1920, CRF 21, captions burned in, about 15–40 MB for 60–90 s */
+  reel: {
+    id: "reel",
+    label: "Reel 1080×1920, 30 fps, H.264 High, CRF 21, preset slow, AAC 192 kbps, captions burned in, fast start",
+    width: 1080,
+    height: 1920,
+    fps: 30,
+    crf: 21,
+    preset: "slow",
+    audioBitrate: "192k",
+    jpegQuality: 92,
+    maxMB: 40,
+    crfStep: 2,
+    sidecars: true,
+    orientation: "portrait",
   },
   preview: {
     id: "preview",
@@ -56,13 +75,14 @@ export const EXPORT_PROFILES: Record<ExportProfileId, ExportProfile> = {
     maxMB: 0,
     crfStep: 0,
     sidecars: false,
+    orientation: "landscape",
   },
 };
 
-/** The size cap for a profile, in MB. `STUDIO_EXPORT_MAX_MB` overrides the YouTube cap. */
+/** The size cap for a profile, in MB. `STUDIO_EXPORT_MAX_MB` overrides the YouTube cap, `STUDIO_REEL_MAX_MB` the Reel's. */
 export function sizeCapMB(p: ExportProfile, env: Record<string, string | undefined> = {}): number {
-  if (p.id !== "youtube") return p.maxMB;
-  const v = Number(env.STUDIO_EXPORT_MAX_MB);
+  if (p.id === "preview") return p.maxMB;
+  const v = Number(p.id === "reel" ? env.STUDIO_REEL_MAX_MB : env.STUDIO_EXPORT_MAX_MB);
   return Number.isFinite(v) && v > 0 ? v : p.maxMB;
 }
 
@@ -135,3 +155,13 @@ export const RenderRecord = z.strictObject({
     .nullable(),
 });
 export type RenderRecord = z.infer<typeof RenderRecord>;
+
+/**
+ * `reel.json` next to a Reel (projects/<id>/renders/reel/): what the 9:16 file was made from and how it was encoded,
+ * like `export.json`, with an .srt as its only sidecar (docs/PLAN.md section 9: captions are burned in).
+ */
+export const ReelRecord = RenderRecord.omit({ profile: true, sidecars: true }).extend({
+  profile: z.literal("reel"),
+  sidecars: z.strictObject({ srt: z.string(), captions: z.int() }),
+});
+export type ReelRecord = z.infer<typeof ReelRecord>;

@@ -2,12 +2,17 @@ import type { OverlayId, OverlayInScene } from "@studio/schema";
 import { useId, type ReactNode } from "react";
 import { AbsoluteFill, Easing, interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
 import type { TimedOverlay } from "../scene/timeline";
-import { ACCENT, INK, PAPER, SAFE_BOTTOM, W } from "../theme";
+import { SAFE_PORTRAIT, SAFE_WIDTH, isPortrait, useView } from "../scene/view";
+import { ACCENT, INK, PAPER, SAFE_BOTTOM } from "../theme";
 
 /**
  * Overlays: text and graphics above the picture and below the captions.
  * Each runs from its start frame to the end of its scene (the time card
  * leaves after ~2 s). Same type and ink as the captions so they belong together.
+ *
+ * In the 9:16 frame every overlay is re-placed (scene/view.ts SAFE_PORTRAIT): they sit in the top part of the frame,
+ * below the top interface and above the figures' heads, never in the strip the captions use, and long text wraps
+ * inside the safe box instead of running off the frame.
  */
 
 const font: React.CSSProperties = { fontFamily: "Fredoka, sans-serif", fontWeight: 700, lineHeight: 1, whiteSpace: "nowrap" };
@@ -25,21 +30,23 @@ function TitleCard({ o, f, len }: Props<"title_card">) {
   const { fps } = useVideoConfig();
   const pop = spring({ frame: f, fps, config: { damping: 12, stiffness: 180, mass: 0.7 } });
   const out = interpolate(f, [len - 8, len], [1, 0], clampOpts);
+  const tall = isPortrait(useView());
   return (
-    <AbsoluteFill style={{ justifyContent: "flex-start", alignItems: "center", paddingTop: 170, opacity: out }}>
+    <AbsoluteFill style={{ justifyContent: "flex-start", alignItems: "center", paddingTop: tall ? SAFE_PORTRAIT.top + 30 : 170, opacity: out }}>
       <div
         style={{
           transform: `scale(${0.6 + 0.4 * pop}) rotate(${-2 + (1 - pop) * 6}deg)`,
           background: PAPER,
           border: `9px solid ${INK}`,
           borderRadius: 22,
-          padding: "26px 56px 30px",
+          padding: tall ? "22px 44px 26px" : "26px 56px 30px",
           boxShadow: "0 14px 0 rgba(0,0,0,0.3)",
           textAlign: "center",
+          ...(tall ? { maxWidth: SAFE_WIDTH } : {}),
         }}
       >
-        <div style={{ ...font, fontSize: 104, color: INK }}>{o.text}</div>
-        {o.sub && <div style={{ ...font, fontSize: 42, color: "#8a5d3d", marginTop: 14 }}>{o.sub}</div>}
+        <div style={{ ...font, ...(tall ? { whiteSpace: "normal", lineHeight: 1.05 } : {}), fontSize: tall ? 78 : 104, color: INK }}>{o.text}</div>
+        {o.sub && <div style={{ ...font, ...(tall ? { whiteSpace: "normal" } : {}), fontSize: tall ? 36 : 42, color: "#8a5d3d", marginTop: 14 }}>{o.sub}</div>}
       </div>
     </AbsoluteFill>
   );
@@ -48,15 +55,17 @@ function TitleCard({ o, f, len }: Props<"title_card">) {
 const TIME_CARD = 66;
 function TimeCard({ o, f }: Props<"time_card">) {
   const len = TIME_CARD;
-  const slide = interpolate(f, [0, 10, len - 10, len], [-W, 0, 0, W], { ...clampOpts, easing: Easing.inOut(Easing.cubic) });
+  const view = useView();
+  const tall = isPortrait(view);
+  const slide = interpolate(f, [0, 10, len - 10, len], [-view.width, 0, 0, view.width], { ...clampOpts, easing: Easing.inOut(Easing.cubic) });
   const dim = life(f, len, 8, 8);
   if (f >= len) return null;
   return (
     <AbsoluteFill>
       <AbsoluteFill style={{ background: INK, opacity: dim * 0.5 }} />
       <AbsoluteFill style={{ justifyContent: "center", alignItems: "center" }}>
-        <div style={{ transform: `translateX(${slide}px) rotate(-4deg)`, background: "#3b6fd8", padding: "28px 90px", border: `8px solid ${INK}`, borderRadius: 18, boxShadow: "0 16px 0 rgba(0,0,0,0.3)" }}>
-          <div style={{ ...font, ...inked(16), fontSize: 120, color: ACCENT, textTransform: "uppercase", letterSpacing: 2 }}>{o.text}</div>
+        <div style={{ transform: `translateX(${slide}px) rotate(-4deg)`, background: "#3b6fd8", padding: tall ? "26px 50px" : "28px 90px", border: `8px solid ${INK}`, borderRadius: 18, boxShadow: "0 16px 0 rgba(0,0,0,0.3)", textAlign: "center", ...(tall ? { maxWidth: SAFE_WIDTH } : {}) }}>
+          <div style={{ ...font, ...(tall ? { whiteSpace: "normal", lineHeight: 1.08 } : {}), ...inked(tall ? 13 : 16), fontSize: tall ? 82 : 120, color: ACCENT, textTransform: "uppercase", letterSpacing: 2 }}>{o.text}</div>
         </div>
       </AbsoluteFill>
     </AbsoluteFill>
@@ -65,16 +74,17 @@ function TimeCard({ o, f }: Props<"time_card">) {
 
 function LowerThird({ o, f, len }: Props<"lower_third">) {
   const right = o.side === "right";
+  const tall = isPortrait(useView());
   const k = interpolate(f, [0, 12], [0, 1], { ...clampOpts, easing: Easing.out(Easing.back(1.4)) });
   const out = interpolate(f, [len - 10, len], [0, 1], { ...clampOpts, easing: Easing.in(Easing.cubic) });
   const dx = (1 - k + out) * 640 * (right ? 1 : -1);
   return (
-    <AbsoluteFill style={{ justifyContent: "flex-end", alignItems: right ? "flex-end" : "flex-start", padding: `0 90px ${SAFE_BOTTOM + 40}px` }}>
+    <AbsoluteFill style={tall ? { justifyContent: "flex-start", alignItems: right ? "flex-end" : "flex-start", padding: `${SAFE_PORTRAIT.top + 20}px ${SAFE_PORTRAIT.right}px 0 ${SAFE_PORTRAIT.left}px` } : { justifyContent: "flex-end", alignItems: right ? "flex-end" : "flex-start", padding: `0 90px ${SAFE_BOTTOM + 40}px` }}>
       <div style={{ transform: `translateX(${dx}px)`, display: "flex", flexDirection: right ? "row-reverse" : "row", alignItems: "stretch" }}>
         <div style={{ width: 22, background: ACCENT, border: `6px solid ${INK}`, borderRadius: 10 }} />
         <div style={{ background: PAPER, border: `6px solid ${INK}`, borderRadius: 14, padding: "16px 30px 18px", margin: right ? "0 10px 0 0" : "0 0 0 10px", boxShadow: "0 10px 0 rgba(0,0,0,0.25)", textAlign: right ? "right" : "left" }}>
-          <div style={{ ...font, fontSize: 58, color: INK }}>{o.text}</div>
-          {o.sub && <div style={{ ...font, fontSize: 32, color: "#6b5b4b", marginTop: 8 }}>{o.sub}</div>}
+          <div style={{ ...font, fontSize: tall ? 52 : 58, color: INK }}>{o.text}</div>
+          {o.sub && <div style={{ ...font, fontSize: tall ? 30 : 32, color: "#6b5b4b", marginTop: 8 }}>{o.sub}</div>}
         </div>
       </div>
     </AbsoluteFill>
@@ -88,10 +98,11 @@ function MapPin({ o, f, len }: Props<"map_pin">) {
   const route = interpolate(f, [8, 34], [1, 0], { ...clampOpts, easing: Easing.inOut(Easing.cubic) });
   const drop = spring({ frame: f - 32, fps, config: { damping: 8, stiffness: 220, mass: 0.6 } });
   const maskId = `route-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
+  const tall = isPortrait(useView());
   const routeD = "M 70 250 C 120 160, 200 230, 250 170 S 340 90, 372 120";
   return (
-    <AbsoluteFill style={{ alignItems: "flex-end", padding: "70px 80px", opacity: out }}>
-      <div style={{ transform: `translateX(${(1 - enter) * 600}px) rotate(${2 - enter * 4}deg)` }}>
+    <AbsoluteFill style={{ alignItems: tall ? "center" : "flex-end", padding: tall ? `${SAFE_PORTRAIT.top}px 0 0` : "70px 80px", opacity: out }}>
+      <div style={{ transform: `translateX(${(1 - enter) * 600}px) rotate(${2 - enter * 4}deg)${tall ? " scale(0.92)" : ""}`, transformOrigin: "50% 0" }}>
         <svg width={460} height={360} viewBox="0 0 460 360" style={{ overflow: "visible", filter: "drop-shadow(0 12px 0 rgba(0,0,0,0.28))" }}>
           <path d="M 12 20 L 150 6 L 300 22 L 448 8 L 444 300 L 300 316 L 150 300 L 16 314 Z" fill="#f1dfb6" stroke={INK} strokeWidth={7} strokeLinejoin="round" />
           <path d="M 150 6 L 150 300 M 300 22 L 300 316" stroke="#d8c08e" strokeWidth={4} />
@@ -126,11 +137,12 @@ function Counter({ o, f, len }: Props<"counter">) {
   const done = spring({ frame: f - 46, fps, config: { damping: 9, stiffness: 260, mass: 0.5 } });
   const enter = spring({ frame: f, fps, config: { damping: 14, stiffness: 200 } });
   const out = interpolate(f, [len - 8, len], [1, 0], clampOpts);
+  const tall = isPortrait(useView());
   const text = value.toLocaleString("en-US", { minimumFractionDigits: o.decimals ?? 0, maximumFractionDigits: o.decimals ?? 0 });
   return (
-    <AbsoluteFill style={{ justifyContent: "flex-start", alignItems: "center", paddingTop: 150, opacity: out * enter }}>
-      {o.label && <div style={{ ...font, ...inked(10), fontSize: 50, color: "#ffffff", marginBottom: 12, textTransform: "uppercase", letterSpacing: 2 }}>{o.label}</div>}
-      <div style={{ ...font, ...inked(20), fontSize: 150, color: ACCENT, fontVariantNumeric: "tabular-nums", transform: `scale(${f < 46 ? 1 : 1 + 0.1 * Math.sin(Math.min(1, done) * Math.PI)})`, filter: "drop-shadow(0 12px 0 rgba(0,0,0,0.3))" }}>
+    <AbsoluteFill style={{ justifyContent: "flex-start", alignItems: "center", paddingTop: tall ? SAFE_PORTRAIT.top + 20 : 150, opacity: out * enter }}>
+      {o.label && <div style={{ ...font, ...(tall ? { whiteSpace: "normal", textAlign: "center", maxWidth: SAFE_WIDTH } : {}), ...inked(10), fontSize: tall ? 42 : 50, color: "#ffffff", marginBottom: 12, textTransform: "uppercase", letterSpacing: 2 }}>{o.label}</div>}
+      <div style={{ ...font, ...inked(tall ? 16 : 20), fontSize: tall ? 128 : 150, color: ACCENT, fontVariantNumeric: "tabular-nums", transform: `scale(${f < 46 ? 1 : 1 + 0.1 * Math.sin(Math.min(1, done) * Math.PI)})`, filter: "drop-shadow(0 12px 0 rgba(0,0,0,0.3))" }}>
         {o.prefix ?? ""}
         {text}
         {o.suffix ? <span style={{ fontSize: 90 }}>{o.suffix}</span> : null}

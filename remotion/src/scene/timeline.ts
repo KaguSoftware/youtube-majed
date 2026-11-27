@@ -52,10 +52,17 @@ const CHUNK: Record<CaptionStyle, { words: number; chars: number }> = {
   subtitle: { words: 9, chars: 46 },
   punch: { words: 1, chars: 99 },
 };
+/** The same in the 9:16 frame, whose safe text box is 840 px wide (scene/view.ts): the words a line holds are fewer, and wrap to two lines at most. */
+const CHUNK_PORTRAIT: Record<CaptionStyle, { words: number; chars: number }> = {
+  word_pop: { words: 3, chars: 16 },
+  karaoke: { words: 5, chars: 24 },
+  subtitle: { words: 7, chars: 32 },
+  punch: { words: 1, chars: 99 },
+};
 
 /** Groups a scene's timed words into caption chunks for its style. */
-function chunkWords(timed: TimedWord[], style: CaptionStyle): Chunk[] {
-  const { words: maxWords, chars: maxChars } = CHUNK[style];
+function chunkWords(timed: TimedWord[], style: CaptionStyle, portrait: boolean): Chunk[] {
+  const { words: maxWords, chars: maxChars } = (portrait ? CHUNK_PORTRAIT : CHUNK)[style];
   const chunks: Chunk[] = [];
   let current: TimedWord[] = [];
   const flush = () => {
@@ -82,8 +89,11 @@ function holdChunks(chunks: Chunk[], scenes: TimedScene[]): void {
   });
 }
 
-export function buildTimeline(p: Project): Timeline {
-  const t = p.voice ? fromVoice(p) : p.timing ? fromTiming(p) : undefined;
+export type TimelineOptions = { /** 9:16: captions are cut into shorter chunks for the narrower safe box */ portrait?: boolean };
+
+export function buildTimeline(p: Project, o: TimelineOptions = {}): Timeline {
+  const portrait = Boolean(o.portrait);
+  const t = p.voice ? fromVoice(p, portrait) : p.timing ? fromTiming(p, portrait) : undefined;
   if (!t) throw new Error("project has neither voice.json nor timing.json");
   return { ...t, overlays: timeOverlays(p, t) };
 }
@@ -106,7 +116,7 @@ function timeOverlays(p: Project, t: Omit<Timeline, "overlays">): TimedOverlay[]
   });
 }
 
-function fromVoice(p: Project): Omit<Timeline, "overlays"> {
+function fromVoice(p: Project, portrait: boolean): Omit<Timeline, "overlays"> {
   const voice = p.voice!;
   const fps = FPS;
   const lines = new Map(voice.lines.map((l) => [l.id, l]));
@@ -141,13 +151,13 @@ function fromVoice(p: Project): Omit<Timeline, "overlays"> {
       lines.get(id)!.words.map((w, wi): TimedWord => ({ text: w.text, lineId: id, index: wi, sceneIndex: index, start: at(id, w.start), end: Math.max(at(id, w.start) + 1, at(id, w.end)) })),
     );
     words.push(...timed);
-    if (scene.caption !== "none") chunks.push(...chunkWords(timed, scene.caption));
+    if (scene.caption !== "none") chunks.push(...chunkWords(timed, scene.caption, portrait));
   });
   holdChunks(chunks, scenes);
   return { fps, total, scenes, words, chunks, source: "voice" };
 }
 
-function fromTiming(p: Project): Omit<Timeline, "overlays"> {
+function fromTiming(p: Project, portrait: boolean): Omit<Timeline, "overlays"> {
   const timing = p.timing!;
   const fps = timing.fps;
   const lines = new Map(p.script.lines.map((l) => [l.id, l]));
@@ -173,7 +183,7 @@ function fromTiming(p: Project): Omit<Timeline, "overlays"> {
     });
     words.push(...timed);
 
-    if (scene.caption !== "none") chunks.push(...chunkWords(timed, scene.caption));
+    if (scene.caption !== "none") chunks.push(...chunkWords(timed, scene.caption, portrait));
 
     cursor += frames;
   });
