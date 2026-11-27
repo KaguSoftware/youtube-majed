@@ -211,6 +211,14 @@ Everything runs on the Mac; only writing goes to Claude.
 - **Remotion renderer**: animation library, 16:9 and 9:16 compositions, FFmpeg H.264 export.
 - Supabase optional, only for queueing from a phone.
 
+**Hosting (decided 2026-11-28, Majed: "a downloadable thing" usable from his 3 computers)**
+
+- The website is also deployed to Vercel (`https://youtube-majed.vercel.app`, Root Directory `app`). It is only the screen: it holds no data and runs no server code. Every page loads in the browser and talks to the **helper** (worker + voice service) on the computer in front of it, at `http://127.0.0.1:8766`. `pnpm app` still serves the same pages locally.
+- The worker answers only the Studio's origins (localhost:3100, the Vercel domains, `STUDIO_ALLOWED_ORIGINS`), checks the Host header (DNS rebinding) and answers Chrome's local-network preflight (`worker/src/access.ts`). Safari blocks an https page from calling 127.0.0.1; use Chrome, Edge or Firefox.
+- The helper is installed per computer: on a Mac, `curl -fsSL https://raw.githubusercontent.com/KaguSoftware/youtube-majed/main/scripts/install-helper.sh | bash` (clone into `~/Studio`, tools, voice weights, sound library, login items); then `scripts/helper.sh start|stop|status|logs|update`. Each computer keeps its own `projects/`; nothing syncs.
+- **Windows is the next stage, not done.** The worker uses macOS-only pieces (`open -R`, process-group kills, spawning `.cmd` shims without a shell) and the voice needs CUDA or CPU builds of torch. Low-poly 3D sources (`assets/3d/`, licensed) are not in git, so other computers fall back to stick figures unless copied by hand.
+- CI: GitHub Actions runs typecheck, unit tests (fake claude) and the app build on every push.
+
 **Folder layout**
 
 ```
