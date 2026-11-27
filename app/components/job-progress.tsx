@@ -10,6 +10,8 @@ const STEP_WORDS: Record<string, string> = {
   rewrite: "Claude is rewriting",
   factcheck: "The fact-checker is checking",
   critic: "The critic is reading",
+  cast: "Claude is casting the characters and choosing the places",
+  storyboard: "Claude is planning the scenes",
 };
 
 /**
@@ -30,6 +32,7 @@ export function JobProgress({ jobs, onCancel }: { jobs: Job[]; onCancel?: (job: 
     <div role="status" aria-live="polite" className="space-y-3">
       {jobs.map((job) => {
         const running = Object.entries(job.steps).filter(([, s]) => s?.phase === "running");
+        if (job.status === "running" && job.progress) return <LocalProgress key={job.id} job={job} now={now} onCancel={onCancel} />;
         if (job.status !== "running" || !running.length) {
           return (
             <div key={job.id} className="flex items-baseline justify-between gap-4 text-sm">
@@ -75,6 +78,37 @@ export function JobProgress({ jobs, onCancel }: { jobs: Job[]; onCancel?: (job: 
           );
         });
       })}
+    </div>
+  );
+}
+
+/** voice, mix, render and export know how far along they are: a real bar, what it is doing, and the time left once there is enough to say. */
+function LocalProgress({ job, now, onCancel }: { job: Job; now: number; onCancel?: (job: Job) => void }) {
+  const p = job.progress!;
+  const frac = p.total ? Math.min(1, p.done / p.total) : 0;
+  const elapsed = (now - (job.startedAt ?? now)) / 1000;
+  const left = frac > 0.04 ? (elapsed / frac) * (1 - frac) : undefined;
+  return (
+    <div>
+      <div className="flex items-baseline justify-between gap-4 text-sm">
+        <span className="min-w-0 font-semibold text-text">
+          <span aria-hidden className="mr-2 inline-block size-2 rounded-full bg-accent align-middle" />
+          {p.label}
+          {p.detail && <span className="font-normal text-muted"> · {p.detail}</span>}
+        </span>
+        <span className="tabular shrink-0 text-muted">
+          {Math.round(frac * 100)}% · {clock(elapsed)}
+          {left !== undefined && <span className="text-faint"> · about {clock(left)} left</span>}
+          {onCancel && (
+            <button type="button" onClick={() => onCancel(job)} className="ml-3 text-faint underline-offset-2 hover:text-text hover:underline">
+              Cancel
+            </button>
+          )}
+        </span>
+      </div>
+      <div className="mt-2 h-1 overflow-hidden rounded-full bg-lifted" role="progressbar" aria-label={p.label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(frac * 100)}>
+        <div className="h-full origin-left rounded-full bg-accent transition-transform duration-500 ease-linear" style={{ transform: `scaleX(${frac})` }} />
+      </div>
     </div>
   );
 }

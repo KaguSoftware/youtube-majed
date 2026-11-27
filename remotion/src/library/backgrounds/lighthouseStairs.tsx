@@ -5,7 +5,7 @@ import { Glow, SkyGradient, Stars, X0, X1, Y0, Y1, lit, t, useGid, type BgProps 
 const GROUND = 880;
 
 function Back({ tod, frame }: BgProps) {
-  const c = t(tod);
+  const c = t(tod, true);
   const shadeId = useGid();
   const clipId = useGid();
   const rows = Math.ceil((GROUND - Y0) / 72);

@@ -7,3 +7,7 @@ export * from "./validate";
 export { closest } from "./ids";
 export * from "./story";
 export * from "./step-schemas";
+export * from "./storyboard";
+export * from "./sound";
+export * from "./export";
+export * from "./pipeline";

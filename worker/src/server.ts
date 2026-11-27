@@ -10,17 +10,22 @@
  * accept a comment, lock) answer at once. Every request body is checked with
  * zod.
  */
-import { projectsDir, storyPaths } from "@studio/project";
-import { FactCheckOutput, Format, NarrativeId, budgetOf } from "@studio/schema";
-import { readJson } from "@studio/project";
+import { projectPaths, projectsDir, readJson, readVoice, storyPaths, storyboardPaths, writeJson } from "@studio/project";
+import { CastId, CastMember, FactCheckOutput, Format, MixResult, NarrativeId, SceneFile, budgetOf } from "@studio/schema";
 import { pathToFileURL } from "node:url";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { join } from "node:path";
+import { createReadStream, existsSync, statSync } from "node:fs";
+import { extname, join, normalize, resolve, sep } from "node:path";
 import { z } from "zod";
 import { JobQueue, type JobKind, type Runner } from "./queue";
 import { check, decide, fix, lock, readHistory, review, rewrite, saveNarration, unlock } from "./review";
 import { StoryError, createProject, generateOptions, listProjects, pickOption, readBrief, readComments, readLoopMap, readNarration, readOptions, readPick, readSteps, writeStory } from "./story";
 import { byStep, readUsage, totals } from "./usage";
+import { readScenes, readStoryboard, storyboard } from "./storyboard";
+import { runMixAsync } from "./mix";
+import { pipelineOf } from "./pipeline";
+import { exportVideo, readExportRecord, readPreviewRecord, renderPaths, renderPreview } from "./render";
+import { voiceProject } from "./voice-run";
 
 const PORT = Number(process.env.STUDIO_WORKER_PORT ?? 8766);
 
@@ -40,6 +45,26 @@ const runners: Record<JobKind, Runner> = {
   },
   fix: (j, o) => fix(j.project, o),
   rewrite: (j, o) => rewrite(j.project, z.array(z.string()).parse(j.args.lineIds), z.string().parse(j.args.direction), o),
+  storyboard: async (j, o) => (await storyboard(j.project, { ...o, force: Boolean(j.args.force) })).report.stats,
+  voice: async (j, o) => {
+    const line = typeof j.args.line === "string" ? j.args.line : undefined;
+    const s = await voiceProject(j.project, {
+      signal: o.signal,
+      ...(line ? { line } : {}),
+      ...(typeof j.args.seed === "number" ? { seed: j.args.seed } : {}),
+      ...(typeof j.args.energy === "number" ? { energy: j.args.energy } : {}),
+      onLine: ({ i, total, line: id }) => o.report({ label: "Voicing the script", done: i, total, detail: i < total ? `line ${i + 1} of ${total} (${id})` : "building the narration track" }),
+    });
+    const { voice: _voice, ...summary } = s;
+    return summary;
+  },
+  mix: async (j, o) => {
+    o.report({ label: "Mixing the sound", done: 0, total: 1 });
+    const r = await runMixAsync(j.project, { signal: o.signal, force: Boolean(j.args.force) });
+    return { cached: r.cached, lufs: r.result.integratedLufs, truePeakDbtp: r.result.truePeakDbtp, cues: r.plan.cues.length, warnings: r.plan.warnings };
+  },
+  render: (j, o) => renderPreview(j.project, { signal: o.signal, report: o.report }),
+  export: (j, o) => exportVideo(j.project, { signal: o.signal, report: o.report }),
 };
 
 export const queue = new JobQueue(join(projectsDir(), "studio.sqlite"), runners, (job) => {
@@ -59,19 +84,20 @@ function projectState(id: string) {
   return n?.lockedAt ? "locked" : n ? "script" : readPick(id) ? "writing" : readOptions(id) ? "options" : "brief";
 }
 
-function projectSummary(id: string) {
+async function projectSummary(id: string) {
   const brief = readBrief(id);
   const n = readNarration(id);
   const pick = readPick(id);
-  return { id, brief, state: projectState(id), title: pick?.option.title ?? null, lockedAt: n?.lockedAt ?? null, updatedAt: n?.updatedAt ?? pick?.pickedAt ?? brief.createdAt, budget: budgetOf(brief), wpm: brief.wpm };
+  const pipeline = await pipelineOf(id, queue.list(40, id));
+  return { id, brief, state: projectState(id), title: pick?.option.title ?? null, lockedAt: n?.lockedAt ?? null, updatedAt: n?.updatedAt ?? pick?.pickedAt ?? brief.createdAt, budget: budgetOf(brief), wpm: brief.wpm, pipeline };
 }
 
-function projectDetail(id: string) {
+async function projectDetail(id: string) {
   const loopmap = readLoopMap(id) ?? null;
   const narration = readNarration(id) ?? null;
   const usage = readUsage(id);
   return {
-    ...projectSummary(id),
+    ...(await projectSummary(id)),
     options: readOptions(id) ?? null,
     pick: readPick(id) ?? null,
     loopmap,
@@ -93,6 +119,28 @@ function notLocked(id: string): undefined {
   readBrief(id);
   if (readNarration(id)?.lockedAt) throw new StoryError("the script is locked; unlock it first");
   return undefined;
+}
+
+function needsScenes(id: string): void {
+  readBrief(id);
+  if (!readVoice(id)) throw new StoryError("voice the script first");
+  if (!existsSync(storyboardPaths(id).scenes)) throw new StoryError("plan the storyboard first");
+}
+
+/** voice.json as the voice page needs it: per line the take's quality, length and any retake, plus the track. */
+function voiceState(id: string) {
+  const v = readVoice(id);
+  if (!v) return { voice: null };
+  if (!v.ok) throw new StoryError(`voice.json is not valid: ${v.errors[0]}`);
+  const overrides = readJson(projectPaths(id).overrides, z.record(z.string(), z.object({ seed: z.number().optional(), energy: z.number().optional() }))) ?? {};
+  return {
+    voice: {
+      engine: v.data.engine,
+      reference: v.data.reference.file,
+      track: v.data.track,
+      lines: v.data.lines.map((l) => ({ id: l.id, text: l.text, energy: l.energy, offset: l.offset, duration: l.duration, file: l.file, quality: l.quality, retake: overrides[l.id] ?? null })),
+    },
+  };
 }
 
 class HttpError extends Error {
@@ -141,7 +189,7 @@ type Route = [method: string, pattern: RegExp, handler: (req: IncomingMessage, r
 
 const routes: Route[] = [
   ["GET", /^\/health$/, () => ({ ok: true, busy: queue.list(5).some((j) => j.status === "running") })],
-  ["GET", /^\/projects$/, () => listProjects().map(projectSummary).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))],
+  ["GET", /^\/projects$/, async () => (await Promise.all(listProjects().map(projectSummary))).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))],
   [
     "POST",
     /^\/projects$/,
@@ -153,6 +201,7 @@ const routes: Route[] = [
     },
   ],
   ["GET", /^\/projects\/([\w-]+)$/, (_q, _s, [id]) => projectDetail(id!)],
+  ["GET", /^\/projects\/([\w-]+)\/pipeline$/, (_q, _s, [id]) => pipelineOf(id!, queue.list(40, id!))],
   [
     "POST",
     /^\/projects\/([\w-]+)\/options$/,
@@ -179,6 +228,12 @@ const routes: Route[] = [
       return { job: enqueue(id!, "review", `review of ${id}`, { force: Boolean(force), fix: autoFix }) };
     },
   ],
+  ["POST", /^\/projects\/([\w-]+)\/storyboard$/, async (q, _s, [id]) => {
+    const { force } = await body(q, Force);
+    if (!readNarration(id!)?.lockedAt) throw new StoryError("lock the script before the storyboard");
+    return { job: enqueue(id!, "storyboard", `storyboard ${id}`, { force: Boolean(force) }) };
+  }],
+  ["GET", /^\/projects\/([\w-]+)\/storyboard$/, (_q, _s, [id]) => ({ storyboard: readStoryboard(id!) ?? null })],
   ["POST", /^\/projects\/([\w-]+)\/fix$/, (_q, _s, [id]) => notLocked(id!) ?? ({ job: enqueue(id!, "fix", `fix flagged lines in ${id}`) })],
   [
     "POST",
@@ -218,6 +273,60 @@ const routes: Route[] = [
     },
   ],
   ["POST", /^\/projects\/([\w-]+)\/unlock$/, (_q, _s, [id]) => ({ narration: unlock(id!) })],
+  // ---- Phase 3: voice, scenes, sound, render, export
+  [
+    "POST",
+    /^\/projects\/([\w-]+)\/voice$/,
+    async (req, _s, [id]) => {
+      const b = await body(req, z.strictObject({ line: z.string().optional(), seed: z.int().optional(), energy: z.int().min(1).max(5).optional() }));
+      if (!readNarration(id!)?.lockedAt) throw new StoryError("lock the script before the voice");
+      return { job: enqueue(id!, "voice", b.line ? `retake ${b.line} of ${id}` : `voice for ${id}`, b) };
+    },
+  ],
+  ["GET", /^\/projects\/([\w-]+)\/voice$/, (_q, _s, [id]) => voiceState(id!)],
+  [
+    "POST",
+    /^\/projects\/([\w-]+)\/mix$/,
+    async (req, _s, [id]) => {
+      const { force } = await body(req, Force);
+      needsScenes(id!);
+      return { job: enqueue(id!, "mix", `mix ${id}`, { force: Boolean(force) }) };
+    },
+  ],
+  ["GET", /^\/projects\/([\w-]+)\/mix$/, (_q, _s, [id]) => ({ mix: readJson(join(projectPaths(id!).audioDir, "mix.json"), MixResult) ?? null })],
+  [
+    "POST",
+    /^\/projects\/([\w-]+)\/render$/,
+    (_q, _s, [id]) => {
+      needsScenes(id!);
+      return { job: enqueue(id!, "render", `preview render of ${id}`) };
+    },
+  ],
+  [
+    "POST",
+    /^\/projects\/([\w-]+)\/export$/,
+    (_q, _s, [id]) => {
+      needsScenes(id!);
+      return { job: enqueue(id!, "export", `YouTube export of ${id}`) };
+    },
+  ],
+  ["GET", /^\/projects\/([\w-]+)\/renders$/, (_q, _s, [id]) => ({ preview: readPreviewRecord(id!) ?? null, export: readExportRecord(id!) ?? null })],
+  ["GET", /^\/projects\/([\w-]+)\/scenes$/, (_q, _s, [id]) => ({ scenes: readScenes(id!) ?? null })],
+  ["GET", /^\/projects\/([\w-]+)\/cast$/, (_q, _s, [id]) => ({ cast: readScenes(id!)?.cast ?? null })],
+  [
+    "PUT",
+    /^\/projects\/([\w-]+)\/cast$/,
+    async (req, _s, [id]) => {
+      const { cast } = await body(req, z.strictObject({ cast: z.record(CastId, CastMember) }));
+      const file = readScenes(id!);
+      if (!file) throw new StoryError("there are no scenes yet; plan the storyboard first");
+      // the scene file is the judge: every character a scene uses must stay in the cast
+      const next = SceneFile.safeParse({ ...file, cast });
+      if (!next.success) throw new HttpError(422, next.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "));
+      writeJson(storyboardPaths(id!).scenes, next.data);
+      return { cast: next.data.cast };
+    },
+  ],
   ["GET", /^\/jobs$/, () => queue.list(30)],
   [
     "POST",
@@ -230,7 +339,42 @@ const routes: Route[] = [
   ],
 ];
 
+
+// ---------------------------------------------------------------- media files
+
+const MIME: Record<string, string> = { ".mp4": "video/mp4", ".wav": "audio/wav", ".jpg": "image/jpeg", ".srt": "text/plain; charset=utf-8", ".txt": "text/plain; charset=utf-8", ".json": "application/json" };
+/** Only what the app plays or downloads: renders, takes and the mixed track. */
+const SERVED = [/^renders\//, /^audio\/lines\/[^/]+\.wav$/, /^audio\/(mix|narration)\.wav$/];
+
+/** GET /projects/<id>/file/<path>: a file of the project with Range support (the video player seeks). */
+function serveFile(req: IncomingMessage, res: ServerResponse, id: string, rel: string): void {
+  const root = projectPaths(id).dir;
+  const file = resolve(root, normalize(rel));
+  // the allow-list is checked on the resolved path, so "renders/../brief.json" is judged as brief.json
+  const inside = file.startsWith(root + sep) ? file.slice(root.length + 1).split(sep).join("/") : "";
+  if (!inside || !SERVED.some((re) => re.test(inside)) || !existsSync(file) || !statSync(file).isFile()) return send(res, 404, { error: `no file ${rel}` });
+  const size = statSync(file).size;
+  const headers: Record<string, string | number> = { "content-type": MIME[extname(file)] ?? "application/octet-stream", "accept-ranges": "bytes", "cache-control": "no-cache" };
+  if (new URL(req.url ?? "/", "http://localhost").searchParams.has("download")) headers["content-disposition"] = `attachment; filename="${file.split(sep).pop()}"`;
+  const m = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? "");
+  if (m && (m[1] || m[2])) {
+    const start = m[1] ? Number(m[1]) : Math.max(0, size - Number(m[2]));
+    const end = m[1] && m[2] ? Math.min(Number(m[2]), size - 1) : size - 1;
+    if (start > end || start >= size) {
+      res.writeHead(416, { "content-range": `bytes */${size}` });
+      return void res.end();
+    }
+    res.writeHead(206, { ...headers, "content-range": `bytes ${start}-${end}/${size}`, "content-length": end - start + 1 });
+    createReadStream(file, { start, end }).pipe(res);
+    return;
+  }
+  res.writeHead(200, { ...headers, "content-length": size });
+  createReadStream(file).pipe(res);
+}
+
 export const server = createServer(async (req, res) => {
+  const fileMatch = req.method === "GET" ? /^\/projects\/([\w-]+)\/file\/(.+)$/.exec(new URL(req.url ?? "/", "http://localhost").pathname) : null;
+  if (fileMatch) return serveFile(req, res, fileMatch[1]!, decodeURIComponent(fileMatch[2]!));
   const url = new URL(req.url ?? "/", "http://localhost");
   if (req.method === "GET" && url.pathname === "/events") {
     res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" });

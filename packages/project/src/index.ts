@@ -52,8 +52,13 @@ export function projectPaths(id: string): ProjectPaths {
  * remotion/public/projects/<id>/ (gitignored). Copies, not symlinks: Remotion's
  * static file server answers 404 for symlinked files. Cheap (a few MB) and
  * re-run by `pnpm voice` and `pnpm render`, so the copies are never stale.
+ *
+ * `track: "mix"` (Phase 3) plays the mixed soundtrack from `pnpm mix` instead
+ * of the bare narration: mix.wav is copied too, and the copied voice.json's
+ * `track.file` points at it. Word timings are unchanged (the mix is laid on the
+ * narration's timeline), so nothing in Remotion needs to know.
  */
-export function syncAudio(id: string): void {
+export function syncAudio(id: string, o: { track?: "narration" | "mix" } = {}): void {
   const p = projectPaths(id);
   mkdirSync(p.publicDir, { recursive: true });
   for (const source of [p.voiceJson, p.narration]) {
@@ -61,6 +66,14 @@ export function syncAudio(id: string): void {
     const dest = join(p.publicDir, basename(source));
     rmSync(dest, { force: true }); // also removes a leftover symlink from earlier versions
     copyFileSync(source, dest);
+  }
+  const mix = join(p.audioDir, "mix.wav");
+  if (o.track === "mix") {
+    if (!existsSync(mix)) throw new Error(`${id} has no mix yet: run \`pnpm mix ${id}\``);
+    copyFileSync(mix, join(p.publicDir, "mix.wav"));
+    const voice = JSON.parse(readFileSync(p.voiceJson, "utf8")) as { track: { file: string } };
+    voice.track.file = "mix.wav";
+    writeFileSync(join(p.publicDir, "voice.json"), JSON.stringify(voice, null, 2) + "\n");
   }
 }
 
@@ -147,4 +160,40 @@ export function writeJson(file: string, data: unknown): void {
   const tmp = `${file}.${process.pid}.tmp`;
   writeFileSync(tmp, JSON.stringify(data, null, 2) + "\n");
   renameSync(tmp, file);
+}
+
+// ---------------------------------------------------------------- storyboard and mix (Phase 3)
+
+export const ASSETS_DIR = join(REPO_DIR, "assets");
+/** The asset index (category, mood, length, loudness, loop points, licence), built by `pnpm assets index`. */
+export const ASSET_INDEX = join(ASSETS_DIR, "index.sqlite");
+
+export type StoryboardPaths = {
+  dir: string;
+  /** the scene file Remotion renders (SceneFile) */
+  scenes: string;
+  /** music moods, reveals, flags, variety-guard hits, stats (StoryboardFile) */
+  report: string;
+  /** Claude's raw drafts per call, with the input hash they answer (a rerun reuses them) */
+  drafts: string;
+  /** the mix plan: every cue, its file, time and gain (MixPlan) */
+  mixPlan: string;
+  /** the mixed soundtrack Remotion plays */
+  mix: string;
+  /** mixed tracks by plan hash, so an unchanged plan is never mixed twice */
+  mixCache: string;
+};
+
+export function storyboardPaths(id: string): StoryboardPaths {
+  const { dir, audioDir } = projectPaths(id);
+  const sb = join(dir, "storyboard");
+  return {
+    dir: sb,
+    scenes: join(sb, "scenes.json"),
+    report: join(sb, "storyboard.json"),
+    drafts: join(sb, "drafts"),
+    mixPlan: join(audioDir, "mixplan.json"),
+    mix: join(audioDir, "mix.wav"),
+    mixCache: join(audioDir, "mix"),
+  };
 }

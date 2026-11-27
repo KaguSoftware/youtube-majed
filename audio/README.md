@@ -165,6 +165,42 @@ retake of one line takes ~5–10 s; the first request after start-up is ~15 s sl
 | FastAPI, uvicorn | 0.165.0 / 0.54.0 | MIT / BSD-3-Clause | |
 | Voice reference | `assets/voices/` | yours | own voice only (plan, risks); never committed |
 
+## Sound design: assets and the mix (Phase 3)
+
+```bash
+pnpm assets seed && pnpm assets index    # the asset library (see assets/README.md)
+pnpm mix eddystone-lead                  # projects/<id>/audio/mix.wav from the storyboard and voice.json
+pnpm render:project eddystone-lead       # 720p preview with the mixed soundtrack
+```
+
+`worker/src/mix.ts` turns the storyboard's tags into a plan
+(`projects/<id>/audio/mixplan.json`, zod schema in `packages/schema/src/sound.ts`):
+every cue with its file, time on the narration track, gain and the reason it is
+there. `studio_audio/mix.py` renders it. Claude only writes tags; code decides:
+
+| Rule | What code does |
+| --- | --- |
+| sfx tag in a scene | the file's first sound (its measured onset) lands on the tagged word |
+| head fake | a riser that **ends** on the reveal word, then a hit on the word (`hit`) or the beds drop out until the line ends (`silence`); music and ambience drop out 0.3 s before the word either way |
+| transitions | a whoosh whose loudest moment is on a wipe's cut; an impact on a smash cut (not on a reveal shot, which has its hit) |
+| locations | one ambience loop per run of scenes with the same kind of place (from the background's id and description; interiors get room tone) |
+| music | one bed per run of loops with the same mood; a near mood if the library has none; crossfaded |
+| ducking | music −11 dB under the voice (attack 70 ms, release 550 ms, 80 ms lookahead from the narration itself); ambience −4 dB |
+| final | sum → −14 LUFS integrated (BS.1770) through a stereo true-peak limiter, ceiling −1.5 dBTP |
+
+Levels: beds by integrated LUFS (music −21, ambience −31, room tone −44 before
+ducking), one-shots by their loudest 400 ms window (sfx −21, footsteps −25, riser
+−19, reveal hit −15, whoosh −22).
+
+**Why one mixed track, mixed here.** Remotion can only set a volume per clip:
+it cannot duck from the voice, limit the true peak of the sum or normalise the
+final loudness. Mixing in Python reuses the mastering code (pyloudnorm, the
+true-peak limiter) and gives Remotion one file to play. `pnpm render:project`
+copies `mix.wav` next to `voice.json` and points `track.file` at it, so
+remotion/src is unchanged. The plan is cached by hash
+(`projects/<id>/audio/mix/<hash>.wav`): an unchanged plan is never mixed twice,
+and `pnpm mix` never calls the voice service.
+
 ## Tests
 
 ```bash

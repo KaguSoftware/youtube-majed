@@ -37,3 +37,6 @@ remotion/public/projects/
 
 # python build metadata
 *.egg-info/
+
+# asset index, rebuilt from assets/sources.json by `pnpm assets index` (local only)
+assets/index.sqlite*

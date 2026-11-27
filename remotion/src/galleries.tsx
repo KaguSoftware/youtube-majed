@@ -1,4 +1,4 @@
-import { ACTIONS, BACKGROUNDS, EXPRESSIONS, GRADES, HATS, type ActionId, type BackgroundId, type CastMember, type ExpressionId, type GradeId, type HatId } from "@studio/schema";
+import { BACKGROUNDS, CastMember as CastSchema, EXPRESSIONS, HATS, type BackgroundId, type CastMember, type ExpressionId, type GradeId, type HatId } from "@studio/schema";
 import { AbsoluteFill, Sequence, useCurrentFrame } from "remotion";
 import { ACTION_LIB } from "./library/actions";
 import { BACKGROUND_LIB } from "./library/backgrounds";
@@ -10,7 +10,7 @@ import { C, H, INK, PAPER, W, hash01 } from "./theme";
 /** Library previews for Remotion Studio: judge the look of every item at a glance. */
 
 const label: React.CSSProperties = { fontFamily: "Fredoka, sans-serif", fontWeight: 700, color: INK, fontSize: 30 };
-const CAST = (hat: HatId, color: string, beard = false): CastMember => ({ name: "", hat, color, beard, scale: 1 });
+const CAST = (hat: HatId, color: string, beard = false): CastMember => CastSchema.parse({ name: "x", hat, color, beard: beard ? "full" : "none", hairColor: beard ? "#e9e5dd" : "#3b2a22" });
 
 function Cell({ x, y, w, h, title, children }: { x: number; y: number; w: number; h: number; title: string; children: React.ReactNode }) {
   return (
@@ -24,50 +24,15 @@ function Cell({ x, y, w, h, title, children }: { x: number; y: number; w: number
   );
 }
 
-export function ActionGallery() {
-  const frame = useCurrentFrame();
-  const ids = Object.keys(ACTIONS) as ActionId[];
-  const cols = 5;
-  const w = W / cols;
-  const h = H / Math.ceil(ids.length / cols);
-  return (
-    <AbsoluteFill style={{ background: PAPER }}>
-      <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H}>
-        {ids.map((id, i) => {
-          const def = ACTION_LIB[id];
-          const phase = hash01(id);
-          const f = def.loop ? frame : frame % (def.frames + 45);
-          const { pose, breath } = alive(def, f, phase);
-          const prev = alive(def, f - 1, phase).pose;
-          const x = (i % cols) * w;
-          const y = Math.floor(i / cols) * h;
-          return (
-            <Cell key={id} x={x} y={y} w={w} h={h} title={id}>
-              <g transform={`translate(${w / 2} ${h - 52}) scale(0.56)`}>
-                <Figure
-                  pose={pose} prevPose={prev} breath={breath} x={0} groundY={0} facing={1}
-                  cast={CAST(id === "sneak" ? "beanie" : "keeper_cap", "#d0473d", id !== "sneak")}
-                  expr={def.face ?? (id === "panic" ? "fear" : id === "celebrate" ? "happy" : id === "argue" ? "angry" : "neutral")}
-                  silhouette={false} blink={blink(frame, phase)} tod="day" frame={frame}
-                  attachments={id === "walk" ? [{ point: "hand_r", prop: "lantern" }] : []} fx={def.fx}
-                />
-              </g>
-            </Cell>
-          );
-        })}
-      </svg>
-    </AbsoluteFill>
-  );
-}
-
 export function ExpressionGallery() {
   const frame = useCurrentFrame();
   const ids = Object.keys(EXPRESSIONS) as ExpressionId[];
   const hats = Object.keys(HATS) as HatId[];
   const colors = ["#d0473d", "#2f9e8f", "#e0a24e", "#5b6bd6"];
-  const cols = 5;
+  const cols = 6;
   const w = W / cols;
-  const h = H / 2;
+  const h = H / 3;
+  const k = 1.35;
   return (
     <AbsoluteFill style={{ background: PAPER }}>
       <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H}>
@@ -78,18 +43,18 @@ export function ExpressionGallery() {
           const y = Math.floor(i / cols) * h;
           return (
             <Cell key={id} x={x} y={y} w={w} h={h} title={id}>
-              <g transform={`translate(${w / 2 - 14} ${h + 150}) scale(1.25)`}>
+              <g transform={`translate(${w / 2 - 16} ${h + 300}) scale(${k})`}>
                 <Figure
                   pose={{ ...pose, gaze: 0.6 }} prevPose={pose} breath={breath} x={0} groundY={0} facing={1}
-                  cast={CAST(hats[i % hats.length]!, colors[i % colors.length]!, i % 3 === 0)}
+                  cast={CAST(hats[i % hats.length]!, colors[i % colors.length]!, i % 5 === 0)}
                   expr={id} silhouette={false} blink={0} tod="day" frame={frame} attachments={[]}
                 />
               </g>
             </Cell>
           );
         })}
-        <Cell x={4 * w} y={h} w={w} h={h} title="silhouette">
-          <g transform={`translate(${w / 2 - 14} ${h + 150}) scale(1.25)`}>
+        <Cell x={(ids.length % cols) * w} y={Math.floor(ids.length / cols) * h} w={w} h={h} title="silhouette">
+          <g transform={`translate(${w / 2 - 16} ${h + 300}) scale(${k})`}>
             <Figure
               pose={alive(ACTION_LIB.idle, frame, 0.3).pose} prevPose={alive(ACTION_LIB.idle, frame, 0.3).pose} breath={1} x={0} groundY={0} facing={1}
               cast={CAST("keeper_cap", "#d0473d", true)} expr="neutral" silhouette blink={0} tod="day" frame={frame} attachments={[]}
@@ -102,8 +67,9 @@ export function ExpressionGallery() {
 }
 
 const BG_SECONDS = 2;
+/** Each background at the three times of day (the other grades are in the Grades gallery). */
 export const BG_COMBOS: { bg: BackgroundId; grade: GradeId }[] = (Object.keys(BACKGROUNDS) as BackgroundId[]).flatMap((bg) =>
-  (Object.keys(GRADES) as GradeId[]).map((grade) => ({ bg, grade })),
+  (["day", "dusk", "night"] as const).map((grade) => ({ bg, grade })),
 );
 export const BG_GALLERY_FRAMES = BG_COMBOS.length * BG_SECONDS * 30;
 
@@ -117,7 +83,7 @@ function BackgroundCard({ bg, grade }: { bg: BackgroundId; grade: GradeId }) {
         <def.Back tod={tod} frame={frame} />
         {def.Front && <def.Front tod={tod} frame={frame} />}
       </svg>
-      <GradeOverlay grade={grade} />
+      <GradeOverlay grade={grade} interior={BACKGROUNDS[bg].interior} />
       <div style={{ ...label, position: "absolute", left: 40, top: 32, background: PAPER, padding: "8px 18px", borderRadius: 12 }}>
         {bg} · {grade}
       </div>

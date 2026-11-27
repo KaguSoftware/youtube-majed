@@ -1,28 +1,17 @@
-import type { AttachPointId, PropId } from "@studio/schema";
+import type { PropId } from "@studio/schema";
 import type { ReactNode } from "react";
-import type { Vec } from "../rig/skeleton";
 import { ACCENT, C, INK, PAPER, mix, tone, type TimeOfDay } from "../theme";
+import { OUT, propTone, type HeldArgs, type PlacedArgs, type PropImpl } from "./prop-kit";
+import { HELD_PROPS } from "./props-held";
+import { PLACED_PROPS } from "./props-placed";
+
+export type { HeldArgs, PlacedArgs, PropImpl };
 
 /**
- * Props. Held props draw at a hand in the figure's own space; placed props
- * draw in world space at a position's x, on the ground, the horizon or the wall.
- * Props use the figure's ink outline (thinner) so they read as "things",
- * not scenery.
+ * The original Phase 0 props. New props live in props-held.tsx and
+ * props-placed.tsx; PROP_IMPL merges all three, and TypeScript checks that
+ * together they cover the catalogue exactly.
  */
-
-export type HeldArgs = { at: Vec; swing: number; tod: TimeOfDay; frame: number; point: AttachPointId };
-export type PlacedArgs = { x: number; groundY: number; horizonY: number; wallY: number; tod: TimeOfDay; frame: number; flip: boolean };
-
-type PropImpl = {
-  held?: (a: HeldArgs) => ReactNode;
-  placed?: (a: PlacedArgs) => ReactNode;
-  /** Drawn in front of characters (e.g. a blanket over someone in bed). */
-  front?: (a: PlacedArgs) => ReactNode;
-  /** Height of a surface a character standing at the same pos is lifted onto. */
-  surface?: number;
-};
-
-const OUT = { stroke: INK, strokeWidth: 4, strokeLinejoin: "round" as const, strokeLinecap: "round" as const };
 
 function Lantern({ tod, frame }: { tod: TimeOfDay; frame: number }) {
   const lit = tod !== "day";
@@ -40,7 +29,7 @@ function Lantern({ tod, frame }: { tod: TimeOfDay; frame: number }) {
 }
 
 function OilCan({ tod }: { tod: TimeOfDay }) {
-  const t = (c: string) => tone(c, tod);
+  const t = propTone(tod);
   return (
     <g>
       <path d="M -10 2 C -10 -10, 10 -10, 10 2" fill="none" {...OUT} strokeWidth={3.5} />
@@ -86,7 +75,7 @@ function prints(x: number, y: number, flip: boolean, small: boolean, tod: TimeOf
 }
 
 function BedBack({ x, groundY, tod, flip }: PlacedArgs) {
-  const t = (c: string) => tone(c, tod);
+  const t = propTone(tod);
   const d = flip ? -1 : 1;
   return (
     <g transform={`translate(${x} ${groundY}) scale(${d} 1)`}>
@@ -100,7 +89,7 @@ function BedBack({ x, groundY, tod, flip }: PlacedArgs) {
 }
 
 function BedFront({ x, groundY, tod, flip }: PlacedArgs) {
-  const t = (c: string) => tone(c, tod);
+  const t = propTone(tod);
   const d = flip ? -1 : 1;
   return (
     <g transform={`translate(${x} ${groundY}) scale(${d} 1)`}>
@@ -110,7 +99,7 @@ function BedFront({ x, groundY, tod, flip }: PlacedArgs) {
   );
 }
 
-export const PROP_IMPL: Record<PropId, PropImpl> = {
+const CORE = {
   lantern: { held: ({ at, swing, tod, frame }) => <g transform={`translate(${at.x} ${at.y}) rotate(${swing})`}><Lantern tod={tod} frame={frame} /></g> },
 
   oil_can: {
@@ -120,7 +109,7 @@ export const PROP_IMPL: Record<PropId, PropImpl> = {
 
   flour_sack: {
     placed: ({ x, groundY, tod }) => {
-      const t = (c: string) => tone(c, tod);
+      const t = propTone(tod);
       return (
         <g transform={`translate(${x} ${groundY})`}>
           <ellipse cx={58} cy={-4} rx={58} ry={9} fill={t("#ffffff")} opacity={0.9} />
@@ -136,11 +125,11 @@ export const PROP_IMPL: Record<PropId, PropImpl> = {
   footprints: { placed: ({ x, groundY, flip, tod }) => prints(x, groundY, flip, false, tod) },
   small_footprints: { placed: ({ x, groundY, flip, tod }) => prints(x + (flip ? -30 : 30), groundY + 52, flip, true, tod) },
 
-  bed: { placed: BedBack, front: BedFront, surface: 94 },
+  bed: { placed: BedBack, front: BedFront, surface: 94 } as PropImpl,
 
   ship: {
     placed: ({ x, horizonY, tod, frame }) => {
-      const t = (c: string) => tone(c, tod);
+      const t = propTone(tod);
       const bob = Math.sin(frame / 22) * 4;
       const roll = Math.sin(frame / 31) * 1.6;
       const lit = tod !== "day";
@@ -162,7 +151,7 @@ export const PROP_IMPL: Record<PropId, PropImpl> = {
 
   clock: {
     placed: ({ x, wallY, tod, frame }) => {
-      const t = (c: string) => tone(c, tod);
+      const t = propTone(tod);
       const minute = frame * 7.5;
       const hour = frame * 0.6 + 120;
       return (
@@ -179,7 +168,14 @@ export const PROP_IMPL: Record<PropId, PropImpl> = {
       );
     },
   },
-};
+} satisfies Record<string, PropImpl>;
+
+const ALL = { ...CORE, ...HELD_PROPS, ...PLACED_PROPS };
+/** Fails to compile if a prop file implements an id the catalogue doesn't have. */
+const noExtras: Exclude<keyof typeof ALL, PropId> extends never ? true : never = true;
+void noExtras;
+
+export const PROP_IMPL: Record<PropId, PropImpl> = ALL;
 
 export const HELD: Partial<Record<PropId, (a: HeldArgs) => ReactNode>> = Object.fromEntries(
   Object.entries(PROP_IMPL).flatMap(([id, p]) => (p.held ? [[id, p.held]] : [])),

@@ -18,6 +18,8 @@
  *   leak-once     a loop map whose first loop pays off the ending's plant, then a good one on the retry
  *   break-once    a rewrite that turns its first line into a head fake with no plant, then a good one
  *   break         that broken rewrite every time
+ *   messy         storyboard drafts with a misspelt id ("sneek"), an id with no match ("teleport"),
+ *                 a skipped line, a held prop with no hand and repeated cameras (repair runs answer cleanly)
  * FAKE_CLAUDE_FAIL_STEP=<step> makes only that step answer with the usage-limit error.
  * FAKE_CLAUDE_LOG=<file> appends {argv, cwd, env keys, step, input} per call, for tests.
  */
@@ -27,7 +29,7 @@ const prompt = readFileSync(0, "utf8");
 const argv = process.argv.slice(2);
 const mode = process.env.FAKE_CLAUDE_MODE ?? "ok";
 const first = prompt.split("\n", 1)[0].trim();
-const step = first.startsWith("/write-story") ? first.replace(/^\/write-story step:\s*/, "") : first.slice(1);
+const step = /^\/(write-story|plan-scenes) step:/.test(first) ? first.replace(/^\/[a-z-]+ step:\s*/, "") : first.slice(1);
 const inputText = prompt.slice(prompt.indexOf("Input:\n") + 7).split("\n\nYour previous answer")[0];
 const input = JSON.parse(inputText);
 const isRetry = prompt.includes("Your previous answer to this step was rejected");
@@ -152,7 +154,60 @@ function critic() {
   };
 }
 
-const builders = { options, loopmap, narration, rewrite, "fact-check": factcheck, critic };
+function cast() {
+  const bgs = Object.keys(input.library.backgrounds);
+  const grades = Object.keys(input.library.grades);
+  const hats = Object.keys(input.library.hats);
+  return {
+    cast: [
+      { id: "hero", name: "Tom", role: "the keeper", look: JSON.stringify({ color: "#d0473d", hat: hats[1] ?? hats[0] }) },
+      { id: "rival", name: "Sam", role: "the assistant", look: JSON.stringify({ color: "#2f9e8f", hat: "beenie", sparkles: true }) },
+    ],
+    loops: input.loops.map((l, i) => ({ loopId: l.id, locations: [bgs[i % bgs.length]], grade: grades[i % grades.length], music: i % 2 ? "tense" : "mystry", intent: "Show the oil going down." })),
+    plants: input.plants.map((p) => ({ plantId: p.id, show: "the oil can in frame", props: ["oil_can"] })),
+    style: "Cold nights in the tower.",
+  };
+}
+
+function storyboard() {
+  const lib = input.library;
+  const actions = Object.keys(lib.actions).filter((a) => !/^(walk|run|sneak|sleepwalk)$/.test(a));
+  const exprs = Object.keys(lib.expressions);
+  const cams = Object.keys(lib.cameras);
+  const tags = Object.keys(input.sfx ?? {});
+  const messy = mode === "messy" && !input.regenerate;
+  const wanted = input.regenerate ? new Set(input.regenerate.flatMap((g) => g.lineIds)) : null;
+  const lines = input.batch.loops.flatMap((l) => l.lines).filter((l) => !wanted || wanted.has(l.id));
+  const look = (lineId) => input.plan.loops.find((x) => x.loopId === lineId.split(".")[0]) ?? input.plan.loops[0];
+  const hero = input.plan.cast[0].id;
+  let n = 0;
+  const scenes = lines.map((l) => {
+    const k = n++ + (input.regenerate ? 7 : 0);
+    const lk = look(l.id);
+    return {
+      lineIds: [l.id],
+      bg: lk?.locations[0] ?? Object.keys(lib.backgrounds)[0],
+      grade: lk?.grade ?? Object.keys(lib.grades)[0],
+      chars: [{ id: hero, action: actions[k % actions.length], expr: exprs[k % exprs.length], pos: "center", to: "", facing: "auto", look: "normal" }],
+      props: [],
+      camera: messy ? cams[1] : cams[k % cams.length],
+      transitionIn: "cut",
+      caption: "word_pop",
+      sfx: k === 0 && tags.length ? [{ tag: tags[0], at: `${l.id}:0` }] : [],
+      why: "story",
+    };
+  });
+  if (messy && scenes.length > 4) {
+    scenes[0].chars[0].action = "sneek";
+    scenes[1].chars[0].action = "teleport";
+    scenes[2].props = [{ id: "lantern", attach: "", pos: "left" }];
+    scenes.splice(3, 1); // a skipped line
+  }
+  const reveals = lines.filter((l) => l.beats.includes("headfake")).map((l) => ({ lineId: l.id, at: `${l.id}:1`, kind: "hit" }));
+  return { scenes, reveals };
+}
+
+const builders = { options, loopmap, narration, rewrite, "fact-check": factcheck, critic, cast, storyboard };
 
 // --- behaviour
 

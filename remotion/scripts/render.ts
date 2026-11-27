@@ -11,14 +11,9 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { compositionId } from "../samples";
+import { PROFILES } from "./profiles";
 import { REMOTION_DIR, REPO_DIR, loadProject, sampleDir } from "./load";
 
-type Profile = { scale: number; crf: number; x264Preset: string; jpegQuality: number; audioBitrate: string; suffix: string; label: string };
-
-export const PROFILES: Record<string, Profile> = {
-  final: { scale: 1, crf: 20, x264Preset: "slow", jpegQuality: 95, audioBitrate: "320k", suffix: "v1", label: "YouTube long-form 1920×1080, H.264 High, CRF 20, preset slow, AAC 320 kbps" },
-  preview: { scale: 2 / 3, crf: 26, x264Preset: "veryfast", jpegQuality: 80, audioBitrate: "128k", suffix: "preview", label: "Quick preview 1280×720, CRF 26, preset veryfast, AAC 128 kbps" },
-};
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);

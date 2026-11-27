@@ -2,8 +2,8 @@
   "version": 1,
   "title": "The Lighthouse Thief",
   "cast": {
-    "keeper": { "name": "Tom", "hat": "keeper_cap", "color": "#d0473d", "beard": true, "scale": 1 },
-    "sam": { "name": "Sam", "hat": "beanie", "color": "#2f9e8f", "scale": 0.9 },
+    "keeper": { "name": "Tom", "hat": "keeper_cap", "color": "#d0473d", "beard": "full", "hairColor": "#e9e5dd", "build": "round", "scale": 1 },
+    "sam": { "name": "Sam", "hat": "beanie", "hair": "long", "hairColor": "#b5652e", "face": ["freckles"], "outfit": "scarf", "build": "slim", "height": 1.08, "color": "#2f9e8f", "scale": 0.9 },
     "stranger": { "name": "?", "hat": "none", "color": "#000000", "scale": 0.62 }
   },
   "scenes": [

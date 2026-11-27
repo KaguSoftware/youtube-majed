@@ -11,6 +11,7 @@
  *   pnpm story accept <id> <comment…>   |   pnpm story reject <id> <comment…>
  *   pnpm story lock <id> [--force]                writes projects/<id>/script.json for `pnpm voice <id>`
  *   pnpm story unlock <id>
+ *   pnpm story storyboard <id> [--force]          cast + scene JSON for the locked script (projects/<id>/storyboard/)
  *   pnpm story show <id>    |   pnpm story usage [<id>]   |   pnpm story list
  */
 import { storyPaths } from "@studio/project";
@@ -21,6 +22,8 @@ import { BusyError, withLock } from "./lock";
 import { check, decide, fix, lock, readHistory, review, rewrite, unlock } from "./review";
 import { StoryError, createProject, generateOptions, listProjects, pickOption, readBrief, readComments, readLoopMap, readNarration, readOptions, readPick, writeStory, type Progress } from "./story";
 import { byStep, readUsage, totals, type UsageTotals } from "./usage";
+import { storyboard } from "./storyboard";
+import { storyboardPaths } from "@studio/project";
 
 const VALUE_FLAGS = new Set(["--type", "--format", "--minutes", "--wpm", "--notes", "--id"]);
 const args = process.argv.slice(2);
@@ -37,7 +40,7 @@ function fail(message: string): never {
   process.exit(1);
 }
 
-const LABEL: Record<StepName, string> = { options: "master loop options", loopmap: "loop map", narration: "narration", rewrite: "rewrite", factcheck: "fact-check", critic: "retention critic" };
+const LABEL: Record<StepName, string> = { options: "master loop options", loopmap: "loop map", narration: "narration", rewrite: "rewrite", factcheck: "fact-check", critic: "retention critic", cast: "cast and locations", storyboard: "storyboard" };
 const secs = (ms: number) => `${Math.round(ms / 1000)} s`;
 
 /** Prints step progress; on a terminal, a ticking elapsed time. */
@@ -230,6 +233,20 @@ try {
       console.log(`✓ locked ${allLines(narration).length} lines → ${scriptJson}\n  Next: pnpm voice ${positional[0]}`);
       break;
     }
+    case "storyboard": {
+      need(1, "pnpm story storyboard <id> [--force]");
+      const id = positional[0]!;
+      const started = Date.now();
+      const { report } = await locked(`story storyboard ${id}`, () => storyboard(id, { progress: progress(), force: has("force") }));
+      const s = report.stats;
+      console.log(`\n✓ ${s.scenes} scenes for ${s.lines} lines (${Math.round(s.seconds)} s, timed by ${s.timedBy}) in ${report.batches.length} batch(es), ${secs(Date.now() - started)}`);
+      console.log(`  mapped ids: ${s.mappedIds} · variety hits: ${s.varietyHits} (${s.varietyFixed} fixed by code) · regenerated: ${s.regenerated} · fallbacks: ${report.flags.filter((f) => f.kind === "fallback").length}`);
+      console.log(`  music: ${report.music.map((m) => `${m.loopId} ${m.mood}`).join(", ")}`);
+      console.log(`  reveals: ${report.reveals.map((r) => `${r.at} ${r.kind}`).join(", ") || "none"}`);
+      for (const f of report.flags) console.log(`  ${f.fixed ? "·" : "!"} ${f.sceneId.padEnd(5)} ${f.kind.padEnd(11)} ${f.message}`);
+      console.log(`\n  ${storyboardPaths(id).scenes}\n  Next: pnpm mix ${id}`);
+      break;
+    }
     case "unlock": {
       need(1, "pnpm story unlock <id>");
       unlock(positional[0]!);
@@ -290,6 +307,7 @@ function readFileHeader(): string {
   pnpm story comments <id> [--all]
   pnpm story accept|reject <id> <comment…>
   pnpm story lock <id> [--force]   ·   pnpm story unlock <id>
+  pnpm story storyboard <id> [--force]
   pnpm story show <id>   ·   pnpm story usage [<id>]   ·   pnpm story list
 
 Narratives: ${Object.keys(NARRATIVES).join(", ")}`;

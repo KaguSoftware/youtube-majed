@@ -5,7 +5,7 @@ import { Glow, Moon, SkyGradient, Stars, X0, X1, Y0, Y1, lit, t, useGid, type Bg
 const GROUND = 890;
 
 function Window({ tod, frame }: BgProps) {
-  const c = t(tod);
+  const c = t(tod, true);
   const clip = useGid();
   const x = 1270;
   const y = 210;
@@ -35,7 +35,7 @@ function Window({ tod, frame }: BgProps) {
 }
 
 function Back({ tod, frame }: BgProps) {
-  const c = t(tod);
+  const c = t(tod, true);
   const on = lit(tod);
   return (
     <g>

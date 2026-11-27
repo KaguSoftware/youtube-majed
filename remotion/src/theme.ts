@@ -13,6 +13,12 @@ export const INK = "#1d1b29";
 export const PAPER = "#fbf4e6";
 export const ACCENT = "#ffd166"; // lamp light, highlighted caption word
 
+/**
+ * Text never goes below this many px from the bottom: the lowest strip is
+ * covered by the player's progress bar and controls (and Shorts UI later).
+ */
+export const SAFE_BOTTOM = 150;
+
 /** Overall character size. Cast `scale` multiplies this (line weight stays the same). */
 export const FIGURE_SCALE = 1.12;
 export const LINE = 11; // character stroke width at scale 1
@@ -78,14 +84,27 @@ export function mix(a: string, b: string, t: number): string {
  * night toward deep blue and darker. Emissive things (lamps, lit windows)
  * skip this and stay bright.
  */
-export function tone(hex: string, tod: TimeOfDay): string {
+export function tone(hex: string, tod: TimeOfDay, interior = false): string {
   if (tod === "day") return hex;
+  if (interior) return toneInterior(hex, tod);
   if (tod === "dusk") return mix(mix(hex, "#e07a6a", 0.22), "#3a2a4a", 0.18);
   return mix(mix(hex, "#1b2a5a", 0.55), "#0a0f22", 0.32);
 }
 
+/**
+ * Indoors the light comes from lamps, not the sky, so night keeps its colour:
+ * a tinted multiply (warm-violet shadows) instead of a mix toward navy, which
+ * turned every interior the same grey. Dusk indoors is a gentle amber.
+ */
+function toneInterior(hex: string, tod: TimeOfDay): string {
+  const [r, g, b] = hexToRgb(hex);
+  const [kr, kg, kb] = tod === "dusk" ? [0.94, 0.8, 0.72] : [0.6, 0.47, 0.5];
+  const lift = tod === "dusk" ? 6 : 8;
+  return rgbToHex([r * kr + lift, g * kg + lift * 0.6, b * kb + lift * 1.8]);
+}
+
 export type Tone = (hex: string) => string;
-export const toner = (tod: TimeOfDay): Tone => (hex) => tone(hex, tod);
+export const toner = (tod: TimeOfDay, interior = false): Tone => (hex) => tone(hex, tod, interior);
 
 /** Deterministic 0..1 hash of a string, for per-character phase offsets. */
 export function hash01(s: string): number {

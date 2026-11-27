@@ -19,7 +19,7 @@ import { z } from "zod";
 import { BusyError, acquire } from "./lock";
 import type { Progress } from "./story";
 
-export const JobKind = z.enum(["options", "write", "review", "fix", "rewrite"]);
+export const JobKind = z.enum(["options", "write", "review", "fix", "rewrite", "storyboard", "voice", "mix", "render", "export"]);
 export type JobKind = z.infer<typeof JobKind>;
 
 const StepState = z.object({ phase: z.enum(["running", "done", "skipped"]), startedAt: z.number(), finishedAt: z.number().optional(), estimateMs: z.number().optional(), attempt: z.number() });
@@ -35,11 +35,15 @@ export type Job = {
   finishedAt?: number;
   error?: string;
   steps: Partial<Record<StepName, z.infer<typeof StepState>>>;
+  /** Local jobs (voice, mix, render, export): how far along, live only, not stored. */
+  progress?: JobProgress;
   result?: unknown;
 };
 
+export type JobProgress = { label: string; done: number; total: number; detail?: string };
+
 /** Rebuilds the work of a job from its stored kind and arguments. */
-export type Runner = (job: Job, o: { progress: Progress; signal: AbortSignal }) => Promise<unknown>;
+export type Runner = (job: Job, o: { progress: Progress; signal: AbortSignal; report: (p: JobProgress) => void }) => Promise<unknown>;
 
 const Row = z.object({
   seq: z.number(),
@@ -77,6 +81,9 @@ function fromRow(raw: unknown): Job {
 export class JobQueue {
   private db: DatabaseSync;
   private controllers = new Map<string, AbortController>();
+  /** live progress of running local jobs, by job id */
+  private live = new Map<string, JobProgress>();
+  private lastEmit = new Map<string, number>();
   private pumping = false;
   private stopped = false;
 
@@ -125,7 +132,7 @@ export class JobQueue {
 
   get(id: string): Job | undefined {
     const row = this.db.prepare("select * from jobs where seq = ?").get(Number(id.slice(1)));
-    return row ? fromRow(row) : undefined;
+    return row ? this.withLive(fromRow(row)) : undefined;
   }
 
   /** The newest jobs, oldest first. */
@@ -133,7 +140,7 @@ export class JobQueue {
     const rows = project
       ? this.db.prepare("select * from jobs where project = ? order by seq desc limit ?").all(project, limit)
       : this.db.prepare("select * from jobs order by seq desc limit ?").all(limit);
-    return rows.map(fromRow).reverse();
+    return rows.map((r) => this.withLive(fromRow(r))).reverse();
   }
 
   cancel(id: string): Job | undefined {
@@ -150,11 +157,16 @@ export class JobQueue {
     this.db.close();
   }
 
+  private withLive(job: Job): Job {
+    const p = this.live.get(job.id);
+    return p && job.status === "running" ? { ...job, progress: p } : job;
+  }
+
   private save(job: Job): void {
     this.db
       .prepare("update jobs set status = ?, started_at = ?, finished_at = ?, error = ?, steps = ?, result = ? where seq = ?")
       .run(job.status, job.startedAt ?? null, job.finishedAt ?? null, job.error ?? null, JSON.stringify(job.steps), job.result === undefined ? null : JSON.stringify(job.result), Number(job.id.slice(1)));
-    this.emit(job);
+    this.emit(this.withLive(job));
   }
 
   private next(): Job | undefined {
@@ -198,6 +210,13 @@ export class JobQueue {
     let job: Job = { ...queued, status: "running", startedAt: Date.now(), steps: {} };
     delete job.error;
     this.save(job);
+    const report = (p: JobProgress) => {
+      this.live.set(job.id, p);
+      const now = Date.now();
+      if (now - (this.lastEmit.get(job.id) ?? 0) < 400 && p.done < p.total) return;
+      this.lastEmit.set(job.id, now);
+      this.emit(this.withLive(job));
+    };
     const progress: Progress = (e) => {
       const steps = { ...job.steps };
       const s = steps[e.step];
@@ -209,13 +228,15 @@ export class JobQueue {
       this.save(job);
     };
     try {
-      const result = await this.runners[job.kind](job, { progress, signal: ac.signal });
+      const result = await this.runners[job.kind](job, { progress, signal: ac.signal, report });
       job = { ...job, status: "done", result: result ?? null };
     } catch (e) {
       job = { ...job, status: ac.signal.aborted ? "cancelled" : "failed", error: (e as Error).message };
     } finally {
       release();
       this.controllers.delete(job.id);
+      this.live.delete(job.id);
+      this.lastEmit.delete(job.id);
       job = { ...job, finishedAt: Date.now() };
       if (!this.stopped) this.save(job);
     }

@@ -53,14 +53,18 @@ export function Moon({ x, y, r = 46 }: { x: number; y: number; r?: number }) {
   return (
     <g>
       <defs>
-        <radialGradient id={id}>
+        <radialGradient id={`${id}-g`}>
           <stop offset="0%" stopColor="#fff5d6" stopOpacity={0.45} />
           <stop offset="100%" stopColor="#fff5d6" stopOpacity={0} />
         </radialGradient>
+        {/* the crescent is cut with a mask, so it works on any sky (a sky-coloured disc showed as an eclipse on gradients) */}
+        <mask id={`${id}-m`}>
+          <circle cx={x} cy={y} r={r} fill="#fff" />
+          <circle cx={x + r * 0.42} cy={y - r * 0.18} r={r * 0.86} fill="#000" />
+        </mask>
       </defs>
-      <circle cx={x} cy={y} r={r * 3.2} fill={`url(#${id})`} />
-      <circle cx={x} cy={y} r={r} fill="#fff2c8" />
-      <circle cx={x + r * 0.42} cy={y - r * 0.18} r={r * 0.86} fill={C.skyNightTop} opacity={0.92} />
+      <circle cx={x} cy={y} r={r * 3.2} fill={`url(#${id}-g)`} />
+      <circle cx={x} cy={y} r={r} fill="#fff2c8" mask={`url(#${id}-m)`} />
     </g>
   );
 }
@@ -138,4 +142,5 @@ export function Glow({ x, y, r, opacity = 0.35, color = ACCENT }: { x: number; y
 }
 
 export const lit = (tod: TimeOfDay) => tod !== "day";
-export const t = (tod: TimeOfDay) => (hex: string) => tone(hex, tod);
+/** Re-lights scenery colours for the time of day. Interiors pass `true` (lamplight, see theme.tone). */
+export const t = (tod: TimeOfDay, interior = false) => (hex: string) => tone(hex, tod, interior);

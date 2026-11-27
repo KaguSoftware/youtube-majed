@@ -67,6 +67,8 @@ export const TIMEOUT_MS: Record<StepName, number> = {
   rewrite: 8 * 60_000,
   factcheck: 25 * 60_000,
   critic: 12 * 60_000,
+  cast: 8 * 60_000,
+  storyboard: 15 * 60_000,
 };
 
 /** The fields of `--output-format json` we use. Everything else passes through. */

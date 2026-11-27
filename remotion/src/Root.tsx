@@ -2,7 +2,13 @@ import { assertProject, type Project } from "@studio/schema";
 import { Composition, Folder, type CalculateMetadataFunction } from "remotion";
 import { SAMPLES, compositionId, type SampleId } from "../samples";
 import "./fonts";
-import { ActionGallery, BG_GALLERY_FRAMES, BackgroundGallery, ExpressionGallery } from "./galleries";
+import { BG_GALLERY_FRAMES, BackgroundGallery, ExpressionGallery } from "./galleries";
+import { ACTION_PAGES, ActionsGallery } from "./gallery/ActionsGallery";
+import { CastGallery } from "./gallery/CastGallery";
+import { GradesGallery } from "./gallery/GradesGallery";
+import { PropsGallery } from "./gallery/PropsGallery";
+import { GALLERY_PROJECTS, GalleryVideo, galleryFrames, type GalleryProjectId } from "./gallery/projects";
+import { ScenePreview, type PreviewProps } from "./gallery/Preview";
 import { StoryVideo } from "./scene/StoryVideo";
 import { buildTimeline } from "./scene/timeline";
 import { FPS, H, W } from "./theme";
@@ -48,9 +54,21 @@ export function Root() {
         ))}
       </Folder>
       <Folder name="Library">
-        <Composition id="Actions" component={ActionGallery} width={W} height={H} fps={FPS} durationInFrames={FPS * 8} />
+        {Array.from({ length: ACTION_PAGES }, (_, page) => (
+          <Composition key={page} id={`Actions${page + 1}`} component={ActionsGallery} width={W} height={H} fps={FPS} durationInFrames={FPS * 8} defaultProps={{ page }} />
+        ))}
         <Composition id="Expressions" component={ExpressionGallery} width={W} height={H} fps={FPS} durationInFrames={FPS * 6} />
+        {(Object.keys(GALLERY_PROJECTS) as GalleryProjectId[]).map((id) => (
+          <Composition key={id} id={id} component={GalleryVideo} width={W} height={H} fps={FPS} durationInFrames={galleryFrames(id)} defaultProps={{ id }} />
+        ))}
+        <Composition id="PropsHeld" component={PropsGallery} width={W} height={H} fps={FPS} durationInFrames={FPS * 6} defaultProps={{ page: 0 as const }} />
+        <Composition id="PropsPlaced" component={PropsGallery} width={W} height={H} fps={FPS} durationInFrames={FPS * 6} defaultProps={{ page: 1 as const }} />
+        <Composition id="Grades" component={GradesGallery} width={W} height={H} fps={FPS} durationInFrames={FPS * 4} />
+        <Composition id="Cast" component={CastGallery} width={W} height={H} fps={FPS} durationInFrames={FPS * 6} />
         <Composition id="Backgrounds" component={BackgroundGallery} width={W} height={H} fps={FPS} durationInFrames={BG_GALLERY_FRAMES} />
+      </Folder>
+      <Folder name="Dev">
+        <Composition id="ScenePreview" component={ScenePreview} width={W} height={H} fps={FPS} durationInFrames={FPS * 3} defaultProps={{} as PreviewProps} />
       </Folder>
     </>
   );

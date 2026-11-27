@@ -20,11 +20,13 @@ export type ActionDef = {
   /** Breathing strength (1 = normal). */
   breath?: number;
   /** Extra drawn effect. */
-  fx?: "zzz" | "sweat" | "speed";
+  fx?: "zzz" | "sweat" | "speed" | "steam";
   /** Forces a face regardless of the scene's expr (e.g. eyes shut while asleep). */
   face?: ExpressionId;
   /** The character is lying down: props it shares a pos with are a bed to lie on. */
   lying?: boolean;
+  /** Sits on a seat prop at the same pos: the hip goes to the seat height. */
+  perch?: boolean;
 };
 
 export type Compiled = ActionDef & { poses: Pose[] };

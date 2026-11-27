@@ -1,0 +1,2139 @@
+{
+  "version": 1,
+  "note": "Every asset the studio may mix, with its licence. `pnpm assets seed` fetches or makes the files; `pnpm assets index` measures them into assets/index.sqlite. Only CC0, public domain and own work. Dropped from legacy (CC BY 3.0, needs credit): laugh_track (CC BY 3.0, None); big_laugh (CC BY 3.0, None); laugh_applause (CC BY 3.0, None)",
+  "assets": [
+    {
+      "id": "legacy/chuckle",
+      "file": "sfx/legacy/chuckle.mp3",
+      "kind": "sfx",
+      "tags": [
+        "chuckle"
+      ],
+      "moods": [],
+      "description": "Chuckle (laughs)",
+      "licence": {
+        "name": "CC0",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "author": "sagetyrtle",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/chuckle.mp3",
+        "url": "https://commons.wikimedia.org/wiki/File:Laughter(s).ogg",
+        "sha1": "5a426b97014a92bcd5d2ab4ee325eb431e70382d"
+      }
+    },
+    {
+      "id": "legacy/evil_laugh",
+      "file": "sfx/legacy/evil_laugh.mp3",
+      "kind": "sfx",
+      "tags": [
+        "evil_laugh"
+      ],
+      "moods": [],
+      "description": "Evil laugh (laughs)",
+      "licence": {
+        "name": "Public domain",
+        "url": "https://commons.wikimedia.org/wiki/Help:Public_domain"
+      },
+      "author": "stilgar",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/evil_laugh.mp3",
+        "url": "https://commons.wikimedia.org/wiki/File:Evil_laughter.ogg",
+        "sha1": "d85a467baa948e957262c7d77f3f7225554ea880"
+      }
+    },
+    {
+      "id": "legacy/maniac_laugh",
+      "file": "sfx/legacy/maniac_laugh.mp3",
+      "kind": "sfx",
+      "tags": [
+        "maniac_laugh"
+      ],
+      "moods": [],
+      "description": "Maniac laugh (laughs)",
+      "licence": {
+        "name": "CC0",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "author": "unknown",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/maniac_laugh.mp3",
+        "url": "https://commons.wikimedia.org/wiki/File:Anonyme_-_Rire_horrible_1.ogg",
+        "sha1": "fc28f394bac2f7e5afcaf6f802a795dfd82ee07c"
+      }
+    },
+    {
+      "id": "legacy/villain_chorus",
+      "file": "sfx/legacy/villain_chorus.mp3",
+      "kind": "sfx",
+      "tags": [
+        "villain_chorus"
+      ],
+      "moods": [],
+      "description": "Villains cackling (laughs)",
+      "licence": {
+        "name": "CC0",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "author": "freesound",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/villain_chorus.mp3",
+        "url": "https://commons.wikimedia.org/wiki/File:Evil_laugh.ogg",
+        "sha1": "855d5856cfeeabbdcbdf1d977930958b76d4578e"
+      }
+    },
+    {
+      "id": "legacy/applause",
+      "file": "sfx/legacy/applause.mp3",
+      "kind": "sfx",
+      "tags": [
+        "applause"
+      ],
+      "moods": [],
+      "description": "Applause (crowd)",
+      "licence": {
+        "name": "CC0",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "author": "Amada44",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/applause.mp3",
+        "url": "https://commons.wikimedia.org/wiki/File:Sound_Effects_-_Applause_after_a_concert.ogg",
+        "sha1": "4e9a9f7235b36cc46702f40934d8949449cbeca4"
+      }
+    },
+    {
+      "id": "legacy/clapping_cheer",
+      "file": "sfx/legacy/clapping_cheer.mp3",
+      "kind": "sfx",
+      "tags": [
+        "clapping_cheer"
+      ],
+      "moods": [],
+      "description": "Clapping and cheering (crowd)",
+      "licence": {
+        "name": "Public domain",
+        "url": "https://commons.wikimedia.org/wiki/Help:Public_domain"
+      },
+      "author": "starlite",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/clapping_cheer.mp3",
+        "url": "https://commons.wikimedia.org/wiki/File:Clapping_hurray.ogg",
+        "sha1": "f215f4bb86e104d19c1d04f26cb2b09cf876bb64"
+      }
+    },
+    {
+      "id": "legacy/hurray",
+      "file": "sfx/legacy/hurray.mp3",
+      "kind": "sfx",
+      "tags": [
+        "hurray"
+      ],
+      "moods": [],
+      "description": "Hurray (crowd)",
+      "licence": {
+        "name": "Public domain",
+        "url": "https://commons.wikimedia.org/wiki/Help:Public_domain"
+      },
+      "author": "starlite",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/hurray.mp3",
+        "url": "https://commons.wikimedia.org/wiki/File:Hurray.ogg",
+        "sha1": "1c9b67f9090c4b102864026672d9c7b57d8baf53"
+      }
+    },
+    {
+      "id": "legacy/slow_clap",
+      "file": "sfx/legacy/slow_clap.mp3",
+      "kind": "sfx",
+      "tags": [
+        "slow_clap"
+      ],
+      "moods": [],
+      "description": "Slow clap (crowd)",
+      "licence": {
+        "name": "Own work",
+        "url": null
+      },
+      "author": "Studio (synthesized, legacy/pipeline/sfx_synth.py)",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/slow_clap.mp3",
+        "made": "sfx_synth.slow_clap"
+      }
+    },
+    {
+      "id": "legacy/crowd_ooh",
+      "file": "sfx/legacy/crowd_ooh.mp3",
+      "kind": "sfx",
+      "tags": [
+        "crowd_ooh"
+      ],
+      "moods": [],
+      "description": "Crowd ooh (crowd)",
+      "licence": {
+        "name": "Public domain",
+        "url": "https://commons.wikimedia.org/wiki/Help:Public_domain"
+      },
+      "author": "starlite",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/crowd_ooh.mp3",
+        "url": "https://commons.wikimedia.org/wiki/File:Ohhh_ahhh.ogg",
+        "sha1": "a8a99d1f4fedc9493b6e3470f872f8b76aa08fdc"
+      }
+    },
+    {
+      "id": "legacy/boo",
+      "file": "sfx/legacy/boo.mp3",
+      "kind": "sfx",
+      "tags": [
+        "boo"
+      ],
+      "moods": [],
+      "description": "Booing (crowd)",
+      "licence": {
+        "name": "Public domain",
+        "url": "https://commons.wikimedia.org/wiki/Help:Public_domain"
+      },
+      "author": "Brendon",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/boo.mp3",
+        "url": "https://commons.wikimedia.org/wiki/File:Soundgoats_-_Audience_Booing.wav",
+        "sha1": "6e680155902b4356b83cca91229c4efb408c25eb"
+      }
+    },
+    {
+      "id": "legacy/crickets",
+      "file": "sfx/legacy/crickets.mp3",
+      "kind": "sfx",
+      "tags": [
+        "crickets"
+      ],
+      "moods": [],
+      "description": "Crickets (crowd)",
+      "licence": {
+        "name": "Own work",
+        "url": null
+      },
+      "author": "Studio (synthesized, legacy/pipeline/sfx_synth.py)",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/crickets.mp3",
+        "made": "sfx_synth.crickets"
+      }
+    },
+    {
+      "id": "legacy/sad_trombone",
+      "file": "sfx/legacy/sad_trombone.mp3",
+      "kind": "sfx",
+      "tags": [
+        "sad_trombone"
+      ],
+      "moods": [],
+      "description": "Fail horn (fails and wins)",
+      "licence": {
+        "name": "Own work",
+        "url": null
+      },
+      "author": "Studio (synthesized, legacy/pipeline/sfx_synth.py)",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/sad_trombone.mp3",
+        "made": "sfx_synth.sad_trombone"
+      }
+    },
+    {
+      "id": "legacy/wrong_buzzer",
+      "file": "sfx/legacy/wrong_buzzer.mp3",
+      "kind": "sfx",
+      "tags": [
+        "wrong_buzzer"
+      ],
+      "moods": [],
+      "description": "Wrong buzzer (fails and wins)",
+      "licence": {
+        "name": "Own work",
+        "url": null
+      },
+      "author": "Studio (synthesized, legacy/pipeline/sfx_synth.py)",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/wrong_buzzer.mp3",
+        "made": "sfx_synth.wrong_buzzer"
+      }
+    },
+    {
+      "id": "legacy/error",
+      "file": "sfx/legacy/error.mp3",
+      "kind": "sfx",
+      "tags": [
+        "error"
+      ],
+      "moods": [],
+      "description": "Error (fails and wins)",
+      "licence": {
+        "name": "Own work",
+        "url": null
+      },
+      "author": "Studio (synthesized, legacy/pipeline/sfx_synth.py)",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/error.mp3",
+        "made": "sfx_synth.error"
+      }
+    },
+    {
+      "id": "legacy/correct_ding",
+      "file": "sfx/legacy/correct_ding.mp3",
+      "kind": "sfx",
+      "tags": [
+        "correct_ding"
+      ],
+      "moods": [],
+      "description": "Correct ding (fails and wins)",
+      "licence": {
+        "name": "Own work",
+        "url": null
+      },
+      "author": "Studio (synthesized, legacy/pipeline/sfx_synth.py)",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/correct_ding.mp3",
+        "made": "sfx_synth.correct_ding"
+      }
+    },
+    {
+      "id": "legacy/tada",
+      "file": "sfx/legacy/tada.mp3",
+      "kind": "sfx",
+      "tags": [
+        "tada"
+      ],
+      "moods": [],
+      "description": "Ta-da (fails and wins)",
+      "licence": {
+        "name": "Own work",
+        "url": null
+      },
+      "author": "Studio (synthesized, legacy/pipeline/sfx_synth.py)",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/tada.mp3",
+        "made": "sfx_synth.tada"
+      }
+    },
+    {
+      "id": "legacy/level_up",
+      "file": "sfx/legacy/level_up.mp3",
+      "kind": "sfx",
+      "tags": [
+        "level_up"
+      ],
+      "moods": [],
+      "description": "Level up (fails and wins)",
+      "licence": {
+        "name": "Own work",
+        "url": null
+      },
+      "author": "Studio (synthesized, legacy/pipeline/sfx_synth.py)",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/level_up.mp3",
+        "made": "sfx_synth.level_up"
+      }
+    },
+    {
+      "id": "legacy/coin",
+      "file": "sfx/legacy/coin.mp3",
+      "kind": "sfx",
+      "tags": [
+        "coin"
+      ],
+      "moods": [],
+      "description": "Coin (fails and wins)",
+      "licence": {
+        "name": "Own work",
+        "url": null
+      },
+      "author": "Studio (synthesized, legacy/pipeline/sfx_synth.py)",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/coin.mp3",
+        "made": "sfx_synth.coin"
+      }
+    },
+    {
+      "id": "legacy/cash_register",
+      "file": "sfx/legacy/cash_register.mp3",
+      "kind": "sfx",
+      "tags": [
+        "cash_register"
+      ],
+      "moods": [],
+      "description": "Cash register (fails and wins)",
+      "licence": {
+        "name": "Public domain",
+        "url": "https://commons.wikimedia.org/wiki/Help:Public_domain"
+      },
+      "author": "unknown",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/cash_register.mp3",
+        "url": "https://commons.wikimedia.org/wiki/File:Cash_register.ogg",
+        "sha1": "c789a1a76e78af18370df374f4274a55e6fc9d5c"
+      }
+    },
+    {
+      "id": "legacy/bugle_call",
+      "file": "sfx/legacy/bugle_call.mp3",
+      "kind": "sfx",
+      "tags": [
+        "bugle_call"
+      ],
+      "moods": [],
+      "description": "Bugle call (fails and wins)",
+      "licence": {
+        "name": "Public domain",
+        "url": "https://commons.wikimedia.org/wiki/Help:Public_domain"
+      },
+      "author": "U.S. Army",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/bugle_call.mp3",
+        "url": "https://commons.wikimedia.org/wiki/File:FirstCall.mp3",
+        "sha1": "87104c7cbe43fd6d6e335c73a7a241973727cb12"
+      }
+    },
+    {
+      "id": "legacy/drum_roll",
+      "file": "sfx/legacy/drum_roll.mp3",
+      "kind": "sfx",
+      "tags": [
+        "drum_roll"
+      ],
+      "moods": [],
+      "description": "Drum roll (fails and wins)",
+      "licence": {
+        "name": "CC0",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "author": "Iwan Sounds and DIY",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/drum_roll.mp3",
+        "url": "https://commons.wikimedia.org/wiki/File:Drum_Roll_Intro.ogg",
+        "sha1": "e5109afea058cbc4a631fb6d05c72353bfa54ac3"
+      }
+    },
+    {
+      "id": "legacy/air_horn",
+      "file": "sfx/legacy/air_horn.mp3",
+      "kind": "sfx",
+      "tags": [
+        "air_horn"
+      ],
+      "moods": [],
+      "description": "Air horn (meme hits)",
+      "licence": {
+        "name": "Own work",
+        "url": null
+      },
+      "author": "Studio (synthesized, legacy/pipeline/sfx_synth.py)",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/air_horn.mp3",
+        "made": "sfx_synth.air_horn"
+      }
+    },
+    {
+      "id": "legacy/bass_boom",
+      "file": "sfx/legacy/bass_boom.mp3",
+      "kind": "hit",
+      "tags": [
+        "bass_boom"
+      ],
+      "moods": [],
+      "description": "Boom (meme hits)",
+      "licence": {
+        "name": "Own work",
+        "url": null
+      },
+      "author": "Studio (synthesized, legacy/pipeline/sfx_synth.py)",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/bass_boom.mp3",
+        "made": "sfx_synth.bass_boom"
+      }
+    },
+    {
+      "id": "legacy/record_scratch",
+      "file": "sfx/legacy/record_scratch.mp3",
+      "kind": "sfx",
+      "tags": [
+        "record_scratch"
+      ],
+      "moods": [],
+      "description": "Record scratch (meme hits)",
+      "licence": {
+        "name": "Own work",
+        "url": null
+      },
+      "author": "Studio (synthesized, legacy/pipeline/sfx_synth.py)",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/record_scratch.mp3",
+        "made": "sfx_synth.record_scratch"
+      }
+    },
+    {
+      "id": "legacy/rimshot",
+      "file": "sfx/legacy/rimshot.mp3",
+      "kind": "sfx",
+      "tags": [
+        "rimshot"
+      ],
+      "moods": [],
+      "description": "Ba-dum-tss (meme hits)",
+      "licence": {
+        "name": "Own work",
+        "url": null
+      },
+      "author": "Studio (synthesized, legacy/pipeline/sfx_synth.py)",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/rimshot.mp3",
+        "made": "sfx_synth.rimshot"
+      }
+    },
+    {
+      "id": "legacy/dun_dun_dun",
+      "file": "sfx/legacy/dun_dun_dun.mp3",
+      "kind": "sfx",
+      "tags": [
+        "dun_dun_dun"
+      ],
+      "moods": [],
+      "description": "Dun dun duuun (meme hits)",
+      "licence": {
+        "name": "Own work",
+        "url": null
+      },
+      "author": "Studio (synthesized, legacy/pipeline/sfx_synth.py)",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/dun_dun_dun.mp3",
+        "made": "sfx_synth.dun_dun_dun"
+      }
+    },
+    {
+      "id": "legacy/censor_bleep",
+      "file": "sfx/legacy/censor_bleep.mp3",
+      "kind": "sfx",
+      "tags": [
+        "censor_bleep"
+      ],
+      "moods": [],
+      "description": "Censor bleep (meme hits)",
+      "licence": {
+        "name": "Own work",
+        "url": null
+      },
+      "author": "Studio (synthesized, legacy/pipeline/sfx_synth.py)",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/censor_bleep.mp3",
+        "made": "sfx_synth.censor_bleep"
+      }
+    },
+    {
+      "id": "legacy/glitch",
+      "file": "sfx/legacy/glitch.mp3",
+      "kind": "sfx",
+      "tags": [
+        "glitch"
+      ],
+      "moods": [],
+      "description": "Glitch (meme hits)",
+      "licence": {
+        "name": "Own work",
+        "url": null
+      },
+      "author": "Studio (synthesized, legacy/pipeline/sfx_synth.py)",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/glitch.mp3",
+        "made": "sfx_synth.glitch"
+      }
+    },
+    {
+      "id": "legacy/riser",
+      "file": "sfx/legacy/riser.mp3",
+      "kind": "riser",
+      "tags": [
+        "riser"
+      ],
+      "moods": [],
+      "description": "Suspense riser (meme hits)",
+      "licence": {
+        "name": "Own work",
+        "url": null
+      },
+      "author": "Studio (synthesized, legacy/pipeline/sfx_synth.py)",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/riser.mp3",
+        "made": "sfx_synth.riser"
+      }
+    },
+    {
+      "id": "legacy/dial_up",
+      "file": "sfx/legacy/dial_up.mp3",
+      "kind": "sfx",
+      "tags": [
+        "dial_up"
+      ],
+      "moods": [],
+      "description": "Dial-up modem (meme hits)",
+      "licence": {
+        "name": "Public domain",
+        "url": "https://commons.wikimedia.org/wiki/Help:Public_domain"
+      },
+      "author": "ezwa",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/dial_up.mp3",
+        "url": "https://commons.wikimedia.org/wiki/File:Dial_up_connection.ogg",
+        "sha1": "4709519e21a9f285755afa5462bc0da131d344d2"
+      }
+    },
+    {
+      "id": "legacy/boing",
+      "file": "sfx/legacy/boing.mp3",
+      "kind": "sfx",
+      "tags": [
+        "boing"
+      ],
+      "moods": [],
+      "description": "Boing (cartoon)",
+      "licence": {
+        "name": "Own work",
+        "url": null
+      },
+      "author": "Studio (synthesized, legacy/pipeline/sfx_synth.py)",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/boing.mp3",
+        "made": "sfx_synth.boing"
+      }
+    },
+    {
+      "id": "legacy/bonk",
+      "file": "sfx/legacy/bonk.mp3",
+      "kind": "sfx",
+      "tags": [
+        "bonk"
+      ],
+      "moods": [],
+      "description": "Bonk (cartoon)",
+      "licence": {
+        "name": "Own work",
+        "url": null
+      },
+      "author": "Studio (synthesized, legacy/pipeline/sfx_synth.py)",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/bonk.mp3",
+        "made": "sfx_synth.bonk"
+      }
+    },
+    {
+      "id": "legacy/pop",
+      "file": "sfx/legacy/pop.mp3",
+      "kind": "sfx",
+      "tags": [
+        "pop"
+      ],
+      "moods": [],
+      "description": "Pop (cartoon)",
+      "licence": {
+        "name": "Own work",
+        "url": null
+      },
+      "author": "Studio (synthesized, legacy/pipeline/sfx_synth.py)",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/pop.mp3",
+        "made": "sfx_synth.pop"
+      }
+    },
+    {
+      "id": "legacy/slide_up",
+      "file": "sfx/legacy/slide_up.mp3",
+      "kind": "sfx",
+      "tags": [
+        "slide_up"
+      ],
+      "moods": [],
+      "description": "Slide whistle up (cartoon)",
+      "licence": {
+        "name": "Own work",
+        "url": null
+      },
+      "author": "Studio (synthesized, legacy/pipeline/sfx_synth.py)",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/slide_up.mp3",
+        "made": "sfx_synth.slide_up"
+      }
+    },
+    {
+      "id": "legacy/slide_down",
+      "file": "sfx/legacy/slide_down.mp3",
+      "kind": "sfx",
+      "tags": [
+        "slide_down"
+      ],
+      "moods": [],
+      "description": "Slide whistle down (cartoon)",
+      "licence": {
+        "name": "Own work",
+        "url": null
+      },
+      "author": "Studio (synthesized, legacy/pipeline/sfx_synth.py)",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/slide_down.mp3",
+        "made": "sfx_synth.slide_down"
+      }
+    },
+    {
+      "id": "legacy/whoosh",
+      "file": "sfx/legacy/whoosh.mp3",
+      "kind": "whoosh",
+      "tags": [
+        "whoosh"
+      ],
+      "moods": [],
+      "description": "Whoosh (cartoon)",
+      "licence": {
+        "name": "Own work",
+        "url": null
+      },
+      "author": "Studio (synthesized, legacy/pipeline/sfx_synth.py)",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/whoosh.mp3",
+        "made": "sfx_synth.whoosh"
+      }
+    },
+    {
+      "id": "legacy/sparkle",
+      "file": "sfx/legacy/sparkle.mp3",
+      "kind": "sfx",
+      "tags": [
+        "sparkle"
+      ],
+      "moods": [],
+      "description": "Sparkle (cartoon)",
+      "licence": {
+        "name": "Own work",
+        "url": null
+      },
+      "author": "Studio (synthesized, legacy/pipeline/sfx_synth.py)",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/sparkle.mp3",
+        "made": "sfx_synth.sparkle"
+      }
+    },
+    {
+      "id": "legacy/punch",
+      "file": "sfx/legacy/punch.mp3",
+      "kind": "sfx",
+      "tags": [
+        "punch",
+        "hit_cartoon"
+      ],
+      "moods": [],
+      "description": "Punch (cartoon)",
+      "licence": {
+        "name": "CC0",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "author": "unknown",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/punch.mp3",
+        "url": "https://commons.wikimedia.org/wiki/File:Cartoon_Punch_Slowed.ogg",
+        "sha1": "54833d0328e1bad9157286c94a35c41424a04e85"
+      }
+    },
+    {
+      "id": "legacy/thud",
+      "file": "sfx/legacy/thud.mp3",
+      "kind": "sfx",
+      "tags": [
+        "thud",
+        "fall_thud"
+      ],
+      "moods": [],
+      "description": "Thud (cartoon)",
+      "licence": {
+        "name": "Public domain",
+        "url": "https://commons.wikimedia.org/wiki/Help:Public_domain"
+      },
+      "author": "gregoryweir",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/thud.mp3",
+        "url": "https://commons.wikimedia.org/wiki/File:Dull_thud.ogg",
+        "sha1": "9e53b37ab4b2e3631d8b980945214db10fed6e8a"
+      }
+    },
+    {
+      "id": "legacy/scream",
+      "file": "sfx/legacy/scream.mp3",
+      "kind": "sfx",
+      "tags": [
+        "scream",
+        "shout"
+      ],
+      "moods": [],
+      "description": "Scream (voices)",
+      "licence": {
+        "name": "CC0",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "author": "Joseph Sardin",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/scream.mp3",
+        "url": "https://commons.wikimedia.org/wiki/File:Cri_Wilhelm_(Joseph_SARDIN).wav",
+        "sha1": "5dee579c96344de970ad3d8a266c8830b2a22823"
+      }
+    },
+    {
+      "id": "legacy/ahhh",
+      "file": "sfx/legacy/ahhh.mp3",
+      "kind": "sfx",
+      "tags": [
+        "ahhh"
+      ],
+      "moods": [],
+      "description": "Ahhh! (voices)",
+      "licence": {
+        "name": "CC0",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "author": "UncleSigmund",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/ahhh.mp3",
+        "url": "https://commons.wikimedia.org/wiki/File:UncleSigmund_-_ahhh_(cc0)_(freesound).mp3",
+        "sha1": "fec0d313ef149a7b3936bee450606782c6bc9ff6"
+      }
+    },
+    {
+      "id": "legacy/wolf_whistle",
+      "file": "sfx/legacy/wolf_whistle.mp3",
+      "kind": "sfx",
+      "tags": [
+        "wolf_whistle"
+      ],
+      "moods": [],
+      "description": "Wolf whistle (voices)",
+      "licence": {
+        "name": "Public domain",
+        "url": "https://commons.wikimedia.org/wiki/Help:Public_domain"
+      },
+      "author": "unknown",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/wolf_whistle.mp3",
+        "url": "https://commons.wikimedia.org/wiki/File:Wolf_whistle.ogg",
+        "sha1": "2800e4dd4d59d738fdbf4788c0a0c9c502211bbb"
+      }
+    },
+    {
+      "id": "legacy/yawn",
+      "file": "sfx/legacy/yawn.mp3",
+      "kind": "sfx",
+      "tags": [
+        "yawn"
+      ],
+      "moods": [],
+      "description": "Yawn (voices)",
+      "licence": {
+        "name": "Public domain",
+        "url": "https://commons.wikimedia.org/wiki/Help:Public_domain"
+      },
+      "author": "ezwa",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/yawn.mp3",
+        "url": "https://commons.wikimedia.org/wiki/File:Yawning_1.ogg",
+        "sha1": "7b6e9dfdc6ce51c8f2e4109eccd824c4536f24ac"
+      }
+    },
+    {
+      "id": "legacy/snore",
+      "file": "sfx/legacy/snore.mp3",
+      "kind": "sfx",
+      "tags": [
+        "snore"
+      ],
+      "moods": [],
+      "description": "Snore (voices)",
+      "licence": {
+        "name": "CC0",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "author": "Saaabaaato",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/snore.mp3",
+        "url": "https://commons.wikimedia.org/wiki/File:Snoring_of_old_man.ogg",
+        "sha1": "223c28e79a824212d8062f4d98030558b5fdfd82"
+      }
+    },
+    {
+      "id": "legacy/explosion",
+      "file": "sfx/legacy/explosion.mp3",
+      "kind": "sfx",
+      "tags": [
+        "explosion",
+        "blast"
+      ],
+      "moods": [],
+      "description": "Explosion (things)",
+      "licence": {
+        "name": "Public domain",
+        "url": "https://commons.wikimedia.org/wiki/Help:Public_domain"
+      },
+      "author": "tcpp",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/explosion.mp3",
+        "url": "https://commons.wikimedia.org/wiki/File:Explosion_10.ogg",
+        "sha1": "e24332ca6f3caf39bb5acb30ea91a722b9001163"
+      }
+    },
+    {
+      "id": "legacy/gong",
+      "file": "sfx/legacy/gong.mp3",
+      "kind": "sfx",
+      "tags": [
+        "gong",
+        "bell"
+      ],
+      "moods": [],
+      "description": "Gong (things)",
+      "licence": {
+        "name": "CC0",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "author": "pdsounds.org",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/gong.mp3",
+        "url": "https://commons.wikimedia.org/wiki/File:Gong_or_bell_vibrant_(short).ogg",
+        "sha1": "1f59feca1770dafa77cccecf0bf38ed17df85d53"
+      }
+    },
+    {
+      "id": "legacy/heartbeat",
+      "file": "sfx/legacy/heartbeat.mp3",
+      "kind": "sfx",
+      "tags": [
+        "heartbeat",
+        "heart"
+      ],
+      "moods": [],
+      "description": "Heartbeat (things)",
+      "licence": {
+        "name": "Own work",
+        "url": null
+      },
+      "author": "Studio (synthesized, legacy/pipeline/sfx_synth.py)",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/heartbeat.mp3",
+        "made": "sfx_synth.heartbeat"
+      }
+    },
+    {
+      "id": "legacy/camera",
+      "file": "sfx/legacy/camera.mp3",
+      "kind": "sfx",
+      "tags": [
+        "camera",
+        "camera_shutter"
+      ],
+      "moods": [],
+      "description": "Camera shutter (things)",
+      "licence": {
+        "name": "Public domain",
+        "url": "https://commons.wikimedia.org/wiki/Help:Public_domain"
+      },
+      "author": "Doitashimashite",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/camera.mp3",
+        "url": "https://commons.wikimedia.org/wiki/File:Holga_shuttersound.ogg",
+        "sha1": "4cd90c2fff053bb9b4d264b8d0ee091ec052145c"
+      }
+    },
+    {
+      "id": "legacy/bike_bell",
+      "file": "sfx/legacy/bike_bell.mp3",
+      "kind": "sfx",
+      "tags": [
+        "bike_bell"
+      ],
+      "moods": [],
+      "description": "Bike bell (things)",
+      "licence": {
+        "name": "CC0",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "author": "Soundscape_Leuphana",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/bike_bell.mp3",
+        "url": "https://commons.wikimedia.org/wiki/File:Bicycle-bell-1.wav",
+        "sha1": "59504d2bd697908fa6d6c21591b507dcf3ecb3dc"
+      }
+    },
+    {
+      "id": "legacy/car_horn",
+      "file": "sfx/legacy/car_horn.mp3",
+      "kind": "sfx",
+      "tags": [
+        "car_horn"
+      ],
+      "moods": [],
+      "description": "Car horn (things)",
+      "licence": {
+        "name": "CC0",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "author": "15HPanska_Ruttner_Jan",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/car_horn.mp3",
+        "url": "https://commons.wikimedia.org/wiki/File:Car_Horn.wav",
+        "sha1": "66a21379dd6a7948164073066756f3f03c86c1d4"
+      }
+    },
+    {
+      "id": "legacy/doorbell",
+      "file": "sfx/legacy/doorbell.mp3",
+      "kind": "sfx",
+      "tags": [
+        "doorbell"
+      ],
+      "moods": [],
+      "description": "Doorbell (things)",
+      "licence": {
+        "name": "Public domain",
+        "url": "https://commons.wikimedia.org/wiki/Help:Public_domain"
+      },
+      "author": "unknown",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/doorbell.mp3",
+        "url": "https://commons.wikimedia.org/wiki/File:Doorbell-classic-dingdong.ogg",
+        "sha1": "19a3463c37d4de915d58d54050b8d65d7445e63f"
+      }
+    },
+    {
+      "id": "legacy/door_creak",
+      "file": "sfx/legacy/door_creak.mp3",
+      "kind": "sfx",
+      "tags": [
+        "door_creak",
+        "door"
+      ],
+      "moods": [],
+      "description": "Door creak (things)",
+      "licence": {
+        "name": "Public domain",
+        "url": "https://commons.wikimedia.org/wiki/Help:Public_domain"
+      },
+      "author": "stephan",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/door_creak.mp3",
+        "url": "https://commons.wikimedia.org/wiki/File:Door_handle_creaking.ogg",
+        "sha1": "676772b90212f35486b0b53f0326f4023ef34489"
+      }
+    },
+    {
+      "id": "legacy/typewriter_ding",
+      "file": "sfx/legacy/typewriter_ding.mp3",
+      "kind": "sfx",
+      "tags": [
+        "typewriter_ding"
+      ],
+      "moods": [],
+      "description": "Typewriter ding (things)",
+      "licence": {
+        "name": "CC0",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "author": "_stubb",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/typewriter_ding.mp3",
+        "url": "https://commons.wikimedia.org/wiki/File:406243_stubb_typewriter-ding-near-mono.wav",
+        "sha1": "1de2af649f4148588384364d54d5143dfb4b457a"
+      }
+    },
+    {
+      "id": "legacy/referee_whistle",
+      "file": "sfx/legacy/referee_whistle.mp3",
+      "kind": "sfx",
+      "tags": [
+        "referee_whistle"
+      ],
+      "moods": [],
+      "description": "Referee whistle (things)",
+      "licence": {
+        "name": "CC0",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "author": "SpliceSound",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/referee_whistle.mp3",
+        "url": "https://commons.wikimedia.org/wiki/File:218318_splicesound_referee-whistle-blow-gymnasium.wav",
+        "sha1": "e6f1406823b79f487e4945b33eb9339f5c7ccb61"
+      }
+    },
+    {
+      "id": "legacy/siren",
+      "file": "sfx/legacy/siren.mp3",
+      "kind": "sfx",
+      "tags": [
+        "siren",
+        "police"
+      ],
+      "moods": [],
+      "description": "Siren (things)",
+      "licence": {
+        "name": "Public domain",
+        "url": "https://commons.wikimedia.org/wiki/Help:Public_domain"
+      },
+      "author": "CeeKay",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/siren.mp3",
+        "url": "https://commons.wikimedia.org/wiki/File:Doppler_effect_fast_vehicle_siren_exaggerated.ogg",
+        "sha1": "c0d3a62d00e54cd4aa7ea3ea00de92c0002fe4c8"
+      }
+    },
+    {
+      "id": "legacy/clock_tick",
+      "file": "sfx/legacy/clock_tick.mp3",
+      "kind": "sfx",
+      "tags": [
+        "clock_tick",
+        "clock",
+        "ticking"
+      ],
+      "moods": [],
+      "description": "Clock ticking (things)",
+      "licence": {
+        "name": "Public domain",
+        "url": "https://commons.wikimedia.org/wiki/Help:Public_domain"
+      },
+      "author": "ezwa",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/clock_tick.mp3",
+        "url": "https://commons.wikimedia.org/wiki/File:Alarm_clock_ticking.ogg",
+        "sha1": "0b8f8f2e821d1b052d725f08bd5b0be539c09d44"
+      }
+    },
+    {
+      "id": "legacy/thunder",
+      "file": "sfx/legacy/thunder.mp3",
+      "kind": "sfx",
+      "tags": [
+        "thunder",
+        "thunder_far",
+        "storm"
+      ],
+      "moods": [],
+      "description": "Thunder (spooky and wild)",
+      "licence": {
+        "name": "Public domain",
+        "url": "https://commons.wikimedia.org/wiki/Help:Public_domain"
+      },
+      "author": "Caesar",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/thunder.mp3",
+        "url": "https://commons.wikimedia.org/wiki/File:Rain_and_thunder.ogg",
+        "sha1": "5cee3290a09118a6d2fcdcbaa17f451f9ec09499"
+      }
+    },
+    {
+      "id": "legacy/ghost",
+      "file": "sfx/legacy/ghost.mp3",
+      "kind": "sfx",
+      "tags": [
+        "ghost"
+      ],
+      "moods": [],
+      "description": "Ghost (spooky and wild)",
+      "licence": {
+        "name": "CC0",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "author": "Joseph Sardin",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/ghost.mp3",
+        "url": "https://commons.wikimedia.org/wiki/File:Joseph_SARDIN_-_Fantôme_1.oga",
+        "sha1": "0f8cd11fb3652fded4a070c4313196d946d6a284"
+      }
+    },
+    {
+      "id": "legacy/ufo",
+      "file": "sfx/legacy/ufo.mp3",
+      "kind": "sfx",
+      "tags": [
+        "ufo"
+      ],
+      "moods": [],
+      "description": "UFO fly-by (spooky and wild)",
+      "licence": {
+        "name": "CC0",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "author": "Joseph Sardin",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/ufo.mp3",
+        "url": "https://commons.wikimedia.org/wiki/File:Joseph_SARDIN_-_Passage_soucoupe_volante_1.wav",
+        "sha1": "cdf0fe8dc57a2ec16914313e7d0379d94c9ec5e2"
+      }
+    },
+    {
+      "id": "legacy/rooster",
+      "file": "sfx/legacy/rooster.mp3",
+      "kind": "sfx",
+      "tags": [
+        "rooster"
+      ],
+      "moods": [],
+      "description": "Rooster (spooky and wild)",
+      "licence": {
+        "name": "CC0",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "author": "Denis Chardonnet",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/rooster.mp3",
+        "url": "https://commons.wikimedia.org/wiki/File:Coq_qui_chante_(DenisChardonnet).wav",
+        "sha1": "8eba2b72664715081d49f76fd1fb18042cd4a1b1"
+      }
+    },
+    {
+      "id": "legacy/cat_meow",
+      "file": "sfx/legacy/cat_meow.mp3",
+      "kind": "sfx",
+      "tags": [
+        "cat_meow"
+      ],
+      "moods": [],
+      "description": "Cat meow (spooky and wild)",
+      "licence": {
+        "name": "Public domain",
+        "url": "https://commons.wikimedia.org/wiki/Help:Public_domain"
+      },
+      "author": "Heismark",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/cat_meow.mp3",
+        "url": "https://commons.wikimedia.org/wiki/File:Meow_of_a_pleading_cat.oga",
+        "sha1": "337a0fc263567775dcf5e9d65a0e80f9e115712b"
+      }
+    },
+    {
+      "id": "legacy/goat",
+      "file": "sfx/legacy/goat.mp3",
+      "kind": "sfx",
+      "tags": [
+        "goat"
+      ],
+      "moods": [],
+      "description": "Goat (spooky and wild)",
+      "licence": {
+        "name": "CC0",
+        "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "author": "Gasybeaugosse2020",
+      "source": {
+        "type": "legacy",
+        "ref": "legacy/pipeline/sounds/goat.mp3",
+        "url": "https://commons.wikimedia.org/wiki/File:Goat_in_Antefasy.wav",
+        "sha1": "8c598c614b102bf38fa0297686c81fbc1fd99f27"
+      }
+    },
+    {
+      "id": "commons/sea_waves",
+      "file": "sfx/commons/sea_waves.flac",
+      "kind": "ambience",
+      "tags": [
+        "sea",
+        "waves",
+        "beach",
+        "coast"
+      ],
+      "moods": [
+        "calm"
+      ],
+      "description": "Waves breaking on a beach",
+      "licence": {
+        "name": "CC0",
+        "url": "http://creativecommons.org/publicdomain/zero/1.0/deed.en"
+      },
+      "author": "Jarrod stanley",
+      "source": {
+        "type": "commons",
+        "ref": "File:Ocean Waves on a Tropical Beach.ogg",
+        "url": "https://commons.wikimedia.org/wiki/File:Ocean_Waves_on_a_Tropical_Beach.ogg",
+        "download": "https://upload.wikimedia.org/wikipedia/commons/6/64/Ocean_Waves_on_a_Tropical_Beach.ogg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+        "sha1": "22b9faaa8c718fa1596d8f41d221906623bebd5a"
+      },
+      "trim": [
+        20,
+        110
+      ]
+    },
+    {
+      "id": "commons/sea_pebbles",
+      "file": "sfx/commons/sea_pebbles.flac",
+      "kind": "ambience",
+      "tags": [
+        "sea",
+        "pebble_beach",
+        "coast",
+        "harbour"
+      ],
+      "moods": [
+        "calm"
+      ],
+      "description": "Small waves washing over pebbles",
+      "licence": {
+        "name": "Public domain",
+        "url": "https://commons.wikimedia.org/wiki/Help:Public_domain"
+      },
+      "author": "earthcalling",
+      "source": {
+        "type": "commons",
+        "ref": "File:On a pebble beach.ogg",
+        "url": "https://commons.wikimedia.org/wiki/File:On_a_pebble_beach.ogg",
+        "download": "https://upload.wikimedia.org/wikipedia/commons/7/73/On_a_pebble_beach.ogg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+        "sha1": "15549b7ee1d563c53383cdff5f33cc14521d4982"
+      }
+    },
+    {
+      "id": "commons/wind_howling",
+      "file": "sfx/commons/wind_howling.flac",
+      "kind": "ambience",
+      "tags": [
+        "wind",
+        "storm",
+        "mountain",
+        "rooftop",
+        "desert_night"
+      ],
+      "moods": [
+        "dread",
+        "tense"
+      ],
+      "description": "Strong howling wind",
+      "licence": {
+        "name": "CC0",
+        "url": "http://creativecommons.org/publicdomain/zero/1.0/deed.en"
+      },
+      "author": "Tvabutzku1234",
+      "source": {
+        "type": "commons",
+        "ref": "File:Howling wind.ogg",
+        "url": "https://commons.wikimedia.org/wiki/File:Howling_wind.ogg",
+        "download": "https://upload.wikimedia.org/wikipedia/commons/2/2d/Howling_wind.ogg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+        "sha1": "90958205859310a279d03cd0d77e4d467f4805d5"
+      }
+    },
+    {
+      "id": "commons/breeze_birds",
+      "file": "sfx/commons/breeze_birds.flac",
+      "kind": "ambience",
+      "tags": [
+        "forest",
+        "park",
+        "countryside",
+        "birds",
+        "day"
+      ],
+      "moods": [
+        "calm",
+        "warm"
+      ],
+      "description": "Gentle breeze with birdsong",
+      "licence": {
+        "name": "Public domain",
+        "url": "https://commons.wikimedia.org/wiki/Help:Public_domain"
+      },
+      "author": "ezwa",
+      "source": {
+        "type": "commons",
+        "ref": "File:Gentle breeze and birds singing.ogg",
+        "url": "https://commons.wikimedia.org/wiki/File:Gentle_breeze_and_birds_singing.ogg",
+        "download": "https://upload.wikimedia.org/wikipedia/commons/0/0e/Gentle_breeze_and_birds_singing.ogg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+        "sha1": "8a88bdb353adb8361e04e65f4db5fec671352ccf"
+      }
+    },
+    {
+      "id": "commons/birds_garden",
+      "file": "sfx/commons/birds_garden.flac",
+      "kind": "ambience",
+      "tags": [
+        "garden",
+        "birds",
+        "park",
+        "day"
+      ],
+      "moods": [
+        "calm",
+        "warm"
+      ],
+      "description": "Birds singing in a garden",
+      "licence": {
+        "name": "Public domain",
+        "url": "https://commons.wikimedia.org/wiki/Help:Public_domain"
+      },
+      "author": "ezwa",
+      "source": {
+        "type": "commons",
+        "ref": "File:Birds singing in garden.ogg",
+        "url": "https://commons.wikimedia.org/wiki/File:Birds_singing_in_garden.ogg",
+        "download": "https://upload.wikimedia.org/wikipedia/commons/8/80/Birds_singing_in_garden.ogg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+        "sha1": "28ad1eeb3d32bbedaa9a47175671dbc02ea87147"
+      }
+    },
+    {
+      "id": "commons/rain_window",
+      "file": "sfx/commons/rain_window.flac",
+      "kind": "ambience",
+      "tags": [
+        "rain",
+        "interior_rain",
+        "night"
+      ],
+      "moods": [
+        "sad",
+        "calm"
+      ],
+      "description": "Rain against a window, heard from inside",
+      "licence": {
+        "name": "Public domain",
+        "url": "https://commons.wikimedia.org/wiki/Help:Public_domain"
+      },
+      "author": "cori",
+      "source": {
+        "type": "commons",
+        "ref": "File:Rain against the window.ogg",
+        "url": "https://commons.wikimedia.org/wiki/File:Rain_against_the_window.ogg",
+        "download": "https://upload.wikimedia.org/wikipedia/commons/4/41/Rain_against_the_window.ogg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+        "sha1": "9d37ead83781913c95c026559a9ea3490c765d72"
+      }
+    },
+    {
+      "id": "commons/rain_thunder",
+      "file": "sfx/commons/rain_thunder.flac",
+      "kind": "ambience",
+      "tags": [
+        "storm",
+        "rain",
+        "thunder_far"
+      ],
+      "moods": [
+        "tense",
+        "dread"
+      ],
+      "description": "Light rain with distant thunder",
+      "licence": {
+        "name": "CC0",
+        "url": "http://creativecommons.org/publicdomain/zero/1.0/deed.en"
+      },
+      "author": "https://freesound.org/people/kvgarlic/",
+      "source": {
+        "type": "commons",
+        "ref": "File:Light Rain Distant Thunder July 5th 2016.wav",
+        "url": "https://commons.wikimedia.org/wiki/File:Light_Rain_Distant_Thunder_July_5th_2016.wav",
+        "download": "https://upload.wikimedia.org/wikipedia/commons/b/b6/Light_Rain_Distant_Thunder_July_5th_2016.wav?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+        "sha1": "f01eb449e15f0a7647ba37ea3b54713ebb82d71c"
+      },
+      "trim": [
+        30,
+        120
+      ]
+    },
+    {
+      "id": "commons/gulls_street",
+      "file": "sfx/commons/gulls_street.flac",
+      "kind": "ambience",
+      "tags": [
+        "harbour",
+        "seaside_town",
+        "gulls",
+        "seagulls"
+      ],
+      "moods": [
+        "calm"
+      ],
+      "description": "Gulls over a seaside street at dawn",
+      "licence": {
+        "name": "Public domain",
+        "url": "https://commons.wikimedia.org/wiki/Help:Public_domain"
+      },
+      "author": "earthcalling",
+      "source": {
+        "type": "commons",
+        "ref": "File:Gulls above the street at dawn.ogg",
+        "url": "https://commons.wikimedia.org/wiki/File:Gulls_above_the_street_at_dawn.ogg",
+        "download": "https://upload.wikimedia.org/wikipedia/commons/4/4e/Gulls_above_the_street_at_dawn.ogg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+        "sha1": "491f4a2723ebf9066e7b95e4cdfc95f51fc0eb53"
+      }
+    },
+    {
+      "id": "commons/city_street",
+      "file": "sfx/commons/city_street.flac",
+      "kind": "ambience",
+      "tags": [
+        "city",
+        "street",
+        "traffic",
+        "town"
+      ],
+      "moods": [
+        "calm"
+      ],
+      "description": "City street: traffic and people",
+      "licence": {
+        "name": "Public domain",
+        "url": "https://commons.wikimedia.org/wiki/Help:Public_domain"
+      },
+      "author": "cori",
+      "source": {
+        "type": "commons",
+        "ref": "File:Sunday in the city street noise1.ogg",
+        "url": "https://commons.wikimedia.org/wiki/File:Sunday_in_the_city_street_noise1.ogg",
+        "download": "https://upload.wikimedia.org/wikipedia/commons/5/5d/Sunday_in_the_city_street_noise1.ogg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+        "sha1": "01c8dca37e8e7aa6be9fc37851951c54cdec3553"
+      }
+    },
+    {
+      "id": "commons/crowd_indoor",
+      "file": "sfx/commons/crowd_indoor.flac",
+      "kind": "ambience",
+      "tags": [
+        "crowd",
+        "mall",
+        "indoor_crowd",
+        "hospital",
+        "office"
+      ],
+      "moods": [
+        "calm"
+      ],
+      "description": "Indoor public space with a light crowd",
+      "licence": {
+        "name": "Public domain",
+        "url": "https://commons.wikimedia.org/wiki/Help:Public_domain"
+      },
+      "author": "natalie",
+      "source": {
+        "type": "commons",
+        "ref": "File:Shopping mall less crowded.ogg",
+        "url": "https://commons.wikimedia.org/wiki/File:Shopping_mall_less_crowded.ogg",
+        "download": "https://upload.wikimedia.org/wikipedia/commons/d/d5/Shopping_mall_less_crowded.ogg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+        "sha1": "659cc7ab1f4a11ac9cc9ef902579f77fb388f413"
+      }
+    },
+    {
+      "id": "commons/cafeteria",
+      "file": "sfx/commons/cafeteria.flac",
+      "kind": "ambience",
+      "tags": [
+        "cafe",
+        "cafeteria",
+        "crowd",
+        "restaurant"
+      ],
+      "moods": [
+        "playful",
+        "warm"
+      ],
+      "description": "Busy cafeteria chatter",
+      "licence": {
+        "name": "Public domain",
+        "url": "https://commons.wikimedia.org/wiki/Help:Public_domain"
+      },
+      "author": "aradlaw",
+      "source": {
+        "type": "commons",
+        "ref": "File:High school cafeteria.ogg",
+        "url": "https://commons.wikimedia.org/wiki/File:High_school_cafeteria.ogg",
+        "download": "https://upload.wikimedia.org/wikipedia/commons/d/df/High_school_cafeteria.ogg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+        "sha1": "5b92ff5f3b82a9984d2def1eb0300d12f29e37a2"
+      }
+    },
+    {
+      "id": "commons/classroom",
+      "file": "sfx/commons/classroom.flac",
+      "kind": "ambience",
+      "tags": [
+        "classroom",
+        "school",
+        "office"
+      ],
+      "moods": [
+        "calm"
+      ],
+      "description": "Quiet classroom",
+      "licence": {
+        "name": "Public domain",
+        "url": "https://commons.wikimedia.org/wiki/Help:Public_domain"
+      },
+      "author": "rcrossley",
+      "source": {
+        "type": "commons",
+        "ref": "File:Ambient classroom mono.ogg",
+        "url": "https://commons.wikimedia.org/wiki/File:Ambient_classroom_mono.ogg",
+        "download": "https://upload.wikimedia.org/wikipedia/commons/1/10/Ambient_classroom_mono.ogg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+        "sha1": "681577aa5ae0111b4e6985eed2db889492a0111a"
+      }
+    },
+    {
+      "id": "commons/highway",
+      "file": "sfx/commons/highway.flac",
+      "kind": "ambience",
+      "tags": [
+        "road",
+        "highway",
+        "traffic",
+        "car"
+      ],
+      "moods": [
+        "tense"
+      ],
+      "description": "Traffic on a highway",
+      "licence": {
+        "name": "Public domain",
+        "url": "https://commons.wikimedia.org/wiki/Help:Public_domain"
+      },
+      "author": "stephan",
+      "source": {
+        "type": "commons",
+        "ref": "File:Highway from bridge center.ogg",
+        "url": "https://commons.wikimedia.org/wiki/File:Highway_from_bridge_center.ogg",
+        "download": "https://upload.wikimedia.org/wikipedia/commons/5/5c/Highway_from_bridge_center.ogg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+        "sha1": "e7412a76e05a6b485cb6d212761e69478cc33c37"
+      }
+    },
+    {
+      "id": "commons/fire_crackle",
+      "file": "sfx/commons/fire_crackle.flac",
+      "kind": "ambience",
+      "tags": [
+        "fire",
+        "fireplace",
+        "campfire",
+        "burning"
+      ],
+      "moods": [
+        "warm",
+        "tense"
+      ],
+      "description": "Fire crackling",
+      "licence": {
+        "name": "Public domain",
+        "url": "https://commons.wikimedia.org/wiki/Help:Public_domain"
+      },
+      "author": "ezwa",
+      "source": {
+        "type": "commons",
+        "ref": "File:Dry grass burning in open fireplace.ogg",
+        "url": "https://commons.wikimedia.org/wiki/File:Dry_grass_burning_in_open_fireplace.ogg",
+        "download": "https://upload.wikimedia.org/wikipedia/commons/d/d8/Dry_grass_burning_in_open_fireplace.ogg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+        "sha1": "641163a91e9bd87d0f3f4d4b10e75b99f74afcec"
+      }
+    },
+    {
+      "id": "commons/footsteps_gravel",
+      "file": "sfx/commons/footsteps_gravel.flac",
+      "kind": "sfx",
+      "tags": [
+        "footsteps_gravel",
+        "footsteps_outdoor",
+        "footsteps"
+      ],
+      "moods": [],
+      "description": "Footsteps on gravel",
+      "licence": {
+        "name": "CC0",
+        "url": "http://creativecommons.org/publicdomain/zero/1.0/deed.en"
+      },
+      "author": "unknown",
+      "source": {
+        "type": "commons",
+        "ref": "File:Walking-on-gravel-38827.ogg",
+        "url": "https://commons.wikimedia.org/wiki/File:Walking-on-gravel-38827.ogg",
+        "download": "https://upload.wikimedia.org/wikipedia/commons/9/93/Walking-on-gravel-38827.ogg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+        "sha1": "bba2c901e78ecf7f2102c43ca51e293f8dd3ee83"
+      }
+    },
+    {
+      "id": "commons/footsteps_stone",
+      "file": "sfx/commons/footsteps_stone.flac",
+      "kind": "sfx",
+      "tags": [
+        "footsteps_stone",
+        "footsteps_wood",
+        "footsteps_indoor",
+        "footsteps_stairs",
+        "footsteps"
+      ],
+      "moods": [],
+      "description": "Footsteps on a hard floor, with echo",
+      "licence": {
+        "name": "Public domain",
+        "url": "https://commons.wikimedia.org/wiki/Help:Public_domain"
+      },
+      "author": "stephan",
+      "source": {
+        "type": "commons",
+        "ref": "File:Church people walking steps with reverb.ogg",
+        "url": "https://commons.wikimedia.org/wiki/File:Church_people_walking_steps_with_reverb.ogg",
+        "download": "https://upload.wikimedia.org/wikipedia/commons/d/d5/Church_people_walking_steps_with_reverb.ogg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+        "sha1": "8b2a6abb78bad2c5def0ab4496c4330472601445"
+      },
+      "trim": [
+        0,
+        8
+      ]
+    },
+    {
+      "id": "commons/splash",
+      "file": "sfx/commons/splash.flac",
+      "kind": "sfx",
+      "tags": [
+        "splash",
+        "water_splash",
+        "water"
+      ],
+      "moods": [],
+      "description": "Water splashing",
+      "licence": {
+        "name": "Public domain",
+        "url": "https://commons.wikimedia.org/wiki/Help:Public_domain"
+      },
+      "author": "gradha",
+      "source": {
+        "type": "commons",
+        "ref": "File:Bathtub water splashes.ogg",
+        "url": "https://commons.wikimedia.org/wiki/File:Bathtub_water_splashes.ogg",
+        "download": "https://upload.wikimedia.org/wikipedia/commons/8/83/Bathtub_water_splashes.ogg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+        "sha1": "1d6b2a2579890d091b04112621b07878028e6070"
+      },
+      "trim": [
+        0,
+        4
+      ]
+    },
+    {
+      "id": "commons/seagulls",
+      "file": "sfx/commons/seagulls.flac",
+      "kind": "sfx",
+      "tags": [
+        "seagulls",
+        "gulls",
+        "seabirds"
+      ],
+      "moods": [],
+      "description": "Seagulls calling",
+      "licence": {
+        "name": "Public domain",
+        "url": "https://commons.wikimedia.org/wiki/Help:Public_domain"
+      },
+      "author": "earthcalling",
+      "source": {
+        "type": "commons",
+        "ref": "File:Gulls above the street at dawn.ogg",
+        "url": "https://commons.wikimedia.org/wiki/File:Gulls_above_the_street_at_dawn.ogg",
+        "download": "https://upload.wikimedia.org/wikipedia/commons/4/4e/Gulls_above_the_street_at_dawn.ogg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+        "sha1": "491f4a2723ebf9066e7b95e4cdfc95f51fc0eb53"
+      },
+      "trim": [
+        0,
+        6
+      ]
+    },
+    {
+      "id": "synth/riser_short",
+      "file": "sfx/synth/riser_short.flac",
+      "kind": "riser",
+      "tags": [
+        "riser",
+        "riser_short"
+      ],
+      "moods": [],
+      "description": "Short riser, 2 s, ends on its peak",
+      "licence": {
+        "name": "Own work",
+        "url": null
+      },
+      "author": "Studio (synthesized, audio/studio_audio/sfx_synth.py)",
+      "source": {
+        "type": "synth",
+        "ref": "sfx_synth.riser_short"
+      }
+    },
+    {
+      "id": "synth/riser_long",
+      "file": "sfx/synth/riser_long.flac",
+      "kind": "riser",
+      "tags": [
+        "riser",
+        "riser_long"
+      ],
+      "moods": [],
+      "description": "Long riser, 4 s, ends on its peak",
+      "licence": {
+        "name": "Own work",
+        "url": null
+      },
+      "author": "Studio (synthesized, audio/studio_audio/sfx_synth.py)",
+      "source": {
+        "type": "synth",
+        "ref": "sfx_synth.riser_long"
+      }
+    },
+    {
+      "id": "synth/riser_dark",
+      "file": "sfx/synth/riser_dark.flac",
+      "kind": "riser",
+      "tags": [
+        "riser",
+        "riser_dark"
+      ],
+      "moods": [
+        "dread"
+      ],
+      "description": "Dark low riser, 3.5 s",
+      "licence": {
+        "name": "Own work",
+        "url": null
+      },
+      "author": "Studio (synthesized, audio/studio_audio/sfx_synth.py)",
+      "source": {
+        "type": "synth",
+        "ref": "sfx_synth.riser_dark"
+      }
+    },
+    {
+      "id": "synth/swell_reverse",
+      "file": "sfx/synth/swell_reverse.flac",
+      "kind": "riser",
+      "tags": [
+        "riser",
+        "swell",
+        "reverse_cymbal"
+      ],
+      "moods": [],
+      "description": "Reversed cymbal swell, 2.5 s",
+      "licence": {
+        "name": "Own work",
+        "url": null
+      },
+      "author": "Studio (synthesized, audio/studio_audio/sfx_synth.py)",
+      "source": {
+        "type": "synth",
+        "ref": "sfx_synth.swell_reverse"
+      }
+    },
+    {
+      "id": "synth/hit_boom",
+      "file": "sfx/synth/hit_boom.flac",
+      "kind": "hit",
+      "tags": [
+        "hit",
+        "boom",
+        "sub_drop",
+        "hit_low"
+      ],
+      "moods": [
+        "dread",
+        "tense"
+      ],
+      "description": "Deep sub boom with a long tail",
+      "licence": {
+        "name": "Own work",
+        "url": null
+      },
+      "author": "Studio (synthesized, audio/studio_audio/sfx_synth.py)",
+      "source": {
+        "type": "synth",
+        "ref": "sfx_synth.hit_boom"
+      }
+    },
+    {
+      "id": "synth/hit_impact",
+      "file": "sfx/synth/hit_impact.flac",
+      "kind": "hit",
+      "tags": [
+        "hit",
+        "impact"
+      ],
+      "moods": [
+        "action",
+        "tense"
+      ],
+      "description": "Punchy impact",
+      "licence": {
+        "name": "Own work",
+        "url": null
+      },
+      "author": "Studio (synthesized, audio/studio_audio/sfx_synth.py)",
+      "source": {
+        "type": "synth",
+        "ref": "sfx_synth.hit_impact"
+      }
+    },
+    {
+      "id": "synth/hit_braam",
+      "file": "sfx/synth/hit_braam.flac",
+      "kind": "hit",
+      "tags": [
+        "hit",
+        "braam"
+      ],
+      "moods": [
+        "dread",
+        "triumphant"
+      ],
+      "description": "Low brass blast",
+      "licence": {
+        "name": "Own work",
+        "url": null
+      },
+      "author": "Studio (synthesized, audio/studio_audio/sfx_synth.py)",
+      "source": {
+        "type": "synth",
+        "ref": "sfx_synth.hit_braam"
+      }
+    },
+    {
+      "id": "synth/whoosh_fast",
+      "file": "sfx/synth/whoosh_fast.flac",
+      "kind": "whoosh",
+      "tags": [
+        "whoosh",
+        "whoosh_fast",
+        "swish"
+      ],
+      "moods": [],
+      "description": "Fast whoosh, peak at 60 %",
+      "licence": {
+        "name": "Own work",
+        "url": null
+      },
+      "author": "Studio (synthesized, audio/studio_audio/sfx_synth.py)",
+      "source": {
+        "type": "synth",
+        "ref": "sfx_synth.whoosh_fast"
+      }
+    },
+    {
+      "id": "synth/whoosh_soft",
+      "file": "sfx/synth/whoosh_soft.flac",
+      "kind": "whoosh",
+      "tags": [
+        "whoosh",
+        "whoosh_soft"
+      ],
+      "moods": [],
+      "description": "Soft whoosh",
+      "licence": {
+        "name": "Own work",
+        "url": null
+      },
+      "author": "Studio (synthesized, audio/studio_audio/sfx_synth.py)",
+      "source": {
+        "type": "synth",
+        "ref": "sfx_synth.whoosh_soft"
+      }
+    },
+    {
+      "id": "synth/whoosh_heavy",
+      "file": "sfx/synth/whoosh_heavy.flac",
+      "kind": "whoosh",
+      "tags": [
+        "whoosh",
+        "whoosh_heavy"
+      ],
+      "moods": [],
+      "description": "Heavy whoosh with low body",
+      "licence": {
+        "name": "Own work",
+        "url": null
+      },
+      "author": "Studio (synthesized, audio/studio_audio/sfx_synth.py)",
+      "source": {
+        "type": "synth",
+        "ref": "sfx_synth.whoosh_heavy"
+      }
+    },
+    {
+      "id": "synth/room_tone",
+      "file": "sfx/synth/room_tone.flac",
+      "kind": "ambience",
+      "tags": [
+        "room_tone",
+        "interior",
+        "quiet"
+      ],
+      "moods": [],
+      "description": "Quiet interior room tone (loops)",
+      "licence": {
+        "name": "Own work",
+        "url": null
+      },
+      "author": "Studio (synthesized, audio/studio_audio/sfx_synth.py)",
+      "source": {
+        "type": "synth",
+        "ref": "sfx_synth.room_tone"
+      }
+    },
+    {
+      "id": "music/placeholder_mystery",
+      "file": "music/placeholder/mystery.flac",
+      "kind": "music",
+      "tags": [
+        "placeholder",
+        "bed_mystery"
+      ],
+      "moods": [
+        "mystery"
+      ],
+      "description": "PLACEHOLDER mystery pad (48 s seamless loop) until real music is chosen",
+      "licence": {
+        "name": "Own work",
+        "url": null
+      },
+      "author": "Studio (synthesized, audio/studio_audio/sfx_synth.py)",
+      "source": {
+        "type": "synth",
+        "ref": "sfx_synth.bed_mystery"
+      },
+      "loop": [
+        0,
+        48
+      ]
+    },
+    {
+      "id": "music/placeholder_tense",
+      "file": "music/placeholder/tense.flac",
+      "kind": "music",
+      "tags": [
+        "placeholder",
+        "bed_tense"
+      ],
+      "moods": [
+        "tense"
+      ],
+      "description": "PLACEHOLDER tense pad (48 s seamless loop) until real music is chosen",
+      "licence": {
+        "name": "Own work",
+        "url": null
+      },
+      "author": "Studio (synthesized, audio/studio_audio/sfx_synth.py)",
+      "source": {
+        "type": "synth",
+        "ref": "sfx_synth.bed_tense"
+      },
+      "loop": [
+        0,
+        48
+      ]
+    },
+    {
+      "id": "music/placeholder_calm",
+      "file": "music/placeholder/calm.flac",
+      "kind": "music",
+      "tags": [
+        "placeholder",
+        "bed_calm"
+      ],
+      "moods": [
+        "calm"
+      ],
+      "description": "PLACEHOLDER calm pad (48 s seamless loop) until real music is chosen",
+      "licence": {
+        "name": "Own work",
+        "url": null
+      },
+      "author": "Studio (synthesized, audio/studio_audio/sfx_synth.py)",
+      "source": {
+        "type": "synth",
+        "ref": "sfx_synth.bed_calm"
+      },
+      "loop": [
+        0,
+        48
+      ]
+    },
+    {
+      "id": "music/placeholder_sad",
+      "file": "music/placeholder/sad.flac",
+      "kind": "music",
+      "tags": [
+        "placeholder",
+        "bed_sad"
+      ],
+      "moods": [
+        "sad"
+      ],
+      "description": "PLACEHOLDER sad pad (48 s seamless loop) until real music is chosen",
+      "licence": {
+        "name": "Own work",
+        "url": null
+      },
+      "author": "Studio (synthesized, audio/studio_audio/sfx_synth.py)",
+      "source": {
+        "type": "synth",
+        "ref": "sfx_synth.bed_sad"
+      },
+      "loop": [
+        0,
+        48
+      ]
+    }
+  ]
+}

@@ -50,4 +50,8 @@ pnpm schemas           # regenerate engine/schemas/*.json from packages/schema
 pnpm worker            # job worker for the app (127.0.0.1:8766)
 pnpm app               # the Studio website (http://localhost:3100)
 pnpm story <command>   # the story engine without the UI (pnpm story for help)
+pnpm story storyboard <id>   # scene JSON for a locked script (Phase 3)
+pnpm assets seed|index # the sound library: assets/sources.json -> assets/index.sqlite
+pnpm mix <id>          # sound design: SFX, risers, ambience, music, -14 LUFS (cached)
+pnpm render:project <id>     # preview render of a storyboarded project with its mix
 ```

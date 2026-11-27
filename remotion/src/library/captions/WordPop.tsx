@@ -1,6 +1,6 @@
 import { AbsoluteFill, spring, useCurrentFrame, useVideoConfig } from "remotion";
 import type { Chunk } from "../../scene/timeline";
-import { ACCENT, INK } from "../../theme";
+import { ACCENT, INK, SAFE_BOTTOM } from "../../theme";
 
 /**
  * Caption style "word_pop": 1–3 big words at a time, each popping in as it is
@@ -13,7 +13,7 @@ export function WordPop({ chunks }: { chunks: Chunk[] }) {
   if (!chunk) return null;
 
   return (
-    <AbsoluteFill style={{ justifyContent: "flex-end", alignItems: "center", paddingBottom: 92, pointerEvents: "none" }}>
+    <AbsoluteFill style={{ justifyContent: "flex-end", alignItems: "center", paddingBottom: SAFE_BOTTOM, pointerEvents: "none" }}>
       <div style={{ display: "flex", gap: 26, alignItems: "baseline" }}>
         {chunk.words.map((w, i) => {
           if (frame < w.start) return <span key={i} style={{ ...base, opacity: 0 }}>{w.text}</span>;

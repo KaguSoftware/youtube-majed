@@ -7,9 +7,10 @@
     "voice": "tsx src/voice.ts",
     "typecheck": "tsc -p .",
     "test": "vitest run",
-    "story": "tsx src/cli.ts",
+    "story": "tsx --disable-warning=ExperimentalWarning src/cli.ts",
     "dev": "tsx watch --disable-warning=ExperimentalWarning src/server.ts",
-    "start": "tsx --disable-warning=ExperimentalWarning src/server.ts"
+    "start": "tsx --disable-warning=ExperimentalWarning src/server.ts",
+    "mix": "tsx --disable-warning=ExperimentalWarning src/mix-cli.ts"
   },
   "dependencies": {
     "@studio/project": "workspace:*",

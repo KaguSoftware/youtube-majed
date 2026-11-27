@@ -1,0 +1,131 @@
+{
+  "type": "object",
+  "properties": {
+    "cast": {
+      "minItems": 1,
+      "maxItems": 8,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9_]+$",
+            "description": "lower_snake_case id used in every scene, e.g. \"keeper\""
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The name viewers hear, or \"?\" for someone unknown"
+          },
+          "role": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Who this is in the story, in a few words"
+          },
+          "look": {
+            "type": "string",
+            "minLength": 2,
+            "description": "The character's look as one JSON object that follows `castLook` in the input (every field but name), e.g. {\"color\":\"#d0473d\",\"hat\":\"keeper_cap\"}"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "role",
+          "look"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "loops": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "loopId": {
+            "type": "string",
+            "pattern": "^L\\d+$"
+          },
+          "locations": {
+            "minItems": 1,
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z0-9_]+$"
+            },
+            "description": "Background ids this loop uses, in order of appearance"
+          },
+          "grade": {
+            "type": "string",
+            "pattern": "^[a-z0-9_]+$",
+            "description": "Colour grade id (time of day) the loop starts in"
+          },
+          "music": {
+            "type": "string",
+            "pattern": "^[a-z0-9_]+$",
+            "description": "Music mood for this loop, from the moods list"
+          },
+          "intent": {
+            "type": "string",
+            "minLength": 1,
+            "description": "One sentence: what the pictures must make the viewer feel or notice in this loop"
+          }
+        },
+        "required": [
+          "loopId",
+          "locations",
+          "grade",
+          "music",
+          "intent"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "plants": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "plantId": {
+            "type": "string",
+            "pattern": "^P\\d+$"
+          },
+          "show": {
+            "type": "string",
+            "minLength": 1,
+            "description": "How the plant is visible on screen: the prop, action or expression that carries it"
+          },
+          "props": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z0-9_]+$"
+            },
+            "description": "Prop ids that carry it; [] if none fits"
+          }
+        },
+        "required": [
+          "plantId",
+          "show",
+          "props"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "style": {
+      "type": "string",
+      "minLength": 1,
+      "description": "One sentence: the visual through-line of this video"
+    }
+  },
+  "required": [
+    "cast",
+    "loops",
+    "plants",
+    "style"
+  ],
+  "additionalProperties": false
+}

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CastOutput, StoryboardOutput } from "./storyboard";
 import { CriticOutput, FactCheckOutput, LoopMapOutput, MasterOptionsOutput, NarrationOutput, RewriteOutput, type StepName } from "./story";
 
 /** The zod schema each `claude -p` step's structured output must satisfy. */
@@ -9,6 +10,8 @@ export const STEP_OUTPUTS = {
   rewrite: RewriteOutput,
   factcheck: FactCheckOutput,
   critic: CriticOutput,
+  cast: CastOutput,
+  storyboard: StoryboardOutput,
 } as const satisfies Record<StepName, z.ZodType>;
 
 /**

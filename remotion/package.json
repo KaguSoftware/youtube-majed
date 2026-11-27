@@ -10,7 +10,8 @@
     "render:preview": "tsx scripts/render.ts lighthouse --profile preview",
     "still": "remotion still src/index.ts",
     "typecheck": "tsc -p .",
-    "sync-check": "tsx scripts/sync-check.ts"
+    "sync-check": "tsx scripts/sync-check.ts",
+    "render:project": "tsx scripts/render-project.ts"
   },
   "dependencies": {
     "@remotion/bundler": "4.0.547",

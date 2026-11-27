@@ -24,4 +24,12 @@ writing stories).
   `packages/schema/src/story.ts` by `pnpm schemas`. A test fails when they
   are out of date.
 
-`plan-scenes` arrives in Phase 3 and `custom-shot` in Phase 5 (docs/PLAN.md).
+- `.claude/skills/plan-scenes`: the storyboard (Phase 3). Step `cast` plans
+  the cast, locations, music mood per loop and plant shots once per video;
+  step `storyboard` writes scene JSON for one batch of loops. The library it
+  may use is generated from `packages/schema/src/catalogue.ts` at run time
+  and sent with the input, so new library items show up without editing the
+  skill. Code then maps unknown ids, repairs, adds head-fake payoffs and runs
+  the variety guard (`worker/src/storyboard.ts`).
+
+`custom-shot` arrives in Phase 5 (docs/PLAN.md).
