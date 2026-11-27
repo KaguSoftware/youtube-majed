@@ -1,0 +1,30 @@
+# Typecheck and unit tests on every push and pull request. The story engine
+# tests use the fake claude (worker/fake/claude.mjs), so CI never needs a
+# Claude account, the voice models or ffmpeg.
+name: CI
+
+on:
+  push:
+    branches: [main, v2-studio]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4 # version from package.json "packageManager"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+      - name: Build the app (what Vercel deploys)
+        run: pnpm --filter @studio/app build
