@@ -32,6 +32,17 @@ override-dependencies = [
   "gradio; sys_platform == 'never'",
 ]
 
+# Windows: PyPI's torch wheels are CPU-only there, so torch comes from PyTorch's CUDA 12.8 index. The CUDA build
+# still runs on the CPU when the PC has no NVIDIA GPU (the voice service picks the device, studio_audio/tts.py).
+[tool.uv.sources]
+torch = [{ index = "pytorch-cu128", marker = "sys_platform == 'win32'" }]
+torchaudio = [{ index = "pytorch-cu128", marker = "sys_platform == 'win32'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
 [tool.setuptools]
 packages = ["studio_audio"]
 

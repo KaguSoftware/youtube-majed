@@ -52,7 +52,7 @@ def default_seed(line_id: str) -> int:
 
 
 class Studio:
-    def __init__(self, engine: str = "original", device: str = "mps"):
+    def __init__(self, engine: str = "original", device: str = "auto"):
         self.voice = Voice(engine, device)
         self.aligner = Aligner()
         self._ref_sha: dict[str, str] = {}

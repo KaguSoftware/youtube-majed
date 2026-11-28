@@ -104,7 +104,7 @@ def create_app(engine: str, device: str) -> FastAPI:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--engine", default=os.environ.get("STUDIO_AUDIO_ENGINE", "original"), choices=["original", "turbo"])
-    ap.add_argument("--device", default=os.environ.get("STUDIO_AUDIO_DEVICE", "mps"), choices=["mps", "cpu"])
+    ap.add_argument("--device", default=os.environ.get("STUDIO_AUDIO_DEVICE", "auto"), choices=["auto", "mps", "cuda", "cpu"])
     ap.add_argument("--port", type=int, default=int(os.environ.get("STUDIO_AUDIO_PORT", "8765")))
     a = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")

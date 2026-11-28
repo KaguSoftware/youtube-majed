@@ -34,8 +34,16 @@ def sha256_file(path: Path) -> str:
 
 
 def resolve_device(device: str) -> str:
+    """auto: an NVIDIA GPU (CUDA, Windows/Linux), else the Apple GPU (MPS), else the CPU."""
+    if device == "auto":
+        if torch.cuda.is_available():
+            return "cuda"
+        return "mps" if torch.backends.mps.is_available() else "cpu"
     if device == "mps" and not torch.backends.mps.is_available():
         log.warning("MPS requested but not available; using CPU")
+        return "cpu"
+    if device == "cuda" and not torch.cuda.is_available():
+        log.warning("CUDA requested but not available; using CPU")
         return "cpu"
     return device
 
@@ -46,6 +54,8 @@ def seed_everything(seed: int, device: str) -> None:
     torch.manual_seed(seed)
     if device == "mps":
         torch.mps.manual_seed(seed)
+    if device == "cuda":
+        torch.cuda.manual_seed_all(seed)
 
 
 def trim_silence(wav: np.ndarray, sr: int) -> np.ndarray:
@@ -79,7 +89,7 @@ class Take:
 
 
 class Voice:
-    def __init__(self, engine: str = "original", device: str = "mps"):
+    def __init__(self, engine: str = "original", device: str = "auto"):
         if engine not in ("turbo", "original"):
             raise ValueError(f"unknown engine {engine!r}")
         self.engine = engine
@@ -149,6 +159,8 @@ class Voice:
                     out = self.model.generate(text, **settings)
             if self.device == "mps":
                 torch.mps.synchronize()
+            if self.device == "cuda":
+                torch.cuda.synchronize()
             compute = time.time() - t0
         wav = out.squeeze().detach().cpu().numpy().astype(np.float32)
         return Take(trim_silence(wav, self.model.sr), self.model.sr, compute, settings)
