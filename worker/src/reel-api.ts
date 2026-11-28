@@ -7,10 +7,9 @@
  *   POST /projects/:id/reel/cut           job "reelcut": Claude picks the strongest loop; creates the child project <id>-reel
  *   POST /projects/:id/reveal {file}      shows a file of renders/ in the Finder (this Mac only)
  */
-import { projectPaths } from "@studio/project";
+import { projectPaths, reveal as showFile } from "@studio/project";
 import { existsSync, statSync } from "node:fs";
 import { dirname, normalize, resolve, sep } from "node:path";
-import { spawn } from "node:child_process";
 import { z } from "zod";
 import type { Job, Runner } from "./queue";
 import { cutReel, readReelCut, reelLinks } from "./reel-cut";
@@ -36,14 +35,12 @@ function needsScenes(id: string): void {
   if (!readScenes(id)) throw new StoryError("plan the storyboard first");
 }
 
-/** Opens Finder with the file selected. Only files under the project's renders/ folder. */
+/** Opens Finder or Explorer with the file selected. Only files under the project's renders/ folder. */
 function reveal(id: string, rel: string): void {
   const root = resolve(projectPaths(id).dir, "renders");
   const file = resolve(projectPaths(id).dir, normalize(rel));
   if (!file.startsWith(root + sep) || !existsSync(file) || !statSync(file).isFile()) throw Object.assign(new Error(`no file ${rel} under renders/`), { status: 404 });
-  const child = spawn("open", ["-R", file], { stdio: "ignore", detached: true });
-  child.on("error", () => undefined);
-  child.unref();
+  showFile(file);
 }
 
 export function reelRoutes(enqueue: Enqueue): [string, RegExp, Handler][] {

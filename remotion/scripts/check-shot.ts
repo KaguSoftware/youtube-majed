@@ -13,7 +13,7 @@
  * The caller also holds the time limit: it kills this process, and Chrome with
  * it, if the shot hangs.
  */
-import { customPaths, lintShot, projectPaths, readShots, readSource, renderCodeHash, sourceHash, stageSources, storyboardPaths, STAGE_DIR } from "@studio/project";
+import { customPaths, lintShot, packageBin, projectPaths, readShots, readSource, renderCodeHash, sourceHash, stageSources, storyboardPaths, STAGE_DIR } from "@studio/project";
 import { validateProject, type FailureKind, type ShotCheck } from "@studio/schema";
 import { bundle } from "@remotion/bundler";
 import { openBrowser, renderStill, selectComposition } from "@remotion/renderer";
@@ -80,9 +80,10 @@ stageSources([{ hash, source: source! }]);
 const staged = join(STAGE_DIR, `${hash}.tsx`);
 const work = mkdtempSync(join(tmpdir(), "shot-check-"));
 writeFileSync(join(work, "tsconfig.json"), JSON.stringify({ extends: join(REMOTION_DIR, "tsconfig.json"), compilerOptions: { noEmit: true, incremental: false, typeRoots: [join(REMOTION_DIR, "node_modules/@types")] }, include: [], files: [staged] }));
-const tsc = spawnSync(join(REMOTION_DIR, "node_modules/.bin/tsc"), ["-p", join(work, "tsconfig.json"), "--pretty", "false"], { encoding: "utf8", cwd: REMOTION_DIR });
+const [node, tscEntry] = packageBin(REMOTION_DIR, "typescript", "tsc");
+const tsc = spawnSync(node, [...tscEntry, "-p", join(work, "tsconfig.json"), "--pretty", "false"], { encoding: "utf8", cwd: REMOTION_DIR, windowsHide: true });
 const diagnostics = (tsc.stdout + tsc.stderr).split("\n").filter((l) => /error TS\d+/.test(l));
-const mine = diagnostics.filter((l) => l.includes(`${hash}.tsx`)).map((l) => l.replace(/^.*?\.staged\/[0-9a-f]+\.tsx/, "shot.tsx"));
+const mine = diagnostics.filter((l) => l.includes(`${hash}.tsx`)).map((l) => l.replace(/^.*?\.staged[\\/][0-9a-f]+\.tsx/, "shot.tsx"));
 const other = diagnostics.length - mine.length;
 rmSync(work, { recursive: true, force: true });
 if (mine.length) fail("typecheck", mine.slice(0, 6).join("\n"));

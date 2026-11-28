@@ -16,7 +16,7 @@
  * (scenes.json, voice.json, the soundtrack): when any of them changes, the
  * step is out of date (src/pipeline.ts).
  */
-import { REPO_DIR, customShotsHash, projectPaths, readJson, readVoice, storyboardPaths, writeJson } from "@studio/project";
+import { REPO_DIR, customShotsHash, packageBin, projectPaths, readJson, readVoice, storyboardPaths, writeJson } from "@studio/project";
 import { EXPORT_PROFILES, RenderRecord, sizeCapMB, type ExportProfile, type ExportProfileId } from "@studio/schema";
 import { copyFileSync, existsSync, mkdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -85,12 +85,18 @@ export type Phase = { label: string; from: number; to: number };
 /** A phase of a longer job: maps 0..1 inside the phase to the job's 0..1000 scale. */
 export const scaled = (report: (p: JobProgress) => void, ph: Phase) => (fraction: number, detail?: string) => report({ label: ph.label, done: Math.round((ph.from + (ph.to - ph.from) * Math.min(1, Math.max(0, fraction))) * 1000), total: 1000, ...(detail ? { detail } : {}) });
 
+/** tsx from remotion/, run as `node <entry>` (the .bin shim is a .cmd on Windows). */
+const tsx = (args: string[]): [string, string[]] => {
+  const [node, entry] = packageBin(REMOTION_DIR, "tsx");
+  return [node, [...entry, ...args]];
+};
+
 async function remotionRender(id: string, profile: "preview" | "final", out: string, o: { signal: AbortSignal; progress: (stage: "bundle" | "render" | "stills", fraction: number, detail?: string) => void; stills?: { frames: number[]; dir: string }; concurrency?: number; noVideo?: boolean }): Promise<Done> {
   const args = ["scripts/render-project.ts", id, "--profile", profile, "--out", out, "--json", ...(o.concurrency ? ["--concurrency", String(o.concurrency)] : []), ...(o.stills ? ["--stills", o.stills.frames.join(","), "--stills-dir", o.stills.dir] : []), ...(o.noVideo ? ["--no-video"] : [])];
   let done: Done | undefined;
   let failure: string | undefined;
   try {
-    await runChild(join(REMOTION_DIR, "node_modules/.bin/tsx"), args, {
+    await runChild(...tsx(args), {
       cwd: REMOTION_DIR,
       signal: o.signal,
       onLine: (line) => {
@@ -138,7 +144,7 @@ export async function segmentRender(id: string, profile: "preview" | "final" | "
   let done: SegDone | undefined;
   let failure: string | undefined;
   try {
-    await runChild(join(REMOTION_DIR, "node_modules/.bin/tsx"), args, {
+    await runChild(...tsx(args), {
       cwd: REMOTION_DIR,
       signal: o.signal,
       onLine: (line) => {

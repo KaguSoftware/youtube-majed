@@ -37,7 +37,8 @@ if (cmd === "check") {
 }
 
 if (cmd === "convert") {
-  const blender = spawnSync("which", ["blender"], { encoding: "utf8" }).stdout.trim() || "/Applications/Blender.app/Contents/MacOS/Blender";
+  const win = process.platform === "win32";
+const blender = spawnSync(win ? "where" : "which", ["blender"], { encoding: "utf8" }).stdout.split(/\r?\n/)[0]!.trim() || (win ? "C:\\Program Files\\Blender Foundation\\Blender\\blender.exe" : "/Applications/Blender.app/Contents/MacOS/Blender");
   if (!existsSync(FBX)) throw new Error(`put the Mixamo FBX files in ${FBX} (named after the action: walk.fbx, idle.fbx ...)`);
   mkdirSync(GLB, { recursive: true });
   const idx = read();

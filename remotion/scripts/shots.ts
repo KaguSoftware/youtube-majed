@@ -8,7 +8,7 @@
  * was drawn with others). Each stale shot is checked in a child process with a
  * time limit, so a shot that hangs cannot hang the render.
  */
-import { readShots, recordCheck, renderCodeHash, stageProject } from "@studio/project";
+import { GROUP, killTree, packageBin, readShots, recordCheck, renderCodeHash, scratchEnv, stageProject } from "@studio/project";
 import type { Project, ShotCheck } from "@studio/schema";
 import { spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -25,7 +25,8 @@ export function runCheck(projectId: string, shotId: string, say: (m: string) => 
   return new Promise((resolve) => {
     // the checker's bundle and browser profile go in a folder of its own, removed afterwards even if it had to be killed
     const scratch = mkdtempSync(join(tmpdir(), "studio-shot-"));
-    const child = spawn(join(REMOTION_DIR, "node_modules/.bin/tsx"), [join(REMOTION_DIR, "scripts/check-shot.ts"), projectId, "--shot", shotId], { cwd: REMOTION_DIR, detached: true, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, TMPDIR: scratch } });
+    const [node, tsx] = packageBin(REMOTION_DIR, "tsx");
+    const child = spawn(node, [...tsx, join(REMOTION_DIR, "scripts/check-shot.ts"), projectId, "--shot", shotId], { cwd: REMOTION_DIR, ...GROUP, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, ...scratchEnv(scratch) } });
     let out = "";
     let err = "";
     let timedOut = false;
@@ -33,11 +34,7 @@ export function runCheck(projectId: string, shotId: string, say: (m: string) => 
     child.stderr.on("data", (d: Buffer) => (err += d.toString("utf8")));
     const kill = setTimeout(() => {
       timedOut = true;
-      try {
-        if (child.pid) process.kill(-child.pid, "SIGKILL");
-      } catch {
-        /* already gone */
-      }
+      killTree(child.pid, "SIGKILL");
     }, CHECK_TIMEOUT_MS);
     child.on("close", () => {
       clearTimeout(kill);

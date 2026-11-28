@@ -19,7 +19,7 @@
  * - OutputError: Claude ran but the output failed zod. Worth one retry with the errors.
  * - ClaudeError: crash, timeout, unparseable output.
  */
-import { ENGINE_DIR, REPO_DIR } from "@studio/project";
+import { ENGINE_DIR, REPO_DIR, scriptCommand } from "@studio/project";
 import type { StepName } from "@studio/schema";
 import { spawn } from "node:child_process";
 import { homedir } from "node:os";
@@ -181,7 +181,8 @@ export async function runClaude(o: RunOptions): Promise<RunResult> {
   const model = modelFor(o.step);
   const argv = buildArgv(o, model);
   const timeoutMs = o.timeoutMs ?? TIMEOUT_MS[o.step];
-  const child = spawn(claudeBin(), argv, { cwd: ENGINE_DIR, env: childEnv(), stdio: ["pipe", "pipe", "pipe"] });
+  const [cmd, lead] = scriptCommand(claudeBin());
+  const child = spawn(cmd, [...lead, ...argv], { cwd: ENGINE_DIR, env: childEnv(), stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
 
   let stdout = "";
   let stderr = "";

@@ -6,6 +6,7 @@
  * starts Chrome processes of its own).
  */
 import { MediaInfo } from "@studio/schema";
+import { GROUP, killTree } from "@studio/project";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { closeSync, createReadStream, existsSync, openSync, readSync, statSync } from "node:fs";
@@ -47,14 +48,8 @@ export class ChildError extends Error {
  */
 export function runChild(cmd: string, args: string[], o: { cwd?: string; signal?: AbortSignal; onLine?: (line: string) => void; env?: NodeJS.ProcessEnv } = {}): Promise<{ stderr: string; stdout: string }> {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { cwd: o.cwd, env: { ...process.env, ...o.env }, detached: true, stdio: ["ignore", "pipe", "pipe"] });
-    const kill = () => {
-      try {
-        if (child.pid) process.kill(-child.pid, "SIGTERM");
-      } catch {
-        /* already gone */
-      }
-    };
+    const child = spawn(cmd, args, { cwd: o.cwd, env: { ...process.env, ...o.env }, ...GROUP, stdio: ["ignore", "pipe", "pipe"] });
+    const kill = () => killTree(child.pid);
     if (o.signal?.aborted) kill();
     o.signal?.addEventListener("abort", kill, { once: true });
     let buf = "";

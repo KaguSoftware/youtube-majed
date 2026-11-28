@@ -6,7 +6,7 @@
  *
  * Validates first and stops with readable errors if a scene file is wrong.
  */
-import { syncAudio } from "@studio/project";
+import { packageBin, syncAudio } from "@studio/project";
 import { spawnSync } from "node:child_process";
 import { mkdirSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -54,9 +54,11 @@ const out = join(outDir, arg("out") ?? `${sample}-${profile.suffix}${voiced ? "-
 
 console.log(`Rendering ${sample} → ${out}\n  ${profile.label}`);
 const started = Date.now();
+const [node, cli] = packageBin(REMOTION_DIR, "@remotion/cli", "remotion");
 const r = spawnSync(
-  join(REMOTION_DIR, "node_modules/.bin/remotion"),
+  node,
   [
+    ...cli,
     "render", "src/index.ts", compositionId(sample), out,
     "--codec=h264",
     `--crf=${profile.crf}`,

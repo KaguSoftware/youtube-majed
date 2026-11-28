@@ -37,6 +37,8 @@ import {
   writeJson,
   writeShots,
   lintShot,
+  packageBin,
+  scratchEnv,
 } from "@studio/project";
 import {
   CustomShotOutput,
@@ -203,7 +205,6 @@ async function write(id: string, input: ReturnType<typeof buildInput>, o: { mode
 
 // ---------------------------------------------------------------- the checks
 
-const TSX = join(REPO_DIR, "remotion", "node_modules", ".bin", "tsx");
 
 function failedCheck(kind: FailureKind, message: string, ms: number): ShotCheck {
   return { at: now(), codeHash: renderCodeHash(), inputs: "", ok: false, failure: { kind, message }, imports: [], stills: { landscape: [], portrait: [] }, renderMs: ms, warnings: [] };
@@ -224,9 +225,10 @@ export async function runShotCheck(id: string, o: { scene: string; sourceFile: s
   // the checker's bundle and browser profile go in a folder of its own, removed afterwards even if the shot had to be killed
   const scratch = mkdtempSync(join(tmpdir(), "studio-shot-"));
   try {
-    await runChild(TSX, args, {
+    const [node, tsxEntry] = packageBin(join(REPO_DIR, "remotion"), "tsx");
+    await runChild(node, [...tsxEntry, ...args], {
       cwd: join(REPO_DIR, "remotion"),
-      env: { TMPDIR: scratch },
+      env: scratchEnv(scratch),
       signal,
       onLine: (line) => {
         if (!line.startsWith("{")) return;

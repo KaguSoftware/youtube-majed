@@ -29,7 +29,7 @@ import { planSegments } from "../src/scene/segments";
 import { encodeOptions, isProfileName, segmentProfile, type SegmentProfileName } from "./encode";
 import { REMOTION_DIR, REPO_DIR } from "./load";
 import { glFor, removeOnExit, stageScenes, styleArg, styledRaw } from "./art-style";
-import { renderCodeHash } from "@studio/project";
+import { packageBin, renderCodeHash } from "@studio/project";
 
 const args = process.argv.slice(2);
 const arg = (name: string) => (args.includes(`--${name}`) ? args[args.indexOf(`--${name}`) + 1] : undefined);
@@ -61,7 +61,8 @@ const last = segs.at(-1)!.start + segs.at(-1)!.frames - 1;
 
 // ---- 1. stitched
 const t0 = Date.now();
-const seg = spawnSync(join(REMOTION_DIR, "node_modules/.bin/tsx"), ["scripts/render-segments.ts", id, "--profile", profile, "--out", stitched, "--json", ...(frameArg ? ["--frames", frameArg] : []), ...(style ? ["--style", style] : [])], { cwd: REMOTION_DIR, encoding: "utf8", maxBuffer: 64 << 20 });
+const [node, tsx] = packageBin(REMOTION_DIR, "tsx");
+const seg = spawnSync(node, [...tsx, "scripts/render-segments.ts", id, "--profile", profile, "--out", stitched, "--json", ...(frameArg ? ["--frames", frameArg] : []), ...(style ? ["--style", style] : [])], { cwd: REMOTION_DIR, encoding: "utf8", maxBuffer: 64 << 20 });
 const events = seg.stdout.split("\n").filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown>);
 const segDone = events.find((e) => e.event === "done");
 if (seg.status !== 0 || !segDone) throw new Error(`render-segments failed:\n${seg.stderr.slice(-2000)}`);
