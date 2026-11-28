@@ -34,3 +34,38 @@ jobs:
       - run: pnpm test
       - name: Build the app (what Vercel deploys)
         run: pnpm --filter @studio/app build
+
+  # The helper on Windows: the same typecheck and tests (paths, child processes,
+  # the custom-shot checker drawing frames in Chrome), then the real PowerShell
+  # helper starts the worker and the hosted site's origin is checked against it.
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: ffmpeg and Chrome for Remotion
+        run: |
+          choco install ffmpeg -y --no-progress
+          pnpm --filter @studio/remotion exec remotion browser ensure
+      - run: pnpm typecheck
+      - run: pnpm test
+      - name: The helper starts, answers the hosted site, and stops
+        shell: powershell
+        run: |
+          $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + $env:Path
+          & scripts\helper.cmd start
+          if ($LASTEXITCODE -ne 0) { Get-Content "$env:LOCALAPPDATA\Studio\Logs\worker*.log" -ErrorAction SilentlyContinue; throw "helper start failed" }
+          $r = Invoke-WebRequest -UseBasicParsing -Headers @{ Origin = "https://youtube-majed.vercel.app" } http://127.0.0.1:8766/projects
+          if ($r.Headers["Access-Control-Allow-Origin"] -ne "https://youtube-majed.vercel.app") { throw "the worker did not answer the hosted origin" }
+          try { Invoke-WebRequest -UseBasicParsing -Headers @{ Origin = "https://evil.example" } http://127.0.0.1:8766/projects | Out-Null; throw "a foreign origin was answered" } catch { if ($_.Exception.Response.StatusCode.value__ -ne 403) { throw } }
+          & scripts\helper.cmd status
+          & scripts\helper.cmd stop
+          Start-Sleep -Seconds 3
+          try { Invoke-WebRequest -UseBasicParsing -TimeoutSec 3 http://127.0.0.1:8766/projects | Out-Null; throw "the worker is still running after stop" } catch { if ($_.Exception.Message -like "*still running*") { throw } }

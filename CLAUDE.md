@@ -53,6 +53,7 @@ pnpm schemas           # regenerate engine/schemas/*.json from packages/schema
 pnpm worker            # job worker for the app (127.0.0.1:8766)
 pnpm app               # the Studio website (http://localhost:3100)
 scripts/helper.sh start|stop|status|logs|update   # the helper (worker + voice) as Mac login items; the hosted site https://youtube-majed.vercel.app talks to it
+scripts\helper.cmd start|stop|status|logs|update # the same on Windows (Startup shortcut + hidden supervisor)
 pnpm story <command>   # the story engine without the UI (pnpm story for help)
 pnpm edit <id> <command>      # the edit engine: swap, line, insert, sfx, fx, trim, move, delete, regenerate, beat, fix, render
 pnpm versions <id> [command]  # version history: list, show, diff, rollback
