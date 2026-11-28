@@ -77,7 +77,9 @@ loaded() { launchctl print "gui/$UID_N/$1" >/dev/null 2>&1; }
 start() {
   write_agents
   for label in "$AUDIO" "$WORKER"; do
-    if loaded "$label"; then launchctl kickstart -k "gui/$UID_N/$label"; else launchctl bootstrap "gui/$UID_N" "$AGENTS/$label.plist"; fi
+    if loaded "$label"; then launchctl kickstart -k "gui/$UID_N/$label"
+    # launchd may still be tearing down a service that was just stopped: one retry
+    else launchctl bootstrap "gui/$UID_N" "$AGENTS/$label.plist" 2>/dev/null || { sleep 2; launchctl bootstrap "gui/$UID_N" "$AGENTS/$label.plist"; }; fi
   done
   say "Waiting for the worker..."
   for _ in $(seq 1 60); do
@@ -93,6 +95,7 @@ start() {
 stop() {
   for label in "$WORKER" "$AUDIO"; do
     loaded "$label" && launchctl bootout "gui/$UID_N/$label" || true
+    for _ in $(seq 1 20); do loaded "$label" || break; sleep 0.5; done
     rm -f "$AGENTS/$label.plist"
   done
   say "Stopped. The helper won't start at login until scripts/helper.sh start."
