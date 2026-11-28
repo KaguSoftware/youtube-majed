@@ -7,6 +7,7 @@ import { JobError, JobProgress } from "@/components/job-progress";
 import { button } from "@/components/ui";
 import { call, fileUrl, type Job } from "@/lib/api";
 import { clock } from "@/lib/format";
+import { fileManager, useOS } from "@/lib/platform";
 
 const mb = (bytes: number) => (bytes >= 100 * 1_048_576 ? `${(bytes / 1_048_576).toFixed(0)} MB` : `${(bytes / 1_048_576).toFixed(1)} MB`);
 /** "/…/projects/x/renders/reel/x.mp4" → "renders/reel/x.mp4", the path the worker serves and reveals. */
@@ -54,6 +55,7 @@ export function FormatBlock(p: {
   children?: React.ReactNode;
 }) {
   const [revealError, setRevealError] = useState<string | null>(null);
+  const os = useOS();
   const busy = p.jobs.length > 0;
   const reveal = (file: string) => {
     setRevealError(null);
@@ -88,7 +90,7 @@ export function FormatBlock(p: {
             </a>
             <button type="button" onClick={() => reveal(p.made!.file)} className={button.quiet}>
               <FolderOpen aria-hidden size={16} />
-              Show in Finder
+              Show in {fileManager(os)}
             </button>
           </>
         )}

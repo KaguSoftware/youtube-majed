@@ -1,11 +1,21 @@
 "use client";
 import { RotateCw } from "lucide-react";
 import { useEffect, useState } from "react";
+import { type OS, useOS } from "@/lib/platform";
 import { CopyButton } from "./copy-button";
 import { button } from "./ui";
 
 /** One line installs the helper on a Mac: the repo into ~/Studio, its tools, and a login item that keeps the worker running (scripts/install-helper.sh). */
 export const INSTALL_MAC = "curl -fsSL https://raw.githubusercontent.com/KaguSoftware/youtube-majed/main/scripts/install-helper.sh | bash";
+/** The same on Windows, in PowerShell: the repo into %USERPROFILE%\Studio, tools from winget, a Startup shortcut (scripts/install-helper.ps1). */
+export const INSTALL_WINDOWS = "irm https://raw.githubusercontent.com/KaguSoftware/youtube-majed/main/scripts/install-helper.ps1 | iex";
+
+const INSTALL: Record<"mac" | "windows", { where: string; how: string; command: string; start: string }> = {
+  mac: { where: "Mac", how: "paste this into Terminal. It installs the helper into ~/Studio and starts it at every login.", command: INSTALL_MAC, start: "~/Studio/scripts/helper.sh start" },
+  windows: { where: "Windows PC", how: "paste this into PowerShell (no administrator needed). It installs the helper into your Studio folder and starts it at every login. An NVIDIA graphics card makes the voice much faster.", command: INSTALL_WINDOWS, start: "~\\Studio\\scripts\\helper.cmd start" },
+};
+const other = (os: OS): "mac" | "windows" => (os === "windows" ? "mac" : "windows");
+const here = (os: OS): "mac" | "windows" => (os === "windows" ? "windows" : "mac");
 
 /** The page is served from somewhere other than this computer (Vercel), so the helper may simply not be installed here. */
 export function useHosted() {
@@ -31,6 +41,9 @@ function Command({ text }: { text: string }) {
  */
 export function WorkerOffline({ error, offline, onRetry, retrying }: { error: string; offline: boolean; onRetry?: () => void; retrying?: boolean }) {
   const hosted = useHosted();
+  const os = useOS();
+  const mine = INSTALL[here(os)];
+  const theirs = INSTALL[other(os)];
 
   if (!offline) {
     return (
@@ -64,16 +77,17 @@ export function WorkerOffline({ error, offline, onRetry, retrying }: { error: st
           <li className="grid gap-x-6 gap-y-1 py-6 sm:grid-cols-[11rem_1fr]">
             <h2 className="font-semibold text-text">First time on this computer</h2>
             <div className="min-w-0">
-              <p className="text-muted">On a Mac, paste this into Terminal. It installs the helper into ~/Studio and starts it at every login.</p>
-              <Command text={INSTALL_MAC} />
-              <p className="mt-3 text-sm text-faint">Windows isn&apos;t supported yet. It&apos;s the next step.</p>
+              <p className="text-muted">On a {mine.where}, {mine.how}</p>
+              <Command text={mine.command} />
+              <p className="mt-5 text-sm text-faint">On a {theirs.where} instead:</p>
+              <Command text={theirs.command} />
             </div>
           </li>
           <li className="grid gap-x-6 gap-y-1 py-6 sm:grid-cols-[11rem_1fr]">
             <h2 className="font-semibold text-text">Installed already</h2>
             <div className="min-w-0">
               <p className="text-muted">The helper starts at login. If it stopped, start it again:</p>
-              <Command text="~/Studio/scripts/helper.sh start" />
+              <Command text={mine.start} />
             </div>
           </li>
           <li className="grid gap-x-6 gap-y-1 py-6 sm:grid-cols-[11rem_1fr]">
